@@ -43,57 +43,63 @@ async def get_today_permits(filename: str = None):
     """
     Returns latest scraped permits or specified backup file.
     """
+    global LATEST_WEBHOOK_DATA
     config_dir = os.path.join(PROJECT_ROOT, "config")
     
-    if filename:
-        filename = os.path.basename(filename)
-        target_path = os.path.join(config_dir, filename)
-        if not os.path.exists(target_path) or not filename.startswith("backup_permits_"):
-            return JSONResponse(status_code=404, content={"error": "Backup file not found"})
-        latest_backup = target_path
+    if not filename and LATEST_WEBHOOK_DATA:
+        data = LATEST_WEBHOOK_DATA
+        latest_backup_name = "latest_webhook.json"
     else:
-        backup_files = glob.glob(os.path.join(config_dir, "backup_permits_*.json"))
-        backup_files = [f for f in backup_files if "latest.json" not in f]
-        
-        if not backup_files:
-            fallback = os.path.join(config_dir, "backup_permits_latest.json")
-            if os.path.exists(fallback):
-                latest_backup = fallback
-            else:
-                return JSONResponse(content={"date": None, "pending": [], "completed": []})
+        if filename:
+            filename = os.path.basename(filename)
+            target_path = os.path.join(config_dir, filename)
+            if not os.path.exists(target_path) or not filename.startswith("backup_permits_"):
+                return JSONResponse(status_code=404, content={"error": "Backup file not found"})
+            latest_backup = target_path
         else:
-            backup_files.sort(key=os.path.getmtime, reverse=True)
-            latest_backup = backup_files[0]
-        
-    try:
-        with open(latest_backup, "r") as f:
-            data = json.load(f)
+            backup_files = glob.glob(os.path.join(config_dir, "backup_permits_*.json"))
+            backup_files = [f for f in backup_files if "latest.json" not in f]
             
-        pending = []
-        completed = []
-        target_date = None
-        
-        for item in data:
-            if not target_date:
-                target_date = item.get("Date")
+            if not backup_files:
+                fallback = os.path.join(config_dir, "backup_permits_latest.json")
+                if os.path.exists(fallback):
+                    latest_backup = fallback
+                else:
+                    return JSONResponse(content={"date": None, "pending": [], "completed": []})
+            else:
+                backup_files.sort(key=os.path.getmtime, reverse=True)
+                latest_backup = backup_files[0]
             
-            status = item.get("Status", "").upper()
-            if status == "PENDING":
-                pending.append(item)
-            elif status == "COMPLETED":
-                completed.append(item)
-                
-        return JSONResponse(content={
-            "date": target_date,
-            "filename": os.path.basename(latest_backup),
-            "pending": pending,
-            "completed": completed
-        })
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"Failed to read latest backup data: {str(e)}"}
-        )
+        try:
+            with open(latest_backup, "r") as f:
+                data = json.load(f)
+            latest_backup_name = os.path.basename(latest_backup)
+        except Exception as e:
+            return JSONResponse(
+                status_code=500,
+                content={"error": f"Failed to read latest backup data: {str(e)}"}
+            )
+            
+    pending = []
+    completed = []
+    target_date = None
+    
+    for item in data:
+        if not target_date:
+            target_date = item.get("Date")
+        
+        status = item.get("Status", "").upper()
+        if status == "PENDING":
+            pending.append(item)
+        elif status == "COMPLETED":
+            completed.append(item)
+            
+    return JSONResponse(content={
+        "date": target_date,
+        "filename": latest_backup_name,
+        "pending": pending,
+        "completed": completed
+    })
 
 @app.get("/api/download-pdf")
 async def download_pdf_report(filename: str = None):
@@ -183,11 +189,14 @@ async def get_backups():
         
     return JSONResponse(content=results)
 
+LATEST_WEBHOOK_DATA = None
+
 @app.post("/api/upload-results")
 async def upload_results(request: Request):
     """
     Endpoint for GitHub Actions (or remote runners) to POST scraped JSON records to Fly.io.
     """
+    global LATEST_WEBHOOK_DATA
     try:
         payload = await request.json()
         secret = payload.get("secret")
@@ -202,12 +211,26 @@ async def upload_results(request: Request):
         if not records:
             return JSONResponse(status_code=400, content={"error": "No records provided in payload"})
             
+        LATEST_WEBHOOK_DATA = records
+        
         config_dir = os.path.join(PROJECT_ROOT, "config")
         os.makedirs(config_dir, exist_ok=True)
         
         from datetime import datetime
-        now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        ts_filename = f"backup_permits_{now_str}.json"
+        parsed_date = None
+        for item in records:
+            d = item.get("Date")
+            if d:
+                try:
+                    dt = datetime.strptime(d, "%d-%b-%Y")
+                    parsed_date = dt.strftime("%Y%m%d")
+                    break
+                except: pass
+        if not parsed_date:
+            parsed_date = datetime.now().strftime("%Y%m%d")
+            
+        time_suffix = datetime.now().strftime("%H%M%S")
+        ts_filename = f"backup_permits_{parsed_date}_{time_suffix}.json"
         latest_filename = "backup_permits_latest.json"
         
         with open(os.path.join(config_dir, ts_filename), "w") as f:
@@ -215,7 +238,7 @@ async def upload_results(request: Request):
         with open(os.path.join(config_dir, latest_filename), "w") as f:
             json.dump(records, f, indent=4)
             
-        print(f"📥 Received {len(records)} scraped records via webhook for date {date_str}")
+        print(f"📥 Received {len(records)} scraped records via webhook for date {date_str} -> saved to {ts_filename}")
         return JSONResponse(content={
             "status": "success",
             "message": f"Saved {len(records)} records for date {date_str}",
