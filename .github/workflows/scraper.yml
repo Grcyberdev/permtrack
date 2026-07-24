@@ -41,6 +41,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Install and Start Tor (Indian Exit Nodes)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tor
+          echo "ExitNodes {in}" | sudo tee -a /etc/tor/torrc
+          echo "StrictNodes 1" | sudo tee -a /etc/tor/torrc
+          sudo service tor restart
+          sleep 5
+
       - name: Run Permit Scraper
         env:
           IMFL_USERNAME: ${{ secrets.IMFL_USERNAME }}
@@ -49,6 +58,7 @@ jobs:
           CS_PASSWORD: ${{ secrets.CS_PASSWORD }}
           FLY_APP_URL: ${{ secrets.FLY_APP_URL }}
           WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          USE_TOR_PROXY: "true"
           PYTHONUNBUFFERED: "1"
         run: |
           TARGET_DATE="${{ github.event.client_payload.date || github.event.inputs.date || '' }}"
