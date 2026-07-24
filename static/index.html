@@ -364,18 +364,40 @@
             showToast(`Filtered permits for ${partyName}`);
         }
 
+        // -------------------------------------------------------------
+        // Pack Size & Bottle-to-Case Conversion Helpers
+        // -------------------------------------------------------------
+        function getBottlesPerCase(sizeMl) {
+            const s = parseInt(sizeMl, 10);
+            if (isNaN(s)) return 12;
+            if (s >= 600) return 12;      // 750ml, 650ml, 1000ml -> 12 b/cs
+            if (s >= 350) return 24;      // 375ml, 500ml -> 24 b/cs
+            if (s >= 180) return 48;      // 180ml, 200ml -> 48 b/cs
+            if (s < 180 && s > 0) return 96; // 60ml, 90ml -> 96 b/cs
+            return 12;
+        }
+
+        let isPendingCollapsed = false;
+        let isDispatchedCollapsed = false;
+
         function togglePermitSection(sectionType) {
             const listElem = document.getElementById(sectionType === 'pending' ? 'pending-permits-list' : 'dispatched-permits-list');
             const btnElem = document.getElementById(sectionType === 'pending' ? 'btn-toggle-pending' : 'btn-toggle-dispatched');
             const badgeElem = document.getElementById(sectionType === 'pending' ? 'badge-pending-count' : 'badge-issued-count');
             const badgeText = badgeElem ? badgeElem.innerText : '';
             
-            const isCollapsed = listElem.classList.toggle('collapsed');
-            
-            if (isCollapsed) {
-                btnElem.innerHTML = `<span class="toggle-icon">➕</span> <span class="toggle-text">Expand (${badgeText})</span>`;
+            if (sectionType === 'pending') {
+                isPendingCollapsed = !isPendingCollapsed;
+                listElem.classList.toggle('collapsed', isPendingCollapsed);
+                btnElem.innerHTML = isPendingCollapsed 
+                    ? `<span class="toggle-icon">▶</span> <span class="toggle-text">Expand (${badgeText})</span>`
+                    : `<span class="toggle-icon">▼</span> <span class="toggle-text">Minimize</span>`;
             } else {
-                btnElem.innerHTML = `<span class="toggle-icon">➖</span> <span class="toggle-text">Minimize</span>`;
+                isDispatchedCollapsed = !isDispatchedCollapsed;
+                listElem.classList.toggle('collapsed', isDispatchedCollapsed);
+                btnElem.innerHTML = isDispatchedCollapsed 
+                    ? `<span class="toggle-icon">▶</span> <span class="toggle-text">Expand (${badgeText})</span>`
+                    : `<span class="toggle-icon">▼</span> <span class="toggle-text">Minimize</span>`;
             }
         }
 
@@ -468,6 +490,9 @@
             pendingList.innerHTML = '';
             dispatchedList.innerHTML = '';
 
+            pendingList.classList.toggle('collapsed', isPendingCollapsed);
+            dispatchedList.classList.toggle('collapsed', isDispatchedCollapsed);
+
             let dispatchedPermitsSet = new Set();
             let pendingPermitsSet = new Set();
             
@@ -478,6 +503,8 @@
 
             let totalDispatchedCases = 0;
             let totalDispatchedBottles = 0;
+            let totalDispatchedBottleCsEq = 0;
+
             let totalPendingCases = 0;
             let totalPendingBottles = 0;
 
@@ -492,6 +519,8 @@
                 const isPending = item.Status === "PENDING";
                 const pKey = item["Permit Number"] || item["Indent Number"] || Math.random().toString();
                 const bondType = (item["Bond Type"] || 'IMFL').toUpperCase();
+                const bPerCs = getBottlesPerCase(item.Size);
+                const bottleCsEq = (item.Bottles || 0) / bPerCs;
 
                 if (bondType === 'IMFL') {
                     if (isPending) {
@@ -519,6 +548,7 @@
                     dispatchedPermitsSet.add(pKey);
                     totalDispatchedCases += (item.Cases || 0);
                     totalDispatchedBottles += (item.Bottles || 0);
+                    totalDispatchedBottleCsEq += bottleCsEq;
                 }
 
                 // Group by Permit
@@ -535,23 +565,27 @@
                 // Party Summary
                 const partyName = item["Retailer Name"] || "Unknown Party";
                 if (!partySummary[partyName]) {
-                    partySummary[partyName] = { permits: new Set(), cases: 0, bottles: 0 };
+                    partySummary[partyName] = { permits: new Set(), cases: 0, bottles: 0, csEq: 0 };
                 }
                 partySummary[partyName].permits.add(pKey);
                 partySummary[partyName].cases += (item.Cases || 0);
                 partySummary[partyName].bottles += (item.Bottles || 0);
+                partySummary[partyName].csEq += bottleCsEq;
 
                 // Brand Summary
                 const prodName = item["Product Name"];
                 if (prodName) {
                     const bKey = `${prodName}_${item.Size || ''}`;
                     if (!brandSummary[bKey]) {
-                        brandSummary[bKey] = { name: prodName, size: item.Size || '-', cases: 0, bottles: 0 };
+                        brandSummary[bKey] = { name: prodName, size: item.Size || '-', cases: 0, bottles: 0, bPerCs: bPerCs, csEq: 0 };
                     }
                     brandSummary[bKey].cases += (item.Cases || 0);
                     brandSummary[bKey].bottles += (item.Bottles || 0);
+                    brandSummary[bKey].csEq += bottleCsEq;
                 }
             });
+
+            const totalEquivalentDispatchedCs = totalDispatchedCases + totalDispatchedBottleCsEq;
 
             // Update KPI Cards
             document.getElementById('kpi-dispatched-permits').innerText = dispatchedPermitsSet.size;
@@ -562,13 +596,26 @@
             document.getElementById('kpi-cs-permits').innerText = csDispatchedSet.size;
             document.getElementById('kpi-cs-meta').innerText = `${csCases.toLocaleString()} cs + ${csBottles.toLocaleString()} b (${csPendingSet.size} pending)`;
 
-            document.getElementById('kpi-dispatched-cases').innerText = `${totalDispatchedCases.toLocaleString()} cs`;
-            document.getElementById('kpi-dispatched-bottles').innerText = `${totalDispatchedBottles.toLocaleString()} b`;
+            document.getElementById('kpi-dispatched-cases').innerText = `${totalEquivalentDispatchedCs % 1 === 0 ? totalEquivalentDispatchedCs.toLocaleString() : totalEquivalentDispatchedCs.toFixed(2)} cs`;
+            document.getElementById('kpi-dispatched-bottles').innerText = `${totalDispatchedBottles.toLocaleString()} b (= ${totalDispatchedBottleCsEq % 1 === 0 ? totalDispatchedBottleCsEq : totalDispatchedBottleCsEq.toFixed(2)} cs)`;
             document.getElementById('kpi-pending-permits').innerText = pendingPermitsSet.size;
             document.getElementById('kpi-pending-meta').innerText = `${totalPendingCases} cs + ${totalPendingBottles} b pending`;
 
             document.getElementById('badge-pending-count').innerText = `${pendingPermitsSet.size} permits`;
             document.getElementById('badge-issued-count').innerText = `${dispatchedPermitsSet.size} permits`;
+
+            const btnPending = document.getElementById('btn-toggle-pending');
+            const btnDispatched = document.getElementById('btn-toggle-dispatched');
+            if (btnPending) {
+                btnPending.innerHTML = isPendingCollapsed 
+                    ? `<span class="toggle-icon">▶</span> <span class="toggle-text">Expand (${pendingPermitsSet.size} permits)</span>`
+                    : `<span class="toggle-icon">▼</span> <span class="toggle-text">Minimize</span>`;
+            }
+            if (btnDispatched) {
+                btnDispatched.innerHTML = isDispatchedCollapsed 
+                    ? `<span class="toggle-icon">▶</span> <span class="toggle-text">Expand (${dispatchedPermitsSet.size} permits)</span>`
+                    : `<span class="toggle-icon">▼</span> <span class="toggle-text">Minimize</span>`;
+            }
 
             // Render Permits List Cards
             let pCount = 0, dCount = 0;
@@ -579,15 +626,20 @@
                 const card = document.createElement('div');
                 card.className = 'permit-card-item';
 
-                let linesHtml = group.lines.map(line => `
-                    <div class="brand-row-item">
-                        <span class="brand-row-name">${line["Product Name"]} <small style="color:var(--text-muted);">(${line.Size || '-'} ML)</small></span>
-                        <div class="brand-row-qty">
-                            ${line.Cases > 0 ? `<span class="qty-pill-cases">${line.Cases} cs</span>` : ''}
-                            ${line.Bottles > 0 ? `<span class="qty-pill-bottles">${line.Bottles} b</span>` : ''}
+                let linesHtml = group.lines.map(line => {
+                    const bPerCs = getBottlesPerCase(line.Size);
+                    const bottleCsEq = (line.Bottles || 0) / bPerCs;
+                    const bottleSubtext = line.Bottles > 0 ? ` (${line.Bottles} b = ${bottleCsEq % 1 === 0 ? bottleCsEq : bottleCsEq.toFixed(2)} cs)` : '';
+                    return `
+                        <div class="brand-row-item">
+                            <span class="brand-row-name">${line["Product Name"]} <small style="color:var(--text-muted);">(${line.Size || '-'} ML)</small></span>
+                            <div class="brand-row-qty">
+                                ${line.Cases > 0 ? `<span class="qty-pill-cases">${line.Cases} cs</span>` : ''}
+                                ${line.Bottles > 0 ? `<span class="qty-pill-bottles">${line.Bottles} b${bottleSubtext}</span>` : ''}
+                            </div>
                         </div>
-                    </div>
-                `).join('');
+                    `;
+                }).join('');
 
                 card.innerHTML = `
                     <div class="permit-card-top">
@@ -634,17 +686,19 @@
             partyTfoot.innerHTML = '';
 
             let totalPartyPermits = 0;
-            let partyKeys = Object.keys(partySummary).sort((a, b) => partySummary[b].cases - partySummary[a].cases);
+            let partyKeys = Object.keys(partySummary).sort((a, b) => (partySummary[b].cases + partySummary[b].csEq) - (partySummary[a].cases + partySummary[a].csEq));
             
             partyKeys.forEach(party => {
                 totalPartyPermits += partySummary[party].permits.size;
                 const row = document.createElement('tr');
                 row.className = 'party-row-clickable';
                 row.onclick = () => filterByParty(party);
+                const pTotCs = partySummary[party].cases + partySummary[party].csEq;
+                const pTotCsStr = pTotCs % 1 === 0 ? pTotCs.toLocaleString() : pTotCs.toFixed(2);
                 row.innerHTML = `
                     <td style="font-weight: 600; color: var(--text-primary);">🏢 ${party}</td>
                     <td style="text-align: center;"><span class="bond-pill">${partySummary[party].permits.size}</span></td>
-                    <td style="text-align: right; font-weight: 700; color: var(--accent-indigo);">${partySummary[party].cases.toLocaleString()} cs</td>
+                    <td style="text-align: right; font-weight: 700; color: var(--accent-indigo);">${pTotCsStr} cs</td>
                     <td style="text-align: right; font-weight: 700; color: var(--accent-purple);">${partySummary[party].bottles.toLocaleString()} b</td>
                 `;
                 partyTbody.appendChild(row);
@@ -654,7 +708,7 @@
             partyFootRow.innerHTML = `
                 <td style="font-weight: 800; color: var(--text-primary);">TOTAL (${partyKeys.length} Parties)</td>
                 <td style="text-align: center; font-weight: 800;"><span class="bond-pill" style="background: var(--accent-indigo); color:#fff;">${totalPartyPermits}</span></td>
-                <td style="text-align: right; font-weight: 800; color: var(--accent-indigo);">${totalDispatchedCases.toLocaleString()} cs</td>
+                <td style="text-align: right; font-weight: 800; color: var(--accent-indigo);">${totalEquivalentDispatchedCs % 1 === 0 ? totalEquivalentDispatchedCs.toLocaleString() : totalEquivalentDispatchedCs.toFixed(2)} cs</td>
                 <td style="text-align: right; font-weight: 800; color: var(--accent-purple);">${totalDispatchedBottles.toLocaleString()} b</td>
             `;
             partyTfoot.appendChild(partyFootRow);
@@ -665,14 +719,18 @@
             brandTbody.innerHTML = '';
             brandTfoot.innerHTML = '';
 
-            let brandValues = Object.values(brandSummary).sort((a, b) => b.cases - a.cases);
+            let brandValues = Object.values(brandSummary).sort((a, b) => (b.cases + b.csEq) - (a.cases + a.csEq));
             brandValues.forEach(brand => {
+                const totalBrandCs = brand.cases + brand.csEq;
+                const totalBrandCsStr = totalBrandCs % 1 === 0 ? totalBrandCs.toLocaleString() : totalBrandCs.toFixed(2);
+                const bottleSubtext = brand.bottles > 0 ? ` (= ${brand.csEq % 1 === 0 ? brand.csEq : brand.csEq.toFixed(2)} cs)` : '';
+                
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td style="font-weight: 600; color: var(--text-primary);">🍾 ${brand.name}</td>
-                    <td style="text-align: center;"><span class="code-tag">${brand.size}</span></td>
-                    <td style="text-align: right; font-weight: 700; color: var(--accent-indigo);">${brand.cases.toLocaleString()} cs</td>
-                    <td style="text-align: right; font-weight: 700; color: var(--accent-purple);">${brand.bottles.toLocaleString()} b</td>
+                    <td style="text-align: center;"><span class="code-tag">${brand.size} ML</span></td>
+                    <td style="text-align: right; font-weight: 700; color: var(--accent-indigo);">${totalBrandCsStr} cs</td>
+                    <td style="text-align: right; font-weight: 700; color: var(--accent-purple);">${brand.bottles.toLocaleString()} b <small style="color:var(--text-muted); font-size:0.75rem;">${bottleSubtext}</small></td>
                 `;
                 brandTbody.appendChild(row);
             });
@@ -680,7 +738,7 @@
             const brandFootRow = document.createElement('tr');
             brandFootRow.innerHTML = `
                 <td style="font-weight: 800; color: var(--text-primary);" colspan="2">TOTAL (${brandValues.length} Brands)</td>
-                <td style="text-align: right; font-weight: 800; color: var(--accent-indigo);">${totalDispatchedCases.toLocaleString()} cs</td>
+                <td style="text-align: right; font-weight: 800; color: var(--accent-indigo);">${totalEquivalentDispatchedCs % 1 === 0 ? totalEquivalentDispatchedCs.toLocaleString() : totalEquivalentDispatchedCs.toFixed(2)} cs</td>
                 <td style="text-align: right; font-weight: 800; color: var(--accent-purple);">${totalDispatchedBottles.toLocaleString()} b</td>
             `;
             brandTfoot.appendChild(brandFootRow);
