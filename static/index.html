@@ -114,7 +114,7 @@
                     <div class="kpi-icon" style="background: rgba(99, 102, 241, 0.15); color: #6366f1;">📦</div>
                 </div>
                 <div class="kpi-value" id="kpi-dispatched-cases">0 cs</div>
-                <div class="kpi-meta">Total full cases</div>
+                <div class="kpi-meta" id="kpi-dispatched-cases-meta">0 full cs + 0 cs from bottles</div>
             </div>
 
             <div class="kpi-card">
@@ -123,7 +123,7 @@
                     <div class="kpi-icon" style="background: rgba(168, 85, 247, 0.15); color: #a855f7;">🍾</div>
                 </div>
                 <div class="kpi-value" id="kpi-dispatched-bottles">0 b</div>
-                <div class="kpi-meta">Total loose bottles</div>
+                <div class="kpi-meta" id="kpi-dispatched-bottles-meta">= 0 case equivalents</div>
             </div>
 
             <div class="kpi-card">
@@ -586,6 +586,8 @@
             });
 
             const totalEquivalentDispatchedCs = totalDispatchedCases + totalDispatchedBottleCsEq;
+            const bottleCsFormatted = totalDispatchedBottleCsEq % 1 === 0 ? totalDispatchedBottleCsEq.toString() : totalDispatchedBottleCsEq.toFixed(2);
+            const totCsFormatted = totalEquivalentDispatchedCs % 1 === 0 ? totalEquivalentDispatchedCs.toLocaleString() : totalEquivalentDispatchedCs.toFixed(2);
 
             // Update KPI Cards
             document.getElementById('kpi-dispatched-permits').innerText = dispatchedPermitsSet.size;
@@ -596,8 +598,18 @@
             document.getElementById('kpi-cs-permits').innerText = csDispatchedSet.size;
             document.getElementById('kpi-cs-meta').innerText = `${csCases.toLocaleString()} cs + ${csBottles.toLocaleString()} b (${csPendingSet.size} pending)`;
 
-            document.getElementById('kpi-dispatched-cases').innerText = `${totalEquivalentDispatchedCs % 1 === 0 ? totalEquivalentDispatchedCs.toLocaleString() : totalEquivalentDispatchedCs.toFixed(2)} cs`;
-            document.getElementById('kpi-dispatched-bottles').innerText = `${totalDispatchedBottles.toLocaleString()} b (= ${totalDispatchedBottleCsEq % 1 === 0 ? totalDispatchedBottleCsEq : totalDispatchedBottleCsEq.toFixed(2)} cs)`;
+            document.getElementById('kpi-dispatched-cases').innerText = `${totCsFormatted} cs`;
+            const kpiCsMeta = document.getElementById('kpi-dispatched-cases-meta');
+            if (kpiCsMeta) {
+                kpiCsMeta.innerText = `${totalDispatchedCases.toLocaleString()} Full cs + ${bottleCsFormatted} cs from bottles`;
+            }
+
+            document.getElementById('kpi-dispatched-bottles').innerText = `${totalDispatchedBottles.toLocaleString()} b`;
+            const kpiBMet = document.getElementById('kpi-dispatched-bottles-meta');
+            if (kpiBMet) {
+                kpiBMet.innerText = `= ${bottleCsFormatted} Case Equivalents`;
+            }
+
             document.getElementById('kpi-pending-permits').innerText = pendingPermitsSet.size;
             document.getElementById('kpi-pending-meta').innerText = `${totalPendingCases} cs + ${totalPendingBottles} b pending`;
 
