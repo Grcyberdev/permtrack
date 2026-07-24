@@ -358,14 +358,16 @@
                 const res = await fetch('/api/backups');
                 const files = await res.json();
                 const sel = document.getElementById('backup-selector');
+                const currentSelection = sel.value;
                 sel.innerHTML = '';
 
                 if (files && files.length > 0) {
-                    files.forEach(f => {
+                    files.forEach((f, idx) => {
                         const opt = document.createElement('option');
                         opt.value = f.filename;
                         opt.innerText = `📅 ${f.display}`;
-                        if (f.is_latest) opt.selected = true;
+                        if (idx === 0 && !currentSelection) opt.selected = true;
+                        if (currentSelection && f.filename === currentSelection) opt.selected = true;
                         sel.appendChild(opt);
                     });
                 } else {
@@ -773,13 +775,29 @@
                     showToast("🚀 GitHub Actions Cloud Scraper triggered!");
                     termPanel.classList.add('active');
                     termOutput.innerText = `✅ GitHub Actions Cloud Scraper Triggered!\nDate: ${dateVal || 'Today'}\nBond: ${bondVal}\n\nThe scraper is executing in the cloud on GitHub Actions. Results will appear automatically here once completed.\n`;
-                    updateProgress(50, 1, 1, "Cloud Execution in progress...");
-                    
+                    const initialSel = document.getElementById('backup-selector').value;
+                    let pollCount = 0;
                     const pollInterval = setInterval(async () => {
+                        pollCount++;
+                        termOutput.innerText = `⏳ Cloud Scraper in progress on GitHub Actions... (${pollCount * 10}s elapsed)\n\nWaiting for permit data webhook...`;
                         await fetchBackupsList();
-                        await loadPermitsData();
-                    }, 15000);
-                    setTimeout(() => clearInterval(pollInterval), 300000);
+                        const currentSel = document.getElementById('backup-selector').value;
+                        await loadPermitsData(currentSel);
+                        
+                        if (currentSel && currentSel !== initialSel) {
+                            clearInterval(pollInterval);
+                            btn.disabled = false;
+                            btn.innerText = "🚀 Run Live Permit Scraper";
+                            showToast("🎉 Scraped permit data received!");
+                            updateProgress(100, 100, 100, "✅ Completed!");
+                            termOutput.innerText += "\n\n✅ Scraped permit data successfully synced to dashboard!";
+                        }
+                    }, 10000);
+                    setTimeout(() => {
+                        clearInterval(pollInterval);
+                        btn.disabled = false;
+                        btn.innerText = "🚀 Run Live Permit Scraper";
+                    }, 420000);
                     return;
                 }
             } catch(e) {}

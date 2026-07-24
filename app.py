@@ -205,12 +205,6 @@ async def upload_results(request: Request):
         if expected_secret and secret != expected_secret:
             return JSONResponse(status_code=403, content={"error": "Invalid webhook secret authorization"})
             
-        records = payload.get("records", [])
-        date_str = payload.get("date")
-        
-        if not records:
-            return JSONResponse(status_code=400, content={"error": "No records provided in payload"})
-            
         LATEST_WEBHOOK_DATA = records
         
         config_dir = os.path.join(PROJECT_ROOT, "config")

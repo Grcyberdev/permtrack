@@ -558,11 +558,10 @@ def main():
     print(f"   Pending Permits (brand lines): {len(all_pending)}")
     print(f"   Completed Dispatches (brand lines): {len(all_completed)}")
     
-    if not all_pending and not all_completed:
-        print("⚠️ No data was scraped.")
-        return
-        
     combined_records = all_pending + all_completed
+    
+    if not combined_records:
+        print(f"ℹ️ Note: 0 permit records found on portal for target date {date_str}.")
     
     backup_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config")
     os.makedirs(backup_dir, exist_ok=True)
