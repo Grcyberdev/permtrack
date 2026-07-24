@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PermTrack | Assam Excise Revenue Dashboard</title>
+
+    <!-- Google Fonts: Outfit & Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .filter-pill {
+            padding: 0.35rem 0.85rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--card-border);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .filter-pill.active {
+            background: var(--accent-indigo);
+            color: #ffffff;
+            border-color: var(--accent-indigo);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+        .summary-table tfoot tr {
+            background: rgba(99, 102, 241, 0.12);
+            font-weight: 700;
+            border-top: 2px solid var(--accent-indigo);
+        }
+        .party-row-clickable {
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+        .party-row-clickable:hover {
+            background: rgba(99, 102, 241, 0.1) !important;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app-wrapper">
+
+        <!-- Top Navigation Bar -->
+        <header class="navbar">
+            <div class="brand-block">
+                <div class="brand-logo">📜</div>
+                <div class="brand-title">
+                    <h1>PermTrack</h1>
+                    <div class="brand-subtitle">Assam Excise Revenue Management System</div>
+                </div>
+            </div>
+
+            <div class="header-controls">
+                <select id="backup-selector" class="btn-glass" title="Select Historical Backup">
+                    <option value="">📅 Loading Backups...</option>
+                </select>
+
+                <button class="btn-glass" onclick="downloadCsvReport()" title="Export Filtered Data as CSV">
+                    <span>📥</span>
+                    <span>Export CSV</span>
+                </button>
+
+                <button class="btn-glass btn-primary" onclick="downloadPdfReport()" title="Download Formatted PDF Summary">
+                    <span id="pdf-btn-icon">📄</span>
+                    <span id="pdf-btn-text">PDF Report</span>
+                </button>
+
+                <button id="theme-toggle" class="theme-toggle-btn" title="Toggle Light/Dark Theme">
+                    🌙
+                </button>
+            </div>
+        </header>
+
+        <!-- KPI Hero Cards Grid -->
+        <div class="kpi-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-title">Dispatched Permits</span>
+                    <div class="kpi-icon" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">✅</div>
+                </div>
+                <div class="kpi-value" id="kpi-dispatched-permits">0</div>
+                <div class="kpi-meta">Pass Issued dispatches</div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-title">IMFL Dispatches</span>
+                    <div class="kpi-icon" style="background: rgba(99, 102, 241, 0.15); color: #6366f1;">🍷</div>
+                </div>
+                <div class="kpi-value" id="kpi-imfl-permits">0</div>
+                <div class="kpi-meta" id="kpi-imfl-meta">0 cs + 0 b</div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-title">CS Dispatches</span>
+                    <div class="kpi-icon" style="background: rgba(6, 182, 212, 0.15); color: #06b6d4;">🍶</div>
+                </div>
+                <div class="kpi-value" id="kpi-cs-permits">0</div>
+                <div class="kpi-meta" id="kpi-cs-meta">0 cs + 0 b</div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-title">Dispatched Cases</span>
+                    <div class="kpi-icon" style="background: rgba(99, 102, 241, 0.15); color: #6366f1;">📦</div>
+                </div>
+                <div class="kpi-value" id="kpi-dispatched-cases">0 cs</div>
+                <div class="kpi-meta">Total full cases</div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-title">Loose Bottles</span>
+                    <div class="kpi-icon" style="background: rgba(168, 85, 247, 0.15); color: #a855f7;">🍾</div>
+                </div>
+                <div class="kpi-value" id="kpi-dispatched-bottles">0 b</div>
+                <div class="kpi-meta">Total loose bottles</div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-title">Pending Permits</span>
+                    <div class="kpi-icon" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">⏳</div>
+                </div>
+                <div class="kpi-value" id="kpi-pending-permits">0</div>
+                <div class="kpi-meta" id="kpi-pending-meta">0 cs + 0 b pending</div>
+            </div>
+        </div>
+
+        <!-- Filter & View Switcher Bar -->
+        <div class="filter-bar" style="flex-wrap: wrap; gap: 1rem;">
+            <div class="tab-group">
+                <button class="tab-btn active" onclick="switchTab('permits')">📜 Loading Details</button>
+                <button class="tab-btn" onclick="switchTab('party')">🏢 Party Summary</button>
+                <button class="tab-btn" onclick="switchTab('brand')">🍾 Brand Summary</button>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span class="filter-pill active" id="pill-bond-all" onclick="setBondFilter('ALL')">All Bonds</span>
+                <span class="filter-pill" id="pill-bond-imfl" onclick="setBondFilter('IMFL')">🍷 IMFL Only</span>
+                <span class="filter-pill" id="pill-bond-cs" onclick="setBondFilter('CS')">🍶 CS Only</span>
+            </div>
+
+            <div class="search-box" style="flex: 1; min-width: 220px;">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="search-input" placeholder="Search retailer, permit #, brand..." oninput="handleSearch()">
+            </div>
+        </div>
+
+        <!-- Main Content Layout Grid -->
+        <div class="content-grid">
+
+            <!-- Left Panel: Main View Container -->
+            <main>
+
+                <!-- TAB 1: Permits List View -->
+                <div id="tab-permits-view">
+
+                    <!-- Pending Permits Section -->
+                    <div style="margin-bottom: 2rem;">
+                        <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.1rem; margin-bottom: 1rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
+                            <span style="color: #f59e0b;">🟡</span> Applied / Pending Permits
+                            <span id="badge-pending-count" class="status-badge pending">0 permits</span>
+                        </h2>
+                        <div id="pending-permits-list">
+                            <!-- Injected dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- Dispatched Permits Section -->
+                    <div>
+                        <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.1rem; margin-bottom: 1rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
+                            <span style="color: #10b981;">🟢</span> Dispatched Permits (Pass Issued)
+                            <span id="badge-issued-count" class="status-badge issued">0 permits</span>
+                        </h2>
+                        <div id="dispatched-permits-list">
+                            <!-- Injected dynamically -->
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- TAB 2: Party-wise Summary Table -->
+                <div id="tab-party-view" style="display: none;">
+                    <div class="kpi-card" style="padding: 1.5rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+                            <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.1rem; color: var(--text-primary);">🏢 Party-wise Loading Summary</h2>
+                            <small style="color: var(--text-muted); font-size: 0.8rem;">💡 Tip: Click any row to view permits</small>
+                        </div>
+                        <div class="summary-table-wrapper">
+                            <table class="summary-table">
+                                <thead>
+                                    <tr>
+                                        <th>Retailer / Party Name</th>
+                                        <th style="text-align: center;">Permits</th>
+                                        <th style="text-align: right;">Total Cases</th>
+                                        <th style="text-align: right;">Total Bottles</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="party-summary-tbody">
+                                    <!-- Injected dynamically -->
+                                </tbody>
+                                <tfoot id="party-summary-tfoot">
+                                    <!-- Injected dynamically -->
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 3: Brand-wise Summary Table -->
+                <div id="tab-brand-view" style="display: none;">
+                    <div class="kpi-card" style="padding: 1.5rem;">
+                        <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.1rem; margin-bottom: 1.25rem;">🍾 Brand-wise Daily Loading Summary</h2>
+                        <div class="summary-table-wrapper">
+                            <table class="summary-table">
+                                <thead>
+                                    <tr>
+                                        <th>Brand / Product Name</th>
+                                        <th style="text-align: center;">Size (ML)</th>
+                                        <th style="text-align: right;">Total Cases</th>
+                                        <th style="text-align: right;">Total Loose Bottles</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="brand-summary-tbody">
+                                    <!-- Injected dynamically -->
+                                </tbody>
+                                <tfoot id="brand-summary-tfoot">
+                                    <!-- Injected dynamically -->
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+            </main>
+
+            <!-- Right Panel: Scraper Control Center -->
+            <aside>
+                <div class="control-card">
+                    <div class="control-title">⚡ Scraper Control Center</div>
+
+                    <div class="form-field">
+                        <label for="scraper-date">Target Date</label>
+                        <input type="text" id="scraper-date" placeholder="DD-MM-YYYY (e.g. 21-07-2026)">
+                    </div>
+
+                    <div class="form-field">
+                        <label for="bond-type">Excise Bond Credentials</label>
+                        <select id="bond-type">
+                            <option value="BOTH">Query Both (IMFL & CS)</option>
+                            <option value="IMFL">IMFL Only</option>
+                            <option value="CS">Country Spirit (CS) Only</option>
+                        </select>
+                    </div>
+
+                    <div class="form-field" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem;">
+                        <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">Headless Mode</span>
+                        <input type="checkbox" id="headless-toggle" checked style="width: 1.2rem; height: 1.2rem; cursor: pointer;">
+                    </div>
+
+                    <button id="run-scraper-btn" class="btn-glass btn-primary" style="width: 100%; justify-content: center; padding: 0.75rem;" onclick="triggerScraperRun()">
+                        🚀 Run Live Permit Scraper
+                    </button>
+
+                    <!-- Live Progress Bar & Stage Tracker -->
+                    <div id="progress-container" style="margin-top: 1.25rem; display: none;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 0.35rem;">
+                            <span id="progress-stage-text">Stage 1/4: Initializing...</span>
+                            <span id="progress-percent-text">0%</span>
+                        </div>
+                        <div style="width: 100%; height: 8px; background: rgba(255, 255, 255, 0.1); border-radius: 9999px; overflow: hidden; position: relative;">
+                            <div id="progress-bar-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-indigo), var(--accent-emerald)); border-radius: 9999px; transition: width 0.3s ease;"></div>
+                        </div>
+                        <div id="progress-item-text" style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.25rem; text-align: right;">0 / 0 Permits</div>
+                    </div>
+
+                    <!-- Socket Log Terminal -->
+                    <div id="terminal-panel" class="terminal-card">
+                        <div id="terminal-output">Ready to scrape. Logs will appear here in real-time...</div>
+                    </div>
+                </div>
+            </aside>
+
+        </div>
+
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Application Script -->
+    <script>
+        let rawPermitsData = [];
+        let filteredPermitsData = [];
+        let currentTab = 'permits';
+        let activeBondFilter = 'ALL';
+
+        // -------------------------------------------------------------
+        // Theme Toggle Setup
+        // -------------------------------------------------------------
+        const themeBtn = document.getElementById('theme-toggle');
+        const currentTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', currentTheme);
+        themeBtn.innerText = currentTheme === 'dark' ? '🌙' : '☀️';
+
+        themeBtn.addEventListener('click', () => {
+            const nowTheme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', nowTheme);
+            localStorage.setItem('theme', nowTheme);
+            themeBtn.innerText = nowTheme === 'dark' ? '🌙' : '☀️';
+            showToast(`Switched to ${nowTheme.toUpperCase()} theme`);
+        });
+
+        // -------------------------------------------------------------
+        // Tab Switcher
+        // -------------------------------------------------------------
+        function switchTab(tabName) {
+            currentTab = tabName;
+            document.querySelectorAll('.tab-btn').forEach((btn, idx) => {
+                btn.classList.toggle('active', (tabName === 'permits' && idx === 0) || (tabName === 'party' && idx === 1) || (tabName === 'brand' && idx === 2));
+            });
+
+            document.getElementById('tab-permits-view').style.display = tabName === 'permits' ? 'block' : 'none';
+            document.getElementById('tab-party-view').style.display = tabName === 'party' ? 'block' : 'none';
+            document.getElementById('tab-brand-view').style.display = tabName === 'brand' ? 'block' : 'none';
+        }
+
+        function setBondFilter(bondType) {
+            activeBondFilter = bondType;
+            document.getElementById('pill-bond-all').classList.toggle('active', bondType === 'ALL');
+            document.getElementById('pill-bond-imfl').classList.toggle('active', bondType === 'IMFL');
+            document.getElementById('pill-bond-cs').classList.toggle('active', bondType === 'CS');
+            handleSearch();
+        }
+
+        function filterByParty(partyName) {
+            document.getElementById('search-input').value = partyName;
+            switchTab('permits');
+            handleSearch();
+            showToast(`Filtered permits for ${partyName}`);
+        }
+
+        // -------------------------------------------------------------
+        // Data Fetching & Rendering
+        // -------------------------------------------------------------
+        async function fetchBackupsList() {
+            try {
+                const res = await fetch('/api/backups');
+                const files = await res.json();
+                const sel = document.getElementById('backup-selector');
+                sel.innerHTML = '';
+
+                if (files && files.length > 0) {
+                    files.forEach(f => {
+                        const opt = document.createElement('option');
+                        opt.value = f.filename;
+                        opt.innerText = `📅 ${f.display}`;
+                        if (f.is_latest) opt.selected = true;
+                        sel.appendChild(opt);
+                    });
+                } else {
+                    sel.innerHTML = '<option value="">No backups found</option>';
+                }
+            } catch (e) {
+                console.error("Backups list fetch error:", e);
+            }
+        }
+
+        async function loadPermitsData(filename = null) {
+            try {
+                let url = '/api/today-permits';
+                if (filename) url += `?filename=${filename}`;
+                
+                const res = await fetch(url);
+                const data = await res.json();
+
+                if (data.records) {
+                    rawPermitsData = data.records;
+                } else if (Array.isArray(data)) {
+                    rawPermitsData = data;
+                } else {
+                    rawPermitsData = [...(data.pending || []), ...(data.completed || [])];
+                }
+                
+                handleSearch();
+            } catch (e) {
+                console.error("Permits data error:", e);
+            }
+        }
+
+        document.getElementById('backup-selector').addEventListener('change', (e) => {
+            if (e.target.value) {
+                loadPermitsData(e.target.value);
+            }
+        });
+
+        // -------------------------------------------------------------
+        // Search Filter
+        // -------------------------------------------------------------
+        function handleSearch() {
+            const query = document.getElementById('search-input').value.toLowerCase().trim();
+            
+            filteredPermitsData = rawPermitsData.filter(item => {
+                const bType = (item["Bond Type"] || 'IMFL').toUpperCase();
+                if (activeBondFilter !== 'ALL' && bType !== activeBondFilter) {
+                    return false;
+                }
+                if (!query) return true;
+                return (
+                    (item["Retailer Name"] || '').toLowerCase().includes(query) ||
+                    (item["Permit Number"] || '').toLowerCase().includes(query) ||
+                    (item["Indent Number"] || '').toLowerCase().includes(query) ||
+                    (item["Product Name"] || '').toLowerCase().includes(query) ||
+                    (item["Bond Type"] || '').toLowerCase().includes(query)
+                );
+            });
+            renderDashboard();
+        }
+
+        // -------------------------------------------------------------
+        // Core Dashboard Render Logic
+        // -------------------------------------------------------------
+        function renderDashboard() {
+            const pendingList = document.getElementById('pending-permits-list');
+            const dispatchedList = document.getElementById('dispatched-permits-list');
+            
+            pendingList.innerHTML = '';
+            dispatchedList.innerHTML = '';
+
+            let dispatchedPermitsSet = new Set();
+            let pendingPermitsSet = new Set();
+            
+            let imflDispatchedSet = new Set();
+            let imflPendingSet = new Set();
+            let csDispatchedSet = new Set();
+            let csPendingSet = new Set();
+
+            let totalDispatchedCases = 0;
+            let totalDispatchedBottles = 0;
+            let totalPendingCases = 0;
+            let totalPendingBottles = 0;
+
+            let imflCases = 0, imflBottles = 0;
+            let csCases = 0, csBottles = 0;
+
+            let groupedByPermit = {};
+            let partySummary = {};
+            let brandSummary = {};
+
+            filteredPermitsData.forEach(item => {
+                const isPending = item.Status === "PENDING";
+                const pKey = item["Permit Number"] || item["Indent Number"] || Math.random().toString();
+                const bondType = (item["Bond Type"] || 'IMFL').toUpperCase();
+
+                if (bondType === 'IMFL') {
+                    if (isPending) {
+                        imflPendingSet.add(pKey);
+                    } else {
+                        imflDispatchedSet.add(pKey);
+                        imflCases += (item.Cases || 0);
+                        imflBottles += (item.Bottles || 0);
+                    }
+                } else {
+                    if (isPending) {
+                        csPendingSet.add(pKey);
+                    } else {
+                        csDispatchedSet.add(pKey);
+                        csCases += (item.Cases || 0);
+                        csBottles += (item.Bottles || 0);
+                    }
+                }
+
+                if (isPending) {
+                    pendingPermitsSet.add(pKey);
+                    totalPendingCases += (item.Cases || 0);
+                    totalPendingBottles += (item.Bottles || 0);
+                } else {
+                    dispatchedPermitsSet.add(pKey);
+                    totalDispatchedCases += (item.Cases || 0);
+                    totalDispatchedBottles += (item.Bottles || 0);
+                }
+
+                // Group by Permit
+                if (!groupedByPermit[pKey]) {
+                    groupedByPermit[pKey] = {
+                        info: item,
+                        lines: []
+                    };
+                }
+                if (item["Product Name"]) {
+                    groupedByPermit[pKey].lines.push(item);
+                }
+
+                // Party Summary
+                const partyName = item["Retailer Name"] || "Unknown Party";
+                if (!partySummary[partyName]) {
+                    partySummary[partyName] = { permits: new Set(), cases: 0, bottles: 0 };
+                }
+                partySummary[partyName].permits.add(pKey);
+                partySummary[partyName].cases += (item.Cases || 0);
+                partySummary[partyName].bottles += (item.Bottles || 0);
+
+                // Brand Summary
+                const prodName = item["Product Name"];
+                if (prodName) {
+                    const bKey = `${prodName}_${item.Size || ''}`;
+                    if (!brandSummary[bKey]) {
+                        brandSummary[bKey] = { name: prodName, size: item.Size || '-', cases: 0, bottles: 0 };
+                    }
+                    brandSummary[bKey].cases += (item.Cases || 0);
+                    brandSummary[bKey].bottles += (item.Bottles || 0);
+                }
+            });
+
+            // Update KPI Cards
+            document.getElementById('kpi-dispatched-permits').innerText = dispatchedPermitsSet.size;
+            
+            document.getElementById('kpi-imfl-permits').innerText = imflDispatchedSet.size;
+            document.getElementById('kpi-imfl-meta').innerText = `${imflCases.toLocaleString()} cs + ${imflBottles.toLocaleString()} b (${imflPendingSet.size} pending)`;
+
+            document.getElementById('kpi-cs-permits').innerText = csDispatchedSet.size;
+            document.getElementById('kpi-cs-meta').innerText = `${csCases.toLocaleString()} cs + ${csBottles.toLocaleString()} b (${csPendingSet.size} pending)`;
+
+            document.getElementById('kpi-dispatched-cases').innerText = `${totalDispatchedCases.toLocaleString()} cs`;
+            document.getElementById('kpi-dispatched-bottles').innerText = `${totalDispatchedBottles.toLocaleString()} b`;
+            document.getElementById('kpi-pending-permits').innerText = pendingPermitsSet.size;
+            document.getElementById('kpi-pending-meta').innerText = `${totalPendingCases} cs + ${totalPendingBottles} b pending`;
+
+            document.getElementById('badge-pending-count').innerText = `${pendingPermitsSet.size} permits`;
+            document.getElementById('badge-issued-count').innerText = `${dispatchedPermitsSet.size} permits`;
+
+            // Render Permits List Cards
+            let pCount = 0, dCount = 0;
+            Object.values(groupedByPermit).forEach(group => {
+                const info = group.info;
+                const isPending = info.Status === "PENDING";
+                
+                const card = document.createElement('div');
+                card.className = 'permit-card-item';
+
+                let linesHtml = group.lines.map(line => `
+                    <div class="brand-row-item">
+                        <span class="brand-row-name">${line["Product Name"]} <small style="color:var(--text-muted);">(${line.Size || '-'} ML)</small></span>
+                        <div class="brand-row-qty">
+                            ${line.Cases > 0 ? `<span class="qty-pill-cases">${line.Cases} cs</span>` : ''}
+                            ${line.Bottles > 0 ? `<span class="qty-pill-bottles">${line.Bottles} b</span>` : ''}
+                        </div>
+                    </div>
+                `).join('');
+
+                card.innerHTML = `
+                    <div class="permit-card-top">
+                        <div class="retailer-title">
+                            🏢 ${info["Retailer Name"] || "Unknown Retailer"}
+                            <span class="bond-pill">${info["Bond Type"] || 'IMFL'}</span>
+                        </div>
+                        <span class="status-badge ${isPending ? 'pending' : 'issued'}">${info.Status}</span>
+                    </div>
+
+                    <div class="permit-meta-grid">
+                        <div>Indent: <span class="code-tag">${info["Indent Number"] || '-'}</span></div>
+                        <div>Permit: <span class="code-tag" onclick="copyToClipboard('${info["Permit Number"]}')" style="cursor:pointer;" title="Click to copy">${info["Permit Number"] || '-'}</span></div>
+                        <div>Vehicle: <span class="code-tag" style="color:var(--accent-cyan);">${info["Vehicle Number"] || 'No Vehicle'}</span></div>
+                        <div>Applied: <span>${info["Application Date"] || info.Date || '-'}</span></div>
+                    </div>
+
+                    ${group.lines.length > 0 ? `
+                        <div class="breakdown-trigger" onclick="toggleBreakdown(this)">
+                            <span>▼ Show Brand Breakdown (${group.lines.length} items)</span>
+                        </div>
+                        <div class="brand-lines-container">
+                            ${linesHtml}
+                        </div>
+                    ` : '<div style="font-size:0.8rem; color:var(--text-muted);">No brand items parsed</div>'}
+                `;
+
+                if (isPending) {
+                    pendingList.appendChild(card);
+                    pCount++;
+                } else {
+                    dispatchedList.appendChild(card);
+                    dCount++;
+                }
+            });
+
+            if (pCount === 0) pendingList.innerHTML = '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No pending permits found.</div>';
+            if (dCount === 0) dispatchedList.innerHTML = '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No dispatched permits found.</div>';
+
+            // Render Party Summary Table & Footer
+            const partyTbody = document.getElementById('party-summary-tbody');
+            const partyTfoot = document.getElementById('party-summary-tfoot');
+            partyTbody.innerHTML = '';
+            partyTfoot.innerHTML = '';
+
+            let totalPartyPermits = 0;
+            let partyKeys = Object.keys(partySummary).sort((a, b) => partySummary[b].cases - partySummary[a].cases);
+            
+            partyKeys.forEach(party => {
+                totalPartyPermits += partySummary[party].permits.size;
+                const row = document.createElement('tr');
+                row.className = 'party-row-clickable';
+                row.onclick = () => filterByParty(party);
+                row.innerHTML = `
+                    <td style="font-weight: 600; color: var(--text-primary);">🏢 ${party}</td>
+                    <td style="text-align: center;"><span class="bond-pill">${partySummary[party].permits.size}</span></td>
+                    <td style="text-align: right; font-weight: 700; color: var(--accent-indigo);">${partySummary[party].cases.toLocaleString()} cs</td>
+                    <td style="text-align: right; font-weight: 700; color: var(--accent-purple);">${partySummary[party].bottles.toLocaleString()} b</td>
+                `;
+                partyTbody.appendChild(row);
+            });
+
+            const partyFootRow = document.createElement('tr');
+            partyFootRow.innerHTML = `
+                <td style="font-weight: 800; color: var(--text-primary);">TOTAL (${partyKeys.length} Parties)</td>
+                <td style="text-align: center; font-weight: 800;"><span class="bond-pill" style="background: var(--accent-indigo); color:#fff;">${totalPartyPermits}</span></td>
+                <td style="text-align: right; font-weight: 800; color: var(--accent-indigo);">${totalDispatchedCases.toLocaleString()} cs</td>
+                <td style="text-align: right; font-weight: 800; color: var(--accent-purple);">${totalDispatchedBottles.toLocaleString()} b</td>
+            `;
+            partyTfoot.appendChild(partyFootRow);
+
+            // Render Brand Summary Table & Footer
+            const brandTbody = document.getElementById('brand-summary-tbody');
+            const brandTfoot = document.getElementById('brand-summary-tfoot');
+            brandTbody.innerHTML = '';
+            brandTfoot.innerHTML = '';
+
+            let brandValues = Object.values(brandSummary).sort((a, b) => b.cases - a.cases);
+            brandValues.forEach(brand => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td style="font-weight: 600; color: var(--text-primary);">🍾 ${brand.name}</td>
+                    <td style="text-align: center;"><span class="code-tag">${brand.size}</span></td>
+                    <td style="text-align: right; font-weight: 700; color: var(--accent-indigo);">${brand.cases.toLocaleString()} cs</td>
+                    <td style="text-align: right; font-weight: 700; color: var(--accent-purple);">${brand.bottles.toLocaleString()} b</td>
+                `;
+                brandTbody.appendChild(row);
+            });
+
+            const brandFootRow = document.createElement('tr');
+            brandFootRow.innerHTML = `
+                <td style="font-weight: 800; color: var(--text-primary);" colspan="2">TOTAL (${brandValues.length} Brands)</td>
+                <td style="text-align: right; font-weight: 800; color: var(--accent-indigo);">${totalDispatchedCases.toLocaleString()} cs</td>
+                <td style="text-align: right; font-weight: 800; color: var(--accent-purple);">${totalDispatchedBottles.toLocaleString()} b</td>
+            `;
+            brandTfoot.appendChild(brandFootRow);
+        }
+
+        // Toggle Collapsible Brand Lines
+        function toggleBreakdown(elem) {
+            const container = elem.nextElementSibling;
+            container.classList.toggle('expanded');
+            elem.querySelector('span').innerText = container.classList.contains('expanded') ? '▲ Hide Brand Breakdown' : `▼ Show Brand Breakdown`;
+        }
+
+        // Copy to clipboard helper
+        function copyToClipboard(text) {
+            if (!text || text === '-') return;
+            navigator.clipboard.writeText(text);
+            showToast(`Copied ${text} to clipboard!`);
+        }
+
+        // Toast Helper
+        function showToast(msg) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'toast-msg';
+            toast.innerText = msg;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 2500);
+        }
+
+        // CSV Export Handler
+        function downloadCsvReport() {
+            if (!filteredPermitsData || filteredPermitsData.length === 0) {
+                showToast("No permit data available to export.");
+                return;
+            }
+
+            const headers = ["Date", "Retailer Name", "Retailer Code", "Indent Number", "Permit Number", "Transit Pass", "Vehicle Number", "Bond Type", "Status", "Product Name", "Size", "Cases", "Loose Bottles", "Total MRP"];
+            const csvRows = [headers.join(",")];
+
+            filteredPermitsData.forEach(item => {
+                const row = [
+                    `"${item.Date || ''}"`,
+                    `"${(item["Retailer Name"] || '').replace(/"/g, '""')}"`,
+                    `"${item["Retailer Code"] || ''}"`,
+                    `"${item["Indent Number"] || ''}"`,
+                    `"${item["Permit Number"] || ''}"`,
+                    `"${item["Transit Pass"] || ''}"`,
+                    `"${item["Vehicle Number"] || ''}"`,
+                    `"${item["Bond Type"] || ''}"`,
+                    `"${item.Status || ''}"`,
+                    `"${(item["Product Name"] || '').replace(/"/g, '""')}"`,
+                    `"${item.Size || ''}"`,
+                    item.Cases || 0,
+                    item.Bottles || 0,
+                    item["Total MRP"] || 0
+                ];
+                csvRows.push(row.join(","));
+            });
+
+            const csvString = csvRows.join("\n");
+            const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", `permit_tracker_export_${new Date().toISOString().slice(0,10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            showToast("CSV export downloaded successfully!");
+        }
+
+        // PDF Download Handler
+        function downloadPdfReport() {
+            const sel = document.getElementById('backup-selector').value;
+            let url = '/api/download-pdf';
+            if (sel) url += `?filename=${sel}`;
+            showToast("Generating PDF Report...");
+            window.open(url, '_blank');
+        }
+
+        // Progress Bar Updater
+        function updateProgress(pct, curr, total, stageText = null) {
+            const container = document.getElementById('progress-container');
+            container.style.display = 'block';
+            
+            if (stageText) {
+                document.getElementById('progress-stage-text').innerText = stageText;
+            }
+            document.getElementById('progress-percent-text').innerText = `${pct}%`;
+            document.getElementById('progress-bar-fill').style.width = `${pct}%`;
+            
+            if (curr !== undefined && total !== undefined) {
+                document.getElementById('progress-item-text').innerText = `${curr} / ${total} Permits`;
+            }
+        }
+
+        // Scraper Handler (Cloud Dispatch + Local Fallback)
+        async function triggerScraperRun() {
+            const btn = document.getElementById('run-scraper-btn');
+            const termPanel = document.getElementById('terminal-panel');
+            const termOutput = document.getElementById('terminal-output');
+            const dateVal = document.getElementById('scraper-date').value.trim();
+            const bondVal = document.getElementById('bond-type').value;
+            const headlessVal = document.getElementById('headless-toggle').checked;
+
+            btn.disabled = true;
+            btn.innerText = "⏳ Dispatching Scraper...";
+
+            // Check if server is configured for GitHub Actions cloud dispatch
+            try {
+                const res = await fetch('/api/trigger-run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ date: dateVal, bond: bondVal })
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    btn.disabled = false;
+                    btn.innerText = "🚀 Run Live Permit Scraper";
+                    showToast("🚀 GitHub Actions Cloud Scraper triggered!");
+                    termPanel.classList.add('active');
+                    termOutput.innerText = `✅ GitHub Actions Cloud Scraper Triggered!\nDate: ${dateVal || 'Today'}\nBond: ${bondVal}\n\nThe scraper is executing in the cloud on GitHub Actions. Results will appear automatically here once completed.\n`;
+                    updateProgress(50, 1, 1, "Cloud Execution in progress...");
+                    
+                    const pollInterval = setInterval(async () => {
+                        await fetchBackupsList();
+                        await loadPermitsData();
+                    }, 15000);
+                    setTimeout(() => clearInterval(pollInterval), 300000);
+                    return;
+                }
+            } catch(e) {}
+
+            btn.innerText = "⏳ Running Permit Scraper...";
+            termPanel.classList.add('active');
+            termOutput.innerText = "🚀 Connecting to local scraper service...\n";
+            updateProgress(5, 0, 0, "Stage 1/4: Logging into Excise Portal...");
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const ws = new WebSocket(`${protocol}//${window.location.host}/ws/run`);
+
+            let currentStage = "Stage 1/4: Connecting...";
+
+            ws.onopen = () => {
+                termOutput.innerText += "✅ Connected! Starting scraping process...\n";
+                ws.send(JSON.stringify({
+                    date: dateVal,
+                    bond: bondVal,
+                    headless: headlessVal
+                }));
+            };
+
+            ws.onmessage = (event) => {
+                const text = event.data;
+                termOutput.innerText += text;
+                termPanel.scrollTop = termPanel.scrollHeight;
+
+                if (text.includes("Scraping Pending Permits")) {
+                    currentStage = "Stage 1/4: Scraping Pending Permits";
+                } else if (text.includes("IMFL") && text.includes("Pass Issued")) {
+                    currentStage = "Stage 2/4: Scraping IMFL Dispatches";
+                } else if (text.includes("CS") && text.includes("Pass Issued")) {
+                    currentStage = "Stage 3/4: Scraping CS Dispatches";
+                } else if (text.includes("TP Detail Report")) {
+                    currentStage = "Stage 4/4: Scraping Vehicle Numbers";
+                } else if (text.includes("Scraper process completed")) {
+                    currentStage = "✅ Completed!";
+                    updateProgress(100, 100, 100, "✅ Completed!");
+                }
+
+                // Match [X/Y] item progress, e.g. "🔎 [14/56] Extracting details..."
+                const match = text.match(/\[(\d+)\/(\d+)\]/);
+                if (match) {
+                    const curr = parseInt(match[1]);
+                    const total = parseInt(match[2]);
+                    const pct = Math.round((curr / total) * 100);
+                    updateProgress(pct, curr, total, currentStage);
+                }
+
+                try {
+                    const data = JSON.parse(text);
+                    if (data.status === 'success') {
+                        updateProgress(100, 100, 100, "✅ Completed!");
+                        btn.disabled = false;
+                        btn.innerText = "🚀 Run Live Permit Scraper";
+                        showToast("Scraper completed! Refreshing dashboard...");
+                        fetchBackupsList();
+                        loadPermitsData();
+                    } else if (data.status === 'failed') {
+                        btn.disabled = false;
+                        btn.innerText = "🚀 Run Live Permit Scraper";
+                        showToast("Scraper exited with error.");
+                    }
+                } catch(e) {}
+            };
+
+            ws.onerror = (err) => {
+                termOutput.innerText += "\n❌ WebSocket Error encountered.\n";
+                btn.disabled = false;
+                btn.innerText = "🚀 Run Live Permit Scraper";
+            };
+
+            ws.onclose = () => {
+                btn.disabled = false;
+                btn.innerText = "🚀 Run Live Permit Scraper";
+            };
+        }
+
+        // Initialize on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            fetchBackupsList();
+            loadPermitsData();
+        });
+    </script>
+</body>
+</html>

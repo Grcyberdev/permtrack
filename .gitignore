@@ -1,0 +1,19 @@
+# Environment & Dependencies
+env/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Operating System & IDE
+.DS_Store
+.vscode/
+.idea/
+
+# Local Logs & Keys
+*.log
+keys/
+
+# Sensitive Config Credentials (DO NOT COMMIT PASSWORDS)
+config/config.json

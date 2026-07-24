@@ -1,0 +1,77 @@
+name: Live Permit Scraper Workflow
+
+on:
+  repository_dispatch:
+    types: [run-scraper]
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Target Date (DD-MM-YYYY format, leave blank for today)'
+        required: false
+        default: ''
+      bond:
+        description: 'Bond Credentials (IMFL, CS, BOTH)'
+        required: false
+        default: 'BOTH'
+  schedule:
+    # Runs automatically every day at 12:30 UTC (6:00 PM IST)
+    - cron: '30 12 * * *'
+
+jobs:
+  scrape-permits:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Google Chrome
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget fonts-liberation libappindicator3-1 libasound2 libatk-bridge2.0-0 libgtk-3-0 libnspr4 libnss3 xdg-utils
+          wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Permit Scraper
+        env:
+          IMFL_USERNAME: ${{ secrets.IMFL_USERNAME }}
+          IMFL_PASSWORD: ${{ secrets.IMFL_PASSWORD }}
+          CS_USERNAME: ${{ secrets.CS_USERNAME }}
+          CS_PASSWORD: ${{ secrets.CS_PASSWORD }}
+          FLY_APP_URL: ${{ secrets.FLY_APP_URL }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          TARGET_DATE="${{ github.event.client_payload.date || github.event.inputs.date || '' }}"
+          BOND_TYPE="${{ github.event.client_payload.bond || github.event.inputs.bond || 'BOTH' }}"
+          
+          CMD="python scripts/main_permits.py --headless"
+          if [ -n "$TARGET_DATE" ]; then
+            CMD="$CMD --date $TARGET_DATE"
+          fi
+          if [ -n "$BOND_TYPE" ]; then
+            CMD="$CMD --bond $BOND_TYPE"
+          fi
+          
+          echo "🚀 Executing: $CMD"
+          eval $CMD
+
+      - name: Upload Scraped JSON Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: permit-backups
+          path: config/backup_permits_*.json

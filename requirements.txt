@@ -1,0 +1,23 @@
+# ==========================================
+# Permit Scraper & Mobile Dashboard - Requirements
+# ==========================================
+
+# --- Automation Core & OCR ---
+selenium==4.36.0
+webdriver-manager>=4.0.0
+pytesseract
+Pillow
+ddddocr
+opencv-python-headless
+
+# --- Data Processing ---
+openpyxl>=3.1.0
+pandas>=2.0.0
+fpdf2
+
+
+# --- FastAPI Dashboard Backend ---
+fastapi>=0.100.0
+uvicorn>=0.20.0
+websockets>=11.0
+requests>=2.30.0
