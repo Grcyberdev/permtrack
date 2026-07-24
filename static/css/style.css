@@ -653,3 +653,92 @@ header.navbar {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
 }
+
+/* Custom Date Selector UI */
+#backup-selector {
+    background: var(--card-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--accent-indigo);
+    padding: 0.55rem 1rem;
+    border-radius: 0.75rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+    transition: all 0.25s ease;
+    outline: none;
+}
+
+#backup-selector:hover, #backup-selector:focus {
+    border-color: var(--accent-purple);
+    box-shadow: 0 6px 18px rgba(168, 85, 247, 0.3);
+}
+
+#backup-selector option {
+    background: #0f172a;
+    color: #f8fafc;
+    padding: 0.6rem;
+}
+
+/* Collapsible Permit Section Header Bar */
+.permit-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.85rem 1.25rem;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 1rem;
+    margin-bottom: 1rem;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.25s ease;
+}
+
+.permit-section-header:hover {
+    border-color: var(--accent-indigo);
+    box-shadow: 0 4px 15px rgba(99, 102, 241, 0.15);
+}
+
+.permit-section-header-title {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+}
+
+.permit-section-header-title h2 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.btn-toggle-section {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.85rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--card-border);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-toggle-section:hover {
+    background: rgba(99, 102, 241, 0.15);
+    color: #ffffff;
+    border-color: var(--accent-indigo);
+}
+
+.collapsible-permits-container {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.collapsible-permits-container.collapsed {
+    display: none !important;
+}

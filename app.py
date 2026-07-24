@@ -156,35 +156,60 @@ async def download_pdf_report(filename: str = None):
 @app.get("/api/backups")
 async def get_backups():
     """
-    Returns a list of all available timestamped backup JSON files.
+    Returns deduplicated, hierarchically sorted list of available date backups.
     """
+    from datetime import datetime, timedelta
     config_dir = os.path.join(PROJECT_ROOT, "config")
     backup_files = glob.glob(os.path.join(config_dir, "backup_permits_*.json"))
     backup_files = [f for f in backup_files if "latest.json" not in f]
-    backup_files.sort(key=os.path.getmtime, reverse=True)
+    
+    by_date = {}
+    today_str = datetime.now().strftime("%Y%m%d")
+    yesterday_str = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+    
+    for filepath in backup_files:
+        basename = os.path.basename(filepath)
+        ts = basename.replace("backup_permits_", "").replace(".json", "")
+        date_key = ts.split("_")[0]
+        
+        if not date_key.isdigit() or len(date_key) != 8 or date_key < "20260101":
+            continue
+            
+        mtime = os.path.getmtime(filepath)
+        if date_key not in by_date or mtime > by_date[date_key]["mtime"]:
+            by_date[date_key] = {
+                "filepath": filepath,
+                "filename": basename,
+                "mtime": mtime,
+                "date_key": date_key
+            }
+            
+    sorted_dates = sorted(by_date.keys(), reverse=True)
     
     results = []
-    for f in backup_files:
-        basename = os.path.basename(f)
-        ts = basename.replace("backup_permits_", "").replace(".json", "")
-        parts = ts.split("_")
-        date_str = parts[0]
-        time_str = parts[1] if len(parts) > 1 else ""
+    for date_key in sorted_dates:
+        item = by_date[date_key]
+        year = date_key[0:4]
+        month = date_key[4:6]
+        day = date_key[6:8]
         
-        if len(date_str) == 8:
-            formatted_date = f"{date_str[6:8]}-{date_str[4:6]}-{date_str[0:4]}"
-        else:
-            formatted_date = date_str
+        try:
+            dt = datetime(int(year), int(month), int(day))
+            formatted_date = dt.strftime("%d-%b-%Y")
+        except:
+            formatted_date = f"{day}-{month}-{year}"
             
-        if len(time_str) >= 4:
-            formatted_time = f"{time_str[0:2]}:{time_str[2:4]}"
+        if date_key == today_str:
+            display_name = f"Today ({formatted_date})"
+        elif date_key == yesterday_str:
+            display_name = f"Yesterday ({formatted_date})"
         else:
-            formatted_time = ""
+            display_name = formatted_date
             
-        display_name = f"{formatted_date} {formatted_time}".strip()
         results.append({
-            "filename": basename,
-            "display": display_name
+            "filename": item["filename"],
+            "display": display_name,
+            "date_key": date_key
         })
         
     return JSONResponse(content=results)
@@ -226,20 +251,25 @@ async def upload_results(request: Request):
         if not parsed_date:
             parsed_date = datetime.now().strftime("%Y%m%d")
             
-        time_suffix = datetime.now().strftime("%H%M%S")
-        ts_filename = f"backup_permits_{parsed_date}_{time_suffix}.json"
+        canonical_filename = f"backup_permits_{parsed_date}_000000.json"
         latest_filename = "backup_permits_latest.json"
         
-        with open(os.path.join(config_dir, ts_filename), "w") as f:
+        with open(os.path.join(config_dir, canonical_filename), "w") as f:
             json.dump(records, f, indent=4)
         with open(os.path.join(config_dir, latest_filename), "w") as f:
             json.dump(records, f, indent=4)
             
-        print(f"📥 Received {len(records)} scraped records via webhook for date {date_str} -> saved to {ts_filename}")
+        # Clean up any extra timestamp files for the same target date
+        for old_f in glob.glob(os.path.join(config_dir, f"backup_permits_{parsed_date}_*.json")):
+            if os.path.basename(old_f) != canonical_filename:
+                try: os.remove(old_f)
+                except: pass
+                
+        print(f"📥 Received {len(records)} scraped records via webhook for date {date_str} -> saved to {canonical_filename}")
         return JSONResponse(content={
             "status": "success",
             "message": f"Saved {len(records)} records for date {date_str}",
-            "filename": ts_filename
+            "filename": canonical_filename
         })
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": f"Failed to save uploaded records: {str(e)}"})

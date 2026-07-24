@@ -167,22 +167,36 @@
 
                     <!-- Pending Permits Section -->
                     <div style="margin-bottom: 2rem;">
-                        <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.1rem; margin-bottom: 1rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
-                            <span style="color: #f59e0b;">🟡</span> Applied / Pending Permits
-                            <span id="badge-pending-count" class="status-badge pending">0 permits</span>
-                        </h2>
-                        <div id="pending-permits-list">
+                        <div class="permit-section-header" onclick="togglePermitSection('pending')">
+                            <div class="permit-section-header-title">
+                                <span style="color: #f59e0b;">🟡</span>
+                                <h2>Applied / Pending Permits</h2>
+                                <span id="badge-pending-count" class="status-badge pending">0 permits</span>
+                            </div>
+                            <button id="btn-toggle-pending" class="btn-toggle-section" onclick="event.stopPropagation(); togglePermitSection('pending');">
+                                <span class="toggle-icon">➖</span>
+                                <span class="toggle-text">Minimize</span>
+                            </button>
+                        </div>
+                        <div id="pending-permits-list" class="collapsible-permits-container">
                             <!-- Injected dynamically -->
                         </div>
                     </div>
 
                     <!-- Dispatched Permits Section -->
                     <div>
-                        <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.1rem; margin-bottom: 1rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
-                            <span style="color: #10b981;">🟢</span> Dispatched Permits (Pass Issued)
-                            <span id="badge-issued-count" class="status-badge issued">0 permits</span>
-                        </h2>
-                        <div id="dispatched-permits-list">
+                        <div class="permit-section-header" onclick="togglePermitSection('dispatched')">
+                            <div class="permit-section-header-title">
+                                <span style="color: #10b981;">🟢</span>
+                                <h2>Dispatched Permits (Pass Issued)</h2>
+                                <span id="badge-issued-count" class="status-badge issued">0 permits</span>
+                            </div>
+                            <button id="btn-toggle-dispatched" class="btn-toggle-section" onclick="event.stopPropagation(); togglePermitSection('dispatched');">
+                                <span class="toggle-icon">➖</span>
+                                <span class="toggle-text">Minimize</span>
+                            </button>
+                        </div>
+                        <div id="dispatched-permits-list" class="collapsible-permits-container">
                             <!-- Injected dynamically -->
                         </div>
                     </div>
@@ -348,6 +362,21 @@
             switchTab('permits');
             handleSearch();
             showToast(`Filtered permits for ${partyName}`);
+        }
+
+        function togglePermitSection(sectionType) {
+            const listElem = document.getElementById(sectionType === 'pending' ? 'pending-permits-list' : 'dispatched-permits-list');
+            const btnElem = document.getElementById(sectionType === 'pending' ? 'btn-toggle-pending' : 'btn-toggle-dispatched');
+            const badgeElem = document.getElementById(sectionType === 'pending' ? 'badge-pending-count' : 'badge-issued-count');
+            const badgeText = badgeElem ? badgeElem.innerText : '';
+            
+            const isCollapsed = listElem.classList.toggle('collapsed');
+            
+            if (isCollapsed) {
+                btnElem.innerHTML = `<span class="toggle-icon">➕</span> <span class="toggle-text">Expand (${badgeText})</span>`;
+            } else {
+                btnElem.innerHTML = `<span class="toggle-icon">➖</span> <span class="toggle-text">Minimize</span>`;
+            }
         }
 
         // -------------------------------------------------------------
