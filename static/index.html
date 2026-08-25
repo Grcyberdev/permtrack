@@ -1,63 +1,17 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PermTrack Enterprise | Assam Excise Revenue Dashboard</title>
 
-    <!-- Google Fonts: Plus Jakarta Sans, Outfit, JetBrains Mono -->
+    <!-- Google Fonts: Fraunces (Display Serif), Public Sans (UI/Grotesk), IBM Plex Mono (IDs/Codes) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,600&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,600&display=swap" rel="stylesheet">
 
     <!-- Stylesheet -->
     <link rel="stylesheet" href="/static/css/style.css">
-    <style>
-        .filter-pill {
-            padding: 0.35rem 0.85rem;
-            border-radius: 9999px;
-            font-size: 0.75rem;
-            font-weight: 700;
-            background: rgba(255, 255, 255, 0.04);
-            border: 1px solid var(--card-border);
-            color: var(--text-secondary);
-            cursor: pointer;
-            transition: all 0.2s ease;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.35rem;
-        }
-        .filter-pill:hover {
-            border-color: var(--card-border-hover);
-            color: var(--text-primary);
-        }
-        .filter-pill.active {
-            background: var(--accent-indigo);
-            color: #ffffff;
-            border-color: var(--accent-indigo);
-            box-shadow: 0 2px 10px var(--accent-indigo-glow);
-        }
-        .party-row-clickable {
-            cursor: pointer;
-            transition: background 0.2s ease;
-        }
-        .party-row-clickable:hover {
-            background: rgba(99, 102, 241, 0.12) !important;
-        }
-        .analytics-progress-bar {
-            height: 8px;
-            border-radius: 9999px;
-            background: rgba(255, 255, 255, 0.06);
-            overflow: hidden;
-            margin-top: 0.4rem;
-        }
-        .analytics-progress-fill {
-            height: 100%;
-            border-radius: 9999px;
-            background: linear-gradient(90deg, var(--accent-indigo), var(--accent-cyan));
-            transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-    </style>
 </head>
 <body>
 
@@ -102,13 +56,13 @@
             </div>
         </header>
 
-        <!-- Executive Analytics Hero Section -->
+        <!-- Executive Analytics Hero Section (Continuous Ledger Strip) -->
         <div class="hero-stats-banner">
             <!-- Metric 1: Total Equivalent Liquor Volume -->
             <div class="hero-metric-card">
                 <div class="hero-metric-label">
                     <span>Total Dispatched Volume</span>
-                    <span style="color: var(--accent-indigo); font-weight: 800;">📦 Total Eq. Cases</span>
+                    <span style="font-weight: 700;">📦 Total Eq. Cases</span>
                 </div>
                 <div class="hero-metric-val" id="hero-total-cases">0 cs</div>
                 <div class="hero-metric-subtext" id="hero-total-cases-sub">
@@ -120,7 +74,7 @@
                         <div id="dist-imfl-bar" class="distribution-seg-imfl" style="width: 50%;" title="IMFL Volume"></div>
                         <div id="dist-cs-bar" class="distribution-seg-cs" style="width: 50%;" title="CS Volume"></div>
                     </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem;">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--ink-40); margin-top: 0.35rem; font-family: var(--font-mono);">
                         <span id="dist-imfl-label">🍷 IMFL: 0 cs (0%)</span>
                         <span id="dist-cs-label">🍶 CS: 0 cs (0%)</span>
                     </div>
@@ -131,15 +85,15 @@
             <div class="hero-metric-card">
                 <div class="hero-metric-label">
                     <span>Dispatched Turnover</span>
-                    <span style="color: var(--accent-emerald); font-weight: 800;">💰 Total MRP</span>
+                    <span style="font-weight: 700;">💰 Total MRP</span>
                 </div>
-                <div class="hero-metric-val" id="hero-total-mrp" style="color: var(--accent-emerald);">₹ 0.00</div>
+                <div class="hero-metric-val" id="hero-total-mrp">₹ 0.00</div>
                 <div class="hero-metric-subtext" id="hero-total-mrp-sub">
                     <span>Estimated gross value of dispatched stock</span>
                 </div>
                 <div style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem;">
-                    <span class="status-badge issued" id="hero-clearance-rate">100% Dispatched</span>
-                    <span style="color: var(--text-secondary);" id="hero-active-indents-label">0 Active Indents</span>
+                    <span class="duty-stamp stamp-dispatched" id="hero-clearance-rate">100% Dispatched</span>
+                    <span style="color: var(--ink-60);" id="hero-active-indents-label">0 Active Indents</span>
                 </div>
             </div>
 
@@ -147,15 +101,15 @@
             <div class="hero-metric-card">
                 <div class="hero-metric-label">
                     <span>Pending Clearance Queue</span>
-                    <span style="color: var(--accent-amber); font-weight: 800;">⏳ Active Indents</span>
+                    <span style="font-weight: 700;">⏳ Active Indents</span>
                 </div>
-                <div class="hero-metric-val" id="hero-pending-count" style="color: var(--accent-amber);">0</div>
+                <div class="hero-metric-val" id="hero-pending-count">0</div>
                 <div class="hero-metric-subtext" id="hero-pending-sub">
                     <span>0 cs + 0 b awaiting official Transit Pass</span>
                 </div>
                 <div style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.4rem; font-size: 0.75rem;">
-                    <span class="filter-pill active" id="hero-aging-fresh" style="padding: 0.2rem 0.5rem; font-size: 0.7rem;">🟡 0 Fresh</span>
-                    <span class="filter-pill" id="hero-aging-carried" style="padding: 0.2rem 0.5rem; font-size: 0.7rem; background: rgba(249, 115, 22, 0.15); color: #f97316; border-color: rgba(249, 115, 22, 0.3);">🟠 0 Carried Over</span>
+                    <span class="duty-stamp stamp-fresh" id="hero-aging-fresh">🟡 0 Fresh</span>
+                    <span class="duty-stamp stamp-carried" id="hero-aging-carried">🟠 0 Carried Over</span>
                 </div>
             </div>
         </div>
@@ -165,7 +119,7 @@
             <div class="kpi-card">
                 <div class="kpi-header">
                     <span class="kpi-title">Dispatched Passes</span>
-                    <div class="kpi-icon" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">✅</div>
+                    <div class="kpi-icon">✅</div>
                 </div>
                 <div class="kpi-value" id="kpi-dispatched-permits">0</div>
                 <div class="kpi-meta">Pass Issued dispatches</div>
@@ -174,7 +128,7 @@
             <div class="kpi-card">
                 <div class="kpi-header">
                     <span class="kpi-title">IMFL Dispatches</span>
-                    <div class="kpi-icon" style="background: rgba(99, 102, 241, 0.15); color: #6366f1;">🍷</div>
+                    <div class="kpi-icon">🍷</div>
                 </div>
                 <div class="kpi-value" id="kpi-imfl-permits">0</div>
                 <div class="kpi-meta" id="kpi-imfl-meta">0 cs + 0 b</div>
@@ -183,7 +137,7 @@
             <div class="kpi-card">
                 <div class="kpi-header">
                     <span class="kpi-title">CS Dispatches</span>
-                    <div class="kpi-icon" style="background: rgba(6, 182, 212, 0.15); color: #06b6d4;">🍶</div>
+                    <div class="kpi-icon">🍶</div>
                 </div>
                 <div class="kpi-value" id="kpi-cs-permits">0</div>
                 <div class="kpi-meta" id="kpi-cs-meta">0 cs + 0 b</div>
@@ -192,7 +146,7 @@
             <div class="kpi-card">
                 <div class="kpi-header">
                     <span class="kpi-title">Physical Cases</span>
-                    <div class="kpi-icon" style="background: rgba(99, 102, 241, 0.15); color: #6366f1;">📦</div>
+                    <div class="kpi-icon">📦</div>
                 </div>
                 <div class="kpi-value" id="kpi-dispatched-cases">0 cs</div>
                 <div class="kpi-meta" id="kpi-dispatched-cases-meta">Full unopened cases</div>
@@ -201,7 +155,7 @@
             <div class="kpi-card">
                 <div class="kpi-header">
                     <span class="kpi-title">Loose Bottles</span>
-                    <div class="kpi-icon" style="background: rgba(168, 85, 247, 0.15); color: #a855f7;">🍾</div>
+                    <div class="kpi-icon">🍾</div>
                 </div>
                 <div class="kpi-value" id="kpi-dispatched-bottles">0 b</div>
                 <div class="kpi-meta" id="kpi-dispatched-bottles-meta">= 0 case equivalents</div>
@@ -210,7 +164,7 @@
             <div class="kpi-card">
                 <div class="kpi-header">
                     <span class="kpi-title">Pending Indents</span>
-                    <div class="kpi-icon" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">⏳</div>
+                    <div class="kpi-icon">⏳</div>
                 </div>
                 <div class="kpi-value" id="kpi-pending-permits">0</div>
                 <div class="kpi-meta" id="kpi-pending-meta">0 cs + 0 b pending</div>
@@ -251,9 +205,9 @@
                     <div style="margin-bottom: 2rem;">
                         <div class="permit-section-header" onclick="togglePermitSection('pending')">
                             <div class="permit-section-header-title">
-                                <span style="color: #f59e0b; font-size: 1.1rem;">⏳</span>
+                                <span>⏳</span>
                                 <h2>Applied / Pending Approval Permits</h2>
-                                <span id="badge-pending-count" class="status-badge pending">0 permits</span>
+                                <span id="badge-pending-count" class="duty-stamp stamp-fresh">0 permits</span>
                             </div>
                             <button id="btn-toggle-pending" class="btn-toggle-section" onclick="event.stopPropagation(); togglePermitSection('pending');">
                                 <span class="toggle-icon">▼</span>
@@ -277,9 +231,9 @@
                     <div>
                         <div class="permit-section-header" onclick="togglePermitSection('dispatched')">
                             <div class="permit-section-header-title">
-                                <span style="color: #10b981; font-size: 1.1rem;">🟢</span>
+                                <span>🟢</span>
                                 <h2>Dispatched Permits (Pass Issued)</h2>
-                                <span id="badge-issued-count" class="status-badge issued">0 permits</span>
+                                <span id="badge-issued-count" class="duty-stamp stamp-dispatched">0 permits</span>
                             </div>
                             <button id="btn-toggle-dispatched" class="btn-toggle-section" onclick="event.stopPropagation(); togglePermitSection('dispatched');">
                                 <span class="toggle-icon">▼</span>
@@ -297,8 +251,8 @@
                 <div id="tab-party-view" style="display: none;">
                     <div class="kpi-card" style="padding: 1.5rem;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
-                            <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.2rem; color: var(--text-primary);">🏢 Party-wise Loading Summary</h2>
-                            <small style="color: var(--text-muted); font-size: 0.8rem;">💡 Tip: Click any row to filter permits</small>
+                            <h2 style="font-family: var(--font-serif); font-size: 1.2rem; color: var(--ink-primary);">🏢 Party-wise Loading Summary</h2>
+                            <small style="color: var(--ink-40); font-size: 0.78rem;">💡 Tip: Click any row to filter permits</small>
                         </div>
                         <div class="summary-table-wrapper">
                             <table class="summary-table">
@@ -325,7 +279,7 @@
                 <!-- TAB 3: Brand-wise Summary Table -->
                 <div id="tab-brand-view" style="display: none;">
                     <div class="kpi-card" style="padding: 1.5rem;">
-                        <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.2rem; margin-bottom: 1.25rem;">🍾 Brand-wise Daily Loading Summary</h2>
+                        <h2 style="font-family: var(--font-serif); font-size: 1.2rem; margin-bottom: 1.25rem; color: var(--ink-primary);">🍾 Brand-wise Daily Loading Summary</h2>
                         <div class="summary-table-wrapper">
                             <table class="summary-table">
                                 <thead>
@@ -353,7 +307,7 @@
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem;">
                         <!-- Top Retailers Progress -->
                         <div class="kpi-card" style="padding: 1.5rem;">
-                            <h3 style="font-family: 'Outfit', sans-serif; font-size: 1.05rem; margin-bottom: 1rem; color: var(--text-primary);">🏆 Top 5 Retailers by Volume</h3>
+                            <h3 style="font-family: var(--font-serif); font-size: 1.05rem; margin-bottom: 1rem; color: var(--ink-primary);">🏆 Top 5 Retailers by Volume</h3>
                             <div id="analytics-top-retailers">
                                 <!-- Injected dynamically -->
                             </div>
@@ -361,7 +315,7 @@
 
                         <!-- Top Brands Progress -->
                         <div class="kpi-card" style="padding: 1.5rem;">
-                            <h3 style="font-family: 'Outfit', sans-serif; font-size: 1.05rem; margin-bottom: 1rem; color: var(--text-primary);">🍾 Top 5 Brands Dispatched</h3>
+                            <h3 style="font-family: var(--font-serif); font-size: 1.05rem; margin-bottom: 1rem; color: var(--ink-primary);">🍾 Top 5 Brands Dispatched</h3>
                             <div id="analytics-top-brands">
                                 <!-- Injected dynamically -->
                             </div>
@@ -450,15 +404,15 @@
         // Theme Toggle Setup
         // -------------------------------------------------------------
         const themeBtn = document.getElementById('theme-toggle');
-        const currentTheme = localStorage.getItem('theme') || 'dark';
+        const currentTheme = localStorage.getItem('theme') || 'light';
         document.documentElement.setAttribute('data-theme', currentTheme);
-        themeBtn.innerText = currentTheme === 'dark' ? '🌙' : '☀️';
+        themeBtn.innerText = currentTheme === 'dark' ? '☀️' : '🌙';
 
         themeBtn.addEventListener('click', () => {
             const nowTheme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
             document.documentElement.setAttribute('data-theme', nowTheme);
             localStorage.setItem('theme', nowTheme);
-            themeBtn.innerText = nowTheme === 'dark' ? '🌙' : '☀️';
+            themeBtn.innerText = nowTheme === 'dark' ? '☀️' : '🌙';
             showToast(`Switched to ${nowTheme.toUpperCase()} theme`);
         });
 
@@ -850,18 +804,18 @@
 
                 let statusBadgesHtml = '';
                 if (info.extraction_error || info.Status === "EXTRACTION_FAILED") {
-                    statusBadgesHtml = `<span class="status-badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4);">⚠️ Modal Extraction Failed</span>`;
+                    statusBadgesHtml = `<span class="duty-stamp stamp-error">⚠️ Extraction Failed</span>`;
                 } else if (isPending) {
                     if (isCarriedOver) {
-                        statusBadgesHtml = `<span class="status-badge" style="background: rgba(249, 115, 22, 0.15); color: #f97316; border: 1px solid rgba(249, 115, 22, 0.35);">🟠 Carried Over (${agingDays}d ago • ${appDate})</span>`;
+                        statusBadgesHtml = `<span class="duty-stamp stamp-carried">🟠 Carried Over (${agingDays}d • ${appDate})</span>`;
                     } else {
-                        statusBadgesHtml = `<span class="status-badge pending">🟡 Fresh (Today)</span>`;
+                        statusBadgesHtml = `<span class="duty-stamp stamp-fresh">🟡 Fresh Today</span>`;
                     }
                 } else {
                     if (info.fulfilled_from_carry_over) {
-                        statusBadgesHtml = `<span class="status-badge issued">🟢 Pass Issued</span> <span class="status-badge" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.35);">🔵 Fulfilled Carry-Over (${info.turnaround_days || 1}d turnaround)</span>`;
+                        statusBadgesHtml = `<span class="duty-stamp stamp-dispatched">🟢 Pass Issued</span> <span class="duty-stamp stamp-fulfilled">🔵 Fulfilled (${info.turnaround_days || 1}d)</span>`;
                     } else {
-                        statusBadgesHtml = `<span class="status-badge issued">🟢 Pass Issued</span> <span class="status-badge" style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25);">⚡ Same-Day</span>`;
+                        statusBadgesHtml = `<span class="duty-stamp stamp-dispatched">🟢 Pass Issued</span> <span class="duty-stamp stamp-dispatched" style="filter:brightness(1.15);">⚡ Same-Day</span>`;
                     }
                 }
 
@@ -878,8 +832,8 @@
 
                     <div class="permit-meta-grid">
                         <div>Indent: <span class="code-tag">${info["Indent Number"] || '-'}</span></div>
-                        <div>Transit Pass: <span class="code-tag" onclick="copyToClipboard('${info["Transit Pass"] || info["Permit Number"]}')" style="cursor:pointer; color: var(--accent-emerald);" title="Click to copy">${info["Transit Pass"] || info["Permit Number"] || '-'}</span></div>
-                        <div>Vehicle: <span class="code-tag" style="color:var(--accent-cyan);">${info["Vehicle Number"] ? '🚚 ' + info["Vehicle Number"] : 'No Vehicle'}</span></div>
+                        <div>Transit Pass: <span class="code-tag" onclick="copyToClipboard('${info["Transit Pass"] || info["Permit Number"]}')" style="cursor:pointer; color: var(--ledger-green);" title="Click to copy">${info["Transit Pass"] || info["Permit Number"] || '-'}</span></div>
+                        <div>Vehicle: <span class="code-tag" style="color:var(--duty-blue);">${info["Vehicle Number"] ? '🚚 ' + info["Vehicle Number"] : 'No Vehicle'}</span></div>
                         <div>Applied Date: <span>${appDate}</span></div>
                     </div>
 
@@ -890,7 +844,7 @@
                         <div class="brand-lines-container">
                             ${linesHtml}
                         </div>
-                    ` : '<div style="font-size:0.8rem; color:var(--text-muted);">No brand items parsed</div>'}
+                    ` : '<div style="font-size:0.78rem; color:var(--ink-40);">No brand items parsed</div>'}
                 `;
 
                 if (isPending) {
@@ -902,8 +856,8 @@
                 }
             });
 
-            if (pCount === 0) pendingList.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:1.25rem; text-align:center;">No ${activePendingFilter === 'FRESH' ? "fresh " : (activePendingFilter === 'CARRIED' ? "carried over " : "")}pending permits found.</div>`;
-            if (dCount === 0) dispatchedList.innerHTML = '<div style="color:var(--text-muted); font-size:0.85rem; padding:1.25rem; text-align:center;">No dispatched permits found.</div>';
+            if (pCount === 0) pendingList.innerHTML = `<div style="color:var(--ink-40); font-size:0.85rem; padding:1.25rem; text-align:center;">No ${activePendingFilter === 'FRESH' ? "fresh " : (activePendingFilter === 'CARRIED' ? "carried over " : "")}pending permits found.</div>`;
+            if (dCount === 0) dispatchedList.innerHTML = '<div style="color:var(--ink-40); font-size:0.85rem; padding:1.25rem; text-align:center;">No dispatched permits found.</div>';
 
             // Render Party Summary Table & Footer
             const partyTbody = document.getElementById('party-summary-tbody');
@@ -922,22 +876,22 @@
                 const pTotCs = partySummary[party].cases + partySummary[party].csEq;
                 const pTotCsStr = pTotCs % 1 === 0 ? pTotCs.toLocaleString() : pTotCs.toFixed(2);
                 row.innerHTML = `
-                    <td style="font-weight: 700; color: var(--text-primary);">🏢 ${party}</td>
+                    <td style="font-weight: 600; color: var(--ink-primary);">🏢 ${party}</td>
                     <td style="text-align: center;"><span class="bond-pill">${partySummary[party].permits.size}</span></td>
-                    <td style="text-align: right; font-weight: 800; color: var(--accent-indigo);">${pTotCsStr} cs</td>
-                    <td style="text-align: right; font-weight: 800; color: var(--accent-purple);">${partySummary[party].bottles.toLocaleString()} b</td>
-                    <td style="text-align: right; font-weight: 800; color: var(--accent-emerald);">₹ ${(partySummary[party].mrp).toLocaleString('en-IN', {maximumFractionDigits: 0})}</td>
+                    <td style="text-align: right; font-weight: 700; color: var(--ink-primary); font-family: var(--font-mono);">${pTotCsStr} cs</td>
+                    <td style="text-align: right; font-weight: 700; color: var(--stamp-gold); font-family: var(--font-mono);">${partySummary[party].bottles.toLocaleString()} b</td>
+                    <td style="text-align: right; font-weight: 700; color: var(--ledger-green); font-family: var(--font-mono);">₹ ${(partySummary[party].mrp).toLocaleString('en-IN', {maximumFractionDigits: 0})}</td>
                 `;
                 partyTbody.appendChild(row);
             });
 
             const partyFootRow = document.createElement('tr');
             partyFootRow.innerHTML = `
-                <td style="font-weight: 800; color: var(--text-primary);">TOTAL (${partyKeys.length} Parties)</td>
-                <td style="text-align: center; font-weight: 800;"><span class="bond-pill" style="background: var(--accent-indigo); color:#fff;">${totalPartyPermits}</span></td>
-                <td style="text-align: right; font-weight: 800; color: var(--accent-indigo);">${totCsFormatted} cs</td>
-                <td style="text-align: right; font-weight: 800; color: var(--accent-purple);">${totalDispatchedBottles.toLocaleString()} b</td>
-                <td style="text-align: right; font-weight: 800; color: var(--accent-emerald);">₹ ${totalDispatchedMRP.toLocaleString('en-IN', {maximumFractionDigits: 0})}</td>
+                <td style="font-weight: 800; color: var(--ink-primary);">TOTAL (${partyKeys.length} Parties)</td>
+                <td style="text-align: center; font-weight: 800;"><span class="bond-pill" style="background: var(--ink-navy); color:#fff;">${totalPartyPermits}</span></td>
+                <td style="text-align: right; font-weight: 800; color: var(--ink-primary); font-family: var(--font-mono);">${totCsFormatted} cs</td>
+                <td style="text-align: right; font-weight: 800; color: var(--stamp-gold); font-family: var(--font-mono);">${totalDispatchedBottles.toLocaleString()} b</td>
+                <td style="text-align: right; font-weight: 800; color: var(--ledger-green); font-family: var(--font-mono);">₹ ${totalDispatchedMRP.toLocaleString('en-IN', {maximumFractionDigits: 0})}</td>
             `;
             partyTfoot.appendChild(partyFootRow);
 
@@ -955,21 +909,21 @@
                 
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td style="font-weight: 700; color: var(--text-primary);">🍾 ${brand.name}</td>
+                    <td style="font-weight: 600; color: var(--ink-primary);">🍾 ${brand.name}</td>
                     <td style="text-align: center;"><span class="code-tag">${brand.size} ML</span></td>
-                    <td style="text-align: right; font-weight: 800; color: var(--accent-indigo);">${totalBrandCsStr} cs</td>
-                    <td style="text-align: right; font-weight: 800; color: var(--accent-purple);">${brand.bottles.toLocaleString()} b <small style="color:var(--text-muted); font-size:0.75rem;">${bottleSubtext}</small></td>
-                    <td style="text-align: right; font-weight: 800; color: var(--accent-emerald);">₹ ${(brand.mrp).toLocaleString('en-IN', {maximumFractionDigits: 0})}</td>
+                    <td style="text-align: right; font-weight: 700; color: var(--ink-primary); font-family: var(--font-mono);">${totalBrandCsStr} cs</td>
+                    <td style="text-align: right; font-weight: 700; color: var(--stamp-gold); font-family: var(--font-mono);">${brand.bottles.toLocaleString()} b <small style="color:var(--ink-40); font-size:0.75rem;">${bottleSubtext}</small></td>
+                    <td style="text-align: right; font-weight: 700; color: var(--ledger-green); font-family: var(--font-mono);">₹ ${(brand.mrp).toLocaleString('en-IN', {maximumFractionDigits: 0})}</td>
                 `;
                 brandTbody.appendChild(row);
             });
 
             const brandFootRow = document.createElement('tr');
             brandFootRow.innerHTML = `
-                <td style="font-weight: 800; color: var(--text-primary);" colspan="2">TOTAL (${brandValues.length} Brand SKUs)</td>
-                <td style="text-align: right; font-weight: 800; color: var(--accent-indigo);">${totCsFormatted} cs</td>
-                <td style="text-align: right; font-weight: 800; color: var(--accent-purple);">${totalDispatchedBottles.toLocaleString()} b</td>
-                <td style="text-align: right; font-weight: 800; color: var(--accent-emerald);">₹ ${totalDispatchedMRP.toLocaleString('en-IN', {maximumFractionDigits: 0})}</td>
+                <td style="font-weight: 800; color: var(--ink-primary);" colspan="2">TOTAL (${brandValues.length} Brand SKUs)</td>
+                <td style="text-align: right; font-weight: 800; color: var(--ink-primary); font-family: var(--font-mono);">${totCsFormatted} cs</td>
+                <td style="text-align: right; font-weight: 800; color: var(--stamp-gold); font-family: var(--font-mono);">${totalDispatchedBottles.toLocaleString()} b</td>
+                <td style="text-align: right; font-weight: 800; color: var(--ledger-green); font-family: var(--font-mono);">₹ ${totalDispatchedMRP.toLocaleString('en-IN', {maximumFractionDigits: 0})}</td>
             `;
             brandTfoot.appendChild(brandFootRow);
 
@@ -997,9 +951,9 @@
                 const item = document.createElement('div');
                 item.style.marginBottom = '1rem';
                 item.innerHTML = `
-                    <div style="display: flex; justify-content: space-between; font-size: 0.825rem; font-weight: 700;">
-                        <span style="color: var(--text-primary);">#${idx + 1} ${p}</span>
-                        <span style="color: var(--accent-indigo);">${volStr} cs</span>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.825rem; font-weight: 600; margin-bottom: 0.25rem;">
+                        <span style="color: var(--ink-primary);">#${idx + 1} ${p}</span>
+                        <span style="color: var(--ink-primary); font-family: var(--font-mono); font-weight: 700;">${volStr} cs</span>
                     </div>
                     <div class="analytics-progress-bar">
                         <div class="analytics-progress-fill" style="width: ${pct}%;"></div>
@@ -1019,12 +973,12 @@
                 const item = document.createElement('div');
                 item.style.marginBottom = '1rem';
                 item.innerHTML = `
-                    <div style="display: flex; justify-content: space-between; font-size: 0.825rem; font-weight: 700;">
-                        <span style="color: var(--text-primary);">#${idx + 1} ${b.name} (${b.size} ML)</span>
-                        <span style="color: var(--accent-purple);">${volStr} cs</span>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.825rem; font-weight: 600; margin-bottom: 0.25rem;">
+                        <span style="color: var(--ink-primary);">#${idx + 1} ${b.name} (${b.size} ML)</span>
+                        <span style="color: var(--stamp-gold); font-family: var(--font-mono); font-weight: 700;">${volStr} cs</span>
                     </div>
                     <div class="analytics-progress-bar">
-                        <div class="analytics-progress-fill" style="width: ${pct}%; background: linear-gradient(90deg, var(--accent-purple), var(--accent-violet));"></div>
+                        <div class="analytics-progress-fill" style="width: ${pct}%; background: var(--stamp-gold);"></div>
                     </div>
                 `;
                 topBrandsContainer.appendChild(item);
