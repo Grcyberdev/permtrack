@@ -58,15 +58,15 @@
 
         <!-- Executive Analytics Hero Section (Continuous Ledger Strip) -->
         <div class="hero-stats-banner">
-            <!-- Metric 1: Total Equivalent Liquor Volume -->
-            <div class="hero-metric-card">
+            <!-- Metric 1: Total Equivalent Liquor Volume (1 Prominent Unified Figure) -->
+            <div class="hero-metric-card" style="border: 1px solid rgba(218, 165, 32, 0.4); background: linear-gradient(135deg, rgba(218, 165, 32, 0.08) 0%, rgba(20, 33, 61, 0.4) 100%);">
                 <div class="hero-metric-label">
-                    <span>Total Dispatched Volume</span>
-                    <span style="font-weight: 700;">📦 Total Eq. Cases</span>
+                    <span style="font-weight: 800; letter-spacing: 0.05em; color: var(--stamp-gold);">🏆 TODAY'S TOTAL VOLUME</span>
+                    <span style="font-weight: 700; color: var(--ink-primary);">1 Unified Figure</span>
                 </div>
-                <div class="hero-metric-val" id="hero-total-cases">0 cs</div>
+                <div class="hero-metric-val" id="hero-total-cases" style="color: var(--stamp-gold); font-size: 2.1rem;">0 cs</div>
                 <div class="hero-metric-subtext" id="hero-total-cases-sub">
-                    <span>0 Physical cs</span> • <span>0 cs from loose bottles</span>
+                    <span>0 Physical Full Cases</span> • <span>0 cs from Loose Bottles</span>
                 </div>
                 <!-- Multi-segment distribution bar -->
                 <div class="distribution-bar-wrapper">
@@ -116,6 +116,15 @@
 
         <!-- KPI Hero Cards Grid -->
         <div class="kpi-grid">
+            <div class="kpi-card" style="border-left: 3px solid var(--stamp-gold);">
+                <div class="kpi-header">
+                    <span class="kpi-title">Total Eq. Cases (Today)</span>
+                    <div class="kpi-icon">🏆</div>
+                </div>
+                <div class="kpi-value" id="kpi-total-equivalent-cases" style="color: var(--stamp-gold);">0 cs</div>
+                <div class="kpi-meta" id="kpi-total-equivalent-meta">Physical cs + Bottle cs Eq.</div>
+            </div>
+
             <div class="kpi-card">
                 <div class="kpi-header">
                     <span class="kpi-title">Dispatched Passes</span>
@@ -158,6 +167,17 @@
                     <div class="kpi-icon">🍾</div>
                 </div>
                 <div class="kpi-value" id="kpi-dispatched-bottles">0 b</div>
+                <div class="kpi-meta" id="kpi-dispatched-bottles-meta">= 0 cs eq</div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-title">Bulk Litres (BL)</span>
+                    <div class="kpi-icon">💧</div>
+                </div>
+                <div class="kpi-value" id="kpi-dispatched-bl">0.00 BL</div>
+                <div class="kpi-meta" id="kpi-dispatched-lpl">0.00 LPL (Proof Litres)</div>
+            </div>
                 <div class="kpi-meta" id="kpi-dispatched-bottles-meta">= 0 case equivalents</div>
             </div>
 
@@ -600,6 +620,8 @@
             let totalDispatchedBottles = 0;
             let totalDispatchedBottleCsEq = 0;
             let totalDispatchedMRP = 0.0;
+            let totalDispatchedBL = 0.0;
+            let totalDispatchedLPL = 0.0;
 
             let totalPendingCases = 0;
             let totalPendingBottles = 0;
@@ -654,6 +676,8 @@
                     totalDispatchedBottles += (item.Bottles || 0);
                     totalDispatchedBottleCsEq += bottleCsEq;
                     totalDispatchedMRP += (item["Total MRP"] || 0.0);
+                    totalDispatchedBL += (item["Bulk Litres"] || 0.0);
+                    totalDispatchedLPL += (item["LPL"] || 0.0);
                 }
 
                 // Group by Permit
@@ -668,9 +692,9 @@
                 }
 
                 // Party Summary
-                const partyName = item["Retailer Name"] || "Unknown Party";
+                const partyName = item["Retailer Name"] || "Unknown Retailer";
                 if (!partySummary[partyName]) {
-                    partySummary[partyName] = { permits: new Set(), cases: 0, bottles: 0, csEq: 0, mrp: 0.0 };
+                    partySummary[partyName] = { permits: new Set(), cases: 0, bottles: 0, csEq: 0, mrp: 0.0, licensee: item["Licensee Name"] || '' };
                 }
                 partySummary[partyName].permits.add(pKey);
                 partySummary[partyName].cases += (item.Cases || 0);
@@ -683,12 +707,13 @@
                 if (prodName) {
                     const bKey = `${prodName}_${item.Size || ''}`;
                     if (!brandSummary[bKey]) {
-                        brandSummary[bKey] = { name: prodName, size: item.Size || '-', cases: 0, bottles: 0, bPerCs: bPerCs, csEq: 0, mrp: 0.0 };
+                        brandSummary[bKey] = { name: prodName, category: item.Category || '', size: item.Size || '-', cases: 0, bottles: 0, bPerCs: bPerCs, csEq: 0, mrp: 0.0, bl: 0.0 };
                     }
                     brandSummary[bKey].cases += (item.Cases || 0);
                     brandSummary[bKey].bottles += (item.Bottles || 0);
                     brandSummary[bKey].csEq += bottleCsEq;
                     brandSummary[bKey].mrp += (item["Total MRP"] || 0.0);
+                    brandSummary[bKey].bl += (item["Bulk Litres"] || 0.0);
                 }
             });
 
@@ -703,7 +728,7 @@
 
             // Update Executive Hero Banner
             document.getElementById('hero-total-cases').innerText = `${totCsFormatted} cs`;
-            document.getElementById('hero-total-cases-sub').innerHTML = `<span>${totalDispatchedCases.toLocaleString()} Physical cs</span> • <span>${bottleCsFormatted} cs from loose bottles</span>`;
+            document.getElementById('hero-total-cases-sub').innerHTML = `<span>${totalDispatchedCases.toLocaleString()} Physical Full Cases</span> • <span>${bottleCsFormatted} cs from Loose Bottles</span>`;
             
             document.getElementById('dist-imfl-bar').style.width = `${imflPct}%`;
             document.getElementById('dist-cs-bar').style.width = `${csPct}%`;
@@ -722,6 +747,11 @@
             document.getElementById('hero-aging-carried').innerText = `🟠 ${carriedPendingSet.size} Carried Over`;
 
             // Update KPI Cards
+            const kpiTotEq = document.getElementById('kpi-total-equivalent-cases');
+            if (kpiTotEq) kpiTotEq.innerText = `${totCsFormatted} cs`;
+            const kpiTotMeta = document.getElementById('kpi-total-equivalent-meta');
+            if (kpiTotMeta) kpiTotMeta.innerText = `${totalDispatchedCases.toLocaleString()} physical + ${bottleCsFormatted} bottle cs`;
+
             document.getElementById('kpi-dispatched-permits').innerText = dispatchedPermitsSet.size;
             
             document.getElementById('kpi-imfl-permits').innerText = imflDispatchedSet.size;
@@ -732,15 +762,16 @@
 
             document.getElementById('kpi-dispatched-cases').innerText = `${totalDispatchedCases.toLocaleString()} cs`;
             const kpiCsMeta = document.getElementById('kpi-dispatched-cases-meta');
-            if (kpiCsMeta) {
-                kpiCsMeta.innerText = `Full unopened cases`;
-            }
+            if (kpiCsMeta) kpiCsMeta.innerText = `Full unopened cases`;
 
             document.getElementById('kpi-dispatched-bottles').innerText = `${totalDispatchedBottles.toLocaleString()} b`;
             const kpiBMet = document.getElementById('kpi-dispatched-bottles-meta');
-            if (kpiBMet) {
-                kpiBMet.innerText = `= ${bottleCsFormatted} Case Equivalents`;
-            }
+            if (kpiBMet) kpiBMet.innerText = `= ${bottleCsFormatted} cs equivalents`;
+
+            const kpiBl = document.getElementById('kpi-dispatched-bl');
+            if (kpiBl) kpiBl.innerText = `${totalDispatchedBL.toLocaleString(undefined, {maximumFractionDigits: 2})} BL`;
+            const kpiLpl = document.getElementById('kpi-dispatched-lpl');
+            if (kpiLpl) kpiLpl.innerText = `${totalDispatchedLPL.toLocaleString(undefined, {maximumFractionDigits: 2})} LPL`;
 
             document.getElementById('kpi-pending-permits').innerText = pendingPermitsSet.size;
             document.getElementById('kpi-pending-meta').innerText = `${freshPendingSet.size} Fresh • ${carriedPendingSet.size} Carried Over`;
@@ -791,9 +822,16 @@
                     const bPerCs = getBottlesPerCase(line.Size);
                     const bottleCsEq = (line.Bottles || 0) / bPerCs;
                     const bottleSubtext = line.Bottles > 0 ? ` (${line.Bottles} b = ${bottleCsEq % 1 === 0 ? bottleCsEq : bottleCsEq.toFixed(2)} cs)` : '';
+                    const blText = line["Bulk Litres"] > 0 ? `<span class="code-tag" style="font-size:0.68rem; color:var(--duty-blue);">${line["Bulk Litres"]} BL</span>` : '';
+                    const catText = line.Category ? `<span class="code-tag" style="font-size:0.68rem; color:var(--ink-60);">${line.Category}</span>` : '';
                     return `
                         <div class="brand-row-item">
-                            <span class="brand-row-name">${line["Product Name"]} <span class="code-tag" style="font-size: 0.7rem;">${line.Size || '-'} ML</span></span>
+                            <span class="brand-row-name">
+                                ${line["Product Name"]} 
+                                <span class="code-tag" style="font-size: 0.7rem;">${line.Size || '-'} ML</span>
+                                ${catText}
+                                ${blText}
+                            </span>
                             <div class="brand-row-qty">
                                 ${line.Cases > 0 ? `<span class="qty-pill-cases">${line.Cases} cs</span>` : ''}
                                 ${line.Bottles > 0 ? `<span class="qty-pill-bottles">${line.Bottles} b${bottleSubtext}</span>` : ''}
@@ -819,6 +857,9 @@
                     }
                 }
 
+                const licenseeHtml = info["Licensee Name"] ? `<div>Licensee: <span class="code-tag" style="color:var(--stamp-gold);">👤 ${info["Licensee Name"]}</span></div>` : '';
+                const challanHtml = info["Challan Date"] ? `<div>Challan Date: <span class="code-tag">📜 ${info["Challan Date"]}</span></div>` : '';
+
                 card.innerHTML = `
                     <div class="permit-card-top">
                         <div class="retailer-title">
@@ -835,6 +876,8 @@
                         <div>Transit Pass: <span class="code-tag" onclick="copyToClipboard('${info["Transit Pass"] || info["Permit Number"]}')" style="cursor:pointer; color: var(--ledger-green);" title="Click to copy">${info["Transit Pass"] || info["Permit Number"] || '-'}</span></div>
                         <div>Vehicle: <span class="code-tag" style="color:var(--duty-blue);">${info["Vehicle Number"] ? '🚚 ' + info["Vehicle Number"] : 'No Vehicle'}</span></div>
                         <div>Applied Date: <span>${appDate}</span></div>
+                        ${licenseeHtml}
+                        ${challanHtml}
                     </div>
 
                     ${group.lines.length > 0 ? `
@@ -1017,10 +1060,11 @@
             }
 
             const headers = [
-                "Date", "Retailer Name", "Retailer Code", "Indent Number", "Permit Number",
-                "Transit Pass", "Vehicle Number", "Bond Type", "Status", "Is Carried Over",
-                "Aging (Days)", "Application Date", "Turnaround (Days)", "Product Name",
-                "Size", "Physical Cases", "Loose Bottles", "Bottle Case Equivalents", "Total Eq Cases", "Total MRP", "Extraction Error"
+                "Date", "Retailer Name", "Retailer Code", "Licensee Name", "Indent Number", "Permit Number",
+                "Transit Pass", "Vehicle Number", "Challan Date", "Bond Type", "Status", "Is Carried Over",
+                "Aging (Days)", "Application Date", "Turnaround (Days)", "Product Name", "Category",
+                "Size", "Physical Cases", "Loose Bottles", "Bottle Case Equivalents", "Total Eq Cases",
+                "Bulk Litres (BL)", "LPL", "Total MRP", "Extraction Error"
             ];
             const csvRows = [headers.join(",")];
 
@@ -1032,10 +1076,12 @@
                     `"${item.Date || ''}"`,
                     `"${(item["Retailer Name"] || '').replace(/"/g, '""')}"`,
                     `"${item["Retailer Code"] || ''}"`,
+                    `"${(item["Licensee Name"] || '').replace(/"/g, '""')}"`,
                     `"${item["Indent Number"] || ''}"`,
                     `"${item["Permit Number"] || ''}"`,
                     `"${item["Transit Pass"] || ''}"`,
                     `"${item["Vehicle Number"] || ''}"`,
+                    `"${item["Challan Date"] || ''}"`,
                     `"${item["Bond Type"] || ''}"`,
                     `"${item.Status || ''}"`,
                     item.is_carried_over ? "YES" : "NO",
@@ -1043,11 +1089,14 @@
                     `"${item["Application Date"] || item.Date || ''}"`,
                     item.turnaround_days || 0,
                     `"${(item["Product Name"] || '').replace(/"/g, '""')}"`,
+                    `"${(item.Category || '').replace(/"/g, '""')}"`,
                     `"${item.Size || ''}"`,
                     item.Cases || 0,
                     item.Bottles || 0,
                     bottleCsEq % 1 === 0 ? bottleCsEq : bottleCsEq.toFixed(2),
                     totalEqCs % 1 === 0 ? totalEqCs : totalEqCs.toFixed(2),
+                    item["Bulk Litres"] || 0,
+                    item["LPL"] || 0,
                     item["Total MRP"] || 0,
                     item.extraction_error ? "YES" : "NO"
                 ];

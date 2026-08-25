@@ -324,6 +324,191 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols):
     
     return brand_lines, tot_c, tot_b, True
 
+def open_and_parse_form34(driver, wait, indent_num, cols):
+    """
+    Opens Form-34 from the 'Form 34' column (printer icon), switches to the Form-34 tab,
+    extracts official Vehicle Number, Challan Date, Licensee Name, Category, exact Pack Size,
+    Cases, Bottles, BL (Bulk Litres), and LPL, then closes the tab and returns to main window.
+    Returns: (brand_lines, tot_cases, tot_bottles, vehicle_no, challan_date, licensee_name, success_bool)
+    """
+    form34_btn = None
+    
+    # Try finding Form 34 button in column 8 (or any column with print icon / form34 link)
+    if len(cols) > 8:
+        try:
+            btns = cols[8].find_elements(By.XPATH, ".//a | .//button | .//i | .//span")
+            if btns: form34_btn = btns[0]
+        except: pass
+        
+    if not form34_btn:
+        for idx in [8, 7, 9, 6]:
+            if idx < len(cols):
+                try:
+                    btns = cols[idx].find_elements(By.XPATH, ".//a[contains(@href, 'form34') or contains(@onclick, 'form34')] | .//button | .//i[contains(@class, 'print')]")
+                    if btns:
+                        form34_btn = btns[0]
+                        break
+                except: pass
+
+    if not form34_btn:
+        return [], 0, 0, "", "", "", False
+
+    main_window = driver.current_window_handle
+    handles_before = driver.window_handles
+    
+    try:
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", form34_btn)
+        time.sleep(0.3)
+        driver.execute_script("arguments[0].click();", form34_btn)
+        time.sleep(1.5)
+        
+        handles_after = driver.window_handles
+        form34_window = None
+        for h in handles_after:
+            if h not in handles_before:
+                form34_window = h
+                break
+                
+        if not form34_window and len(handles_after) > 1:
+            form34_window = handles_after[-1]
+            
+        if form34_window and form34_window != main_window:
+            driver.switch_to.window(form34_window)
+            time.sleep(1.0)
+        else:
+            # Maybe opened in same tab or modal
+            time.sleep(1.0)
+            
+        page_text = ""
+        try:
+            page_text = driver.find_element(By.TAG_NAME, "body").text
+        except: pass
+        
+        import re
+        # 1. Extract Vehicle Number
+        vehicle_no = ""
+        m_veh = re.search(r'through\s+Vehicle\s+No\.?\s*([A-Za-z0-9]+)', page_text, re.IGNORECASE)
+        if m_veh:
+            vehicle_no = m_veh.group(1).strip()
+        else:
+            m_veh2 = re.search(r'Vehicle\s+No\.?\s*([A-Za-z0-9]+)', page_text, re.IGNORECASE)
+            if m_veh2: vehicle_no = m_veh2.group(1).strip()
+            
+        # 2. Extract Challan Issue Date
+        challan_date = ""
+        m_ch = re.search(r'Vide\s+Challan\s+No\s*\d+\s*Dated\s*:\s*([0-9A-Za-z\-]+)', page_text, re.IGNORECASE)
+        if m_ch:
+            challan_date = m_ch.group(1).strip()
+            
+        # 3. Extract Licensee Name
+        licensee_name = ""
+        m_lic = re.search(r'Licensee\s*:\s*([^,\n\r]+)', page_text, re.IGNORECASE)
+        if m_lic:
+            licensee_name = m_lic.group(1).strip()
+            
+        # 4. Extract Brand Table Lines
+        brand_lines = []
+        official_cases = None
+        official_bottles = None
+        
+        tables = driver.find_elements(By.XPATH, "//table")
+        if tables:
+            form_table = tables[-1]
+            rows = form_table.find_elements(By.XPATH, ".//tr")
+            
+            col_brand_no = 1
+            col_brand_name = 2
+            col_category = 3
+            col_size = 4
+            col_cases = 5
+            col_bottles = 6
+            col_bl = 7
+            col_lpl = 8
+            
+            for r in rows[:3]:
+                cells = r.find_elements(By.XPATH, ".//th | .//td")
+                texts = [c.get_attribute("innerText").strip().lower() for c in cells]
+                if any("brand" in t for t in texts):
+                    for idx, t in enumerate(texts):
+                        if "number" in t or "no" in t and "s.no" not in t: col_brand_no = idx
+                        elif "brand name" in t or "item" in t: col_brand_name = idx
+                        elif "category" in t: col_category = idx
+                        elif "size" in t or "pack" in t: col_size = idx
+                        elif "cases" in t or "case" in t: col_cases = idx
+                        elif "bottles" in t or "bottle" in t: col_bottles = idx
+                        elif "bl" in t or "bulk" in t: col_bl = idx
+                        elif "lpl" in t: col_lpl = idx
+
+            for r in rows:
+                cols_r = r.find_elements(By.TAG_NAME, "td")
+                if not cols_r: continue
+                first_cell = cols_r[0].get_attribute("innerText").strip()
+                row_text = " ".join([c.get_attribute("innerText").strip() for c in cols_r]).lower()
+                
+                if "total" in first_cell.lower() or "total" in row_text:
+                    try:
+                        c_str = cols_r[col_cases].get_attribute("innerText").strip().replace(',', '') if col_cases < len(cols_r) else ""
+                        if c_str: official_cases = int(float(c_str))
+                    except: pass
+                    try:
+                        b_str = cols_r[col_bottles].get_attribute("innerText").strip().replace(',', '') if col_bottles < len(cols_r) else ""
+                        if b_str: official_bottles = int(float(b_str))
+                    except: pass
+                    continue
+                    
+                if first_cell.lower() in ["s.no", "sl.no", "#", "brand number"]: continue
+                
+                prod_name = cols_r[col_brand_name].get_attribute("innerText").strip() if col_brand_name < len(cols_r) else ""
+                if not prod_name or prod_name.lower() == "total": continue
+                
+                category = cols_r[col_category].get_attribute("innerText").strip() if col_category < len(cols_r) else ""
+                raw_size = cols_r[col_size].get_attribute("innerText").strip() if col_size < len(cols_r) else ""
+                
+                # raw_size e.g. "180/48" -> size is 180 ML
+                size_ml = raw_size.split("/")[0].strip() if "/" in raw_size else raw_size
+                
+                try: cases = int(float(cols_r[col_cases].get_attribute("innerText").strip().replace(',', '')))
+                except: cases = 0
+                try: bottles = int(float(cols_r[col_bottles].get_attribute("innerText").strip().replace(',', '')))
+                except: bottles = 0
+                try: bl = float(cols_r[col_bl].get_attribute("innerText").strip().replace(',', '')) if col_bl < len(cols_r) else 0.0
+                except: bl = 0.0
+                try: lpl = float(cols_r[col_lpl].get_attribute("innerText").strip().replace(',', '')) if col_lpl < len(cols_r) else 0.0
+                except: lpl = 0.0
+                
+                brand_lines.append({
+                    "Product Name": prod_name,
+                    "Category": category,
+                    "Size": size_ml,
+                    "Pack Size": raw_size,
+                    "Cases": cases,
+                    "Bottles": bottles,
+                    "Bulk Litres": bl,
+                    "LPL": lpl,
+                    "Total MRP": 0.0
+                })
+                
+        calc_cases = sum(b["Cases"] for b in brand_lines)
+        calc_bottles = sum(b["Bottles"] for b in brand_lines)
+        tot_c = official_cases if official_cases is not None else calc_cases
+        tot_b = official_bottles if official_bottles is not None else calc_bottles
+        
+        # Close Form-34 window if it was opened in a new tab
+        if len(driver.window_handles) > 1:
+            driver.close()
+            driver.switch_to.window(main_window)
+            
+        return brand_lines, tot_c, tot_b, vehicle_no, challan_date, licensee_name, True
+        
+    except Exception as e_f34:
+        print(f"   ⚠️ Error parsing Form-34 for {indent_num}: {e_f34}")
+        try:
+            if len(driver.window_handles) > 1 and driver.current_window_handle != main_window:
+                driver.close()
+                driver.switch_to.window(main_window)
+        except: pass
+        return [], 0, 0, "", "", "", False
+
 def close_modal(driver):
     """Closes details modal popup safely."""
     purge_all_modals(driver)
@@ -332,7 +517,8 @@ def close_modal(driver):
 def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pending", lookback_days=7):
     """
     Scrapes permits from Stock Dispatch (Retailer Indent) page.
-    Includes DataTables total entry validation, retry queue for dropped modals,
+    For completed dispatches, extracts from Form-34 (with vehicle, challan date, licensee, BL/LPL).
+    Includes DataTables total entry validation, retry queue for dropped items,
     and explicit extraction error tracking.
     Returns: (results, success_bool, extraction_errors_count)
     """
@@ -427,17 +613,30 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                     brand_lines = []
                     tot_cases = 0
                     tot_bottles = 0
-                    modal_success = False
+                    vehicle_no = ""
+                    challan_date = ""
+                    licensee_name = ""
+                    extract_success = False
                     
-                    try:
-                        brand_lines, tot_cases, tot_bottles, modal_success = open_and_parse_strict_modal(driver, wait, indent_num, cols)
-                        purge_all_modals(driver)
-                    except Exception as e_link:
-                        print(f"   ⚠️ Exception opening modal for indent {indent_num}: {e_link}")
-                        purge_all_modals(driver)
-                        modal_success = False
+                    # For completed permits, try Form-34 first for richest data
+                    if status_filter == "Pass Issued":
+                        try:
+                            brand_lines, tot_cases, tot_bottles, vehicle_no, challan_date, licensee_name, extract_success = open_and_parse_form34(driver, wait, indent_num, cols)
+                        except Exception as e_f34:
+                            print(f"   ℹ️ Form-34 fallback to modal: {e_f34}")
+                            extract_success = False
+                            
+                    # Fallback to standard modal if Form-34 was not applicable or failed
+                    if not extract_success:
+                        try:
+                            brand_lines, tot_cases, tot_bottles, extract_success = open_and_parse_strict_modal(driver, wait, indent_num, cols)
+                            purge_all_modals(driver)
+                        except Exception as e_link:
+                            print(f"   ⚠️ Exception opening modal for indent {indent_num}: {e_link}")
+                            purge_all_modals(driver)
+                            extract_success = False
                         
-                    if not modal_success:
+                    if not extract_success:
                         print(f"   ⏳ Queued row {i+1} (Indent: {indent_num}) for retry pass...")
                         failed_modal_rows.append({
                             "index": i,
@@ -460,15 +659,21 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                                 "Indent Number": indent_num,
                                 "Permit Number": permit_num,
                                 "Transit Pass": transit_pass,
-                                "Vehicle Number": "",
+                                "Vehicle Number": vehicle_no,
+                                "Challan Date": challan_date,
+                                "Licensee Name": licensee_name,
                                 "Retailer Name": retailer_name,
                                 "Retailer Code": retailer_code,
                                 "Status": record_status,
                                 "Product Name": line["Product Name"],
+                                "Category": line.get("Category", ""),
                                 "Size": line["Size"],
+                                "Pack Size": line.get("Pack Size", ""),
                                 "Cases": line["Cases"],
                                 "Bottles": line["Bottles"],
-                                "Total MRP": line["Total MRP"],
+                                "Bulk Litres": line.get("Bulk Litres", 0.0),
+                                "LPL": line.get("LPL", 0.0),
+                                "Total MRP": line.get("Total MRP", 0.0),
                                 "Application Date": created_on,
                                 "extraction_error": False
                             })
@@ -479,14 +684,20 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                             "Indent Number": indent_num,
                             "Permit Number": permit_num,
                             "Transit Pass": transit_pass,
-                            "Vehicle Number": "",
+                            "Vehicle Number": vehicle_no,
+                            "Challan Date": challan_date,
+                            "Licensee Name": licensee_name,
                             "Retailer Name": retailer_name,
                             "Retailer Code": retailer_code,
                             "Status": record_status,
                             "Product Name": "",
+                            "Category": "",
                             "Size": "",
+                            "Pack Size": "",
                             "Cases": tot_cases,
                             "Bottles": tot_bottles,
+                            "Bulk Litres": 0.0,
+                            "LPL": 0.0,
                             "Total MRP": 0.0,
                             "Application Date": created_on,
                             "extraction_error": False
