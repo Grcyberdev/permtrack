@@ -97,19 +97,43 @@
                 </div>
             </div>
 
-            <!-- Metric 3: Active Pending Clearance Queue -->
-            <div class="hero-metric-card">
-                <div class="hero-metric-label">
-                    <span>Pending Clearance Queue</span>
-                    <span style="font-weight: 700;">⏳ Active Indents</span>
+            <!-- Metric 3: Active Pending Clearance Queue (Separate Fresh & Carried Over Breakdown) -->
+            <div class="hero-metric-card" style="display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                    <div class="hero-metric-label">
+                        <span>Pending Clearance Queue</span>
+                        <span style="font-weight: 700;" id="hero-pending-total-indents">0 Active Indents</span>
+                    </div>
+                    <div class="hero-metric-val" id="hero-pending-count" style="font-size: 1.85rem; color: #F59E0B;">0 cs</div>
+                    <div class="hero-metric-subtext" id="hero-pending-sub" style="margin-bottom: 0.5rem;">
+                        <span>0 Total Eq. Cases awaiting official Transit Pass</span>
+                    </div>
                 </div>
-                <div class="hero-metric-val" id="hero-pending-count">0</div>
-                <div class="hero-metric-subtext" id="hero-pending-sub">
-                    <span>0 cs + 0 b awaiting official Transit Pass</span>
-                </div>
-                <div style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.4rem; font-size: 0.75rem;">
-                    <span class="duty-stamp stamp-fresh" id="hero-aging-fresh">🟡 0 Fresh</span>
-                    <span class="duty-stamp stamp-carried" id="hero-aging-carried">🟠 0 Carried Over</span>
+
+                <!-- Dedicated Separate Breakdown Blocks -->
+                <div style="display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.75rem;">
+                    <!-- Fresh Today -->
+                    <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(245, 158, 11, 0.1); padding: 0.35rem 0.6rem; border-radius: 4px; border-left: 3px solid #F59E0B;">
+                        <div>
+                            <span style="font-weight: 700; color: #FCD34D;" id="hero-fresh-label">🟡 Fresh Today:</span>
+                            <span style="color: var(--ink-40); margin-left: 0.25rem;" id="hero-fresh-meta">(0 indents)</span>
+                        </div>
+                        <span style="font-family: var(--font-mono); font-weight: 700; color: #FDE68A;" id="hero-fresh-vol">0 cs</span>
+                    </div>
+
+                    <!-- Carried Over with Date List -->
+                    <div style="background: rgba(249, 115, 22, 0.1); padding: 0.35rem 0.6rem; border-radius: 4px; border-left: 3px solid #F97316;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <span style="font-weight: 700; color: #FDBA74;">🟠 Carried Over:</span>
+                                <span style="color: var(--ink-40); margin-left: 0.25rem;" id="hero-carried-meta">(0 indents)</span>
+                            </div>
+                            <span style="font-family: var(--font-mono); font-weight: 700; color: #FFEDD5;" id="hero-carried-vol">0 cs</span>
+                        </div>
+                        <div id="hero-pending-dates-chips" style="display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.35rem; font-size: 0.68rem; font-family: var(--font-mono);">
+                            <!-- Dynamic Date Badges -->
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -178,8 +202,6 @@
                 <div class="kpi-value" id="kpi-dispatched-bl">0.00 BL</div>
                 <div class="kpi-meta" id="kpi-dispatched-lpl">0.00 LPL (Proof Litres)</div>
             </div>
-                <div class="kpi-meta" id="kpi-dispatched-bottles-meta">= 0 case equivalents</div>
-            </div>
 
             <div class="kpi-card">
                 <div class="kpi-header">
@@ -191,38 +213,46 @@
             </div>
         </div>
 
-        <!-- Filter & View Switcher Bar -->
-        <div class="filter-bar">
-            <div class="tab-group">
-                <button class="tab-btn active" onclick="switchTab('permits')">📜 Loading & Dispatches</button>
-                <button class="tab-btn" onclick="switchTab('party')">🏢 Party Directory</button>
-                <button class="tab-btn" onclick="switchTab('brand')">🍾 Brand Loading</button>
-                <button class="tab-btn" onclick="switchTab('analytics')">📊 Visual Analytics</button>
-            </div>
-
-            <div class="filter-pill-group">
-                <span class="filter-pill active" id="pill-bond-all" onclick="setBondFilter('ALL')">All Bonds</span>
-                <span class="filter-pill" id="pill-bond-imfl" onclick="setBondFilter('IMFL')">🍷 IMFL Only</span>
-                <span class="filter-pill" id="pill-bond-cs" onclick="setBondFilter('CS')">🍶 CS Only</span>
-            </div>
-
-            <div class="search-box">
-                <span class="search-icon">🔍</span>
-                <input type="text" id="search-input" placeholder="Search retailer, permit #, brand, vehicle..." oninput="handleSearch()">
-            </div>
+        <!-- Main Workspace Tabs -->
+        <div class="workspace-tabs">
+            <button class="tab-btn active" onclick="switchTab('permits')">
+                <span>📜 Loading & Dispatches</span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('party')">
+                <span>🏢 Party Directory</span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('brand')">
+                <span>🍾 Brand Loading</span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('analytics')">
+                <span>📊 Visual Analytics</span>
+            </button>
         </div>
 
-        <!-- Main Content Layout Grid -->
-        <div class="content-grid">
+        <!-- Content Grid: Left Main Ledger + Right Operations Sidebar -->
+        <div class="app-content-grid">
 
-            <!-- Left Panel: Main View Container -->
+            <!-- Left Main Content Column -->
             <main>
 
-                <!-- TAB 1: Permits List View -->
+                <!-- TAB 1: Loading & Permits View -->
                 <div id="tab-permits-view">
 
+                    <!-- Filter Control Toolbar -->
+                    <div class="filter-toolbar">
+                        <div class="channel-filter-group">
+                            <span class="channel-btn active" id="filter-btn-all" onclick="setBondFilter('ALL')">All Bonds</span>
+                            <span class="channel-btn" id="filter-btn-imfl" onclick="setBondFilter('IMFL')">🍷 IMFL Only</span>
+                            <span class="channel-btn" id="filter-btn-cs" onclick="setBondFilter('CS')">🍶 CS Only</span>
+                        </div>
+
+                        <div class="search-input-wrapper">
+                            <input type="text" id="search-input" class="search-field" placeholder="🔍 Search retailer, permit #, brand, vehicle..." oninput="handleSearch()">
+                        </div>
+                    </div>
+
                     <!-- Pending Permits Section -->
-                    <div style="margin-bottom: 2rem;">
+                    <div style="margin-bottom: 1.5rem;">
                         <div class="permit-section-header" onclick="togglePermitSection('pending')">
                             <div class="permit-section-header-title">
                                 <span>⏳</span>
@@ -235,12 +265,15 @@
                             </button>
                         </div>
 
-                        <!-- Sub-filters for Pending permits (All / Fresh / Carried Over) -->
-                        <div style="display: flex; align-items: center; gap: 0.5rem; margin: 0.5rem 0 1rem 0; flex-wrap: wrap;">
+                        <!-- Sub-filter pills (All, Fresh Today, Carried Over) -->
+                        <div class="sub-filter-row">
                             <span class="filter-pill active" id="pill-pending-all" onclick="setPendingFilter('ALL')">All Pending (<span id="count-pending-all">0</span>)</span>
                             <span class="filter-pill" id="pill-pending-fresh" onclick="setPendingFilter('FRESH')">🟡 Today's Fresh (<span id="count-pending-fresh">0</span>)</span>
                             <span class="filter-pill" id="pill-pending-carried" onclick="setPendingFilter('CARRIED')">🟠 Carried Over (<span id="count-pending-carried">0</span>)</span>
                         </div>
+
+                        <!-- Dynamic Date Filter Chips for Carried Over Queue -->
+                        <div id="pending-date-chips-row" style="display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; margin-bottom: 0.85rem;"></div>
 
                         <div id="pending-permits-list" class="collapsible-permits-container">
                             <!-- Injected dynamically -->
@@ -470,11 +503,19 @@
             handleSearch();
         }
 
+        let activePendingDateFilter = 'ALL';
+
         function setPendingFilter(filterType) {
             activePendingFilter = filterType;
+            activePendingDateFilter = 'ALL';
             document.getElementById('pill-pending-all').classList.toggle('active', filterType === 'ALL');
             document.getElementById('pill-pending-fresh').classList.toggle('active', filterType === 'FRESH');
             document.getElementById('pill-pending-carried').classList.toggle('active', filterType === 'CARRIED');
+            renderDashboard();
+        }
+
+        function setPendingDateFilter(dateStr) {
+            activePendingDateFilter = dateStr;
             renderDashboard();
         }
 
@@ -636,6 +677,16 @@
 
             let totalPendingCases = 0;
             let totalPendingBottles = 0;
+            let totalPendingBottleCsEq = 0;
+
+            let freshPendingCases = 0;
+            let freshPendingBottles = 0;
+            let freshPendingBottleCsEq = 0;
+
+            let carriedPendingCases = 0;
+            let carriedPendingBottles = 0;
+            let carriedPendingBottleCsEq = 0;
+            let carriedPendingByDate = {};
 
             let imflCases = 0, imflBottles = 0, imflBottleCsEq = 0;
             let csCases = 0, csBottles = 0, csBottleCsEq = 0;
@@ -651,6 +702,7 @@
                 const bPerCs = getBottlesPerCase(item.Size);
                 const bottleCsEq = (item.Bottles || 0) / bPerCs;
                 const isCarriedOver = Boolean(item.is_carried_over);
+                const appDate = item["Application Date"] || item.Date || '-';
 
                 if (bondType === 'IMFL') {
                     if (isPending) {
@@ -674,13 +726,29 @@
 
                 if (isPending) {
                     pendingPermitsSet.add(pKey);
-                    if (isCarriedOver) {
-                        carriedPendingSet.add(pKey);
-                    } else {
-                        freshPendingSet.add(pKey);
-                    }
                     totalPendingCases += (item.Cases || 0);
                     totalPendingBottles += (item.Bottles || 0);
+                    totalPendingBottleCsEq += bottleCsEq;
+
+                    if (isCarriedOver) {
+                        carriedPendingSet.add(pKey);
+                        carriedPendingCases += (item.Cases || 0);
+                        carriedPendingBottles += (item.Bottles || 0);
+                        carriedPendingBottleCsEq += bottleCsEq;
+
+                        if (!carriedPendingByDate[appDate]) {
+                            carriedPendingByDate[appDate] = { indents: new Set(), cases: 0, bottles: 0, csEq: 0, agingDays: item.aging_days || 1 };
+                        }
+                        carriedPendingByDate[appDate].indents.add(pKey);
+                        carriedPendingByDate[appDate].cases += (item.Cases || 0);
+                        carriedPendingByDate[appDate].bottles += (item.Bottles || 0);
+                        carriedPendingByDate[appDate].csEq += bottleCsEq;
+                    } else {
+                        freshPendingSet.add(pKey);
+                        freshPendingCases += (item.Cases || 0);
+                        freshPendingBottles += (item.Bottles || 0);
+                        freshPendingBottleCsEq += bottleCsEq;
+                    }
                 } else {
                     dispatchedPermitsSet.add(pKey);
                     totalDispatchedCases += (item.Cases || 0);
@@ -737,6 +805,10 @@
             const imflPct = totalEquivalentDispatchedCs > 0 ? Math.round((totImflEq / totalEquivalentDispatchedCs) * 100) : 50;
             const csPct = totalEquivalentDispatchedCs > 0 ? (100 - imflPct) : 50;
 
+            const totalEquivalentPendingCs = totalPendingCases + totalPendingBottleCsEq;
+            const freshTotalEq = freshPendingCases + freshPendingBottleCsEq;
+            const carriedTotalEq = carriedPendingCases + carriedPendingBottleCsEq;
+
             // Update Executive Hero Banner
             document.getElementById('hero-total-cases').innerText = `${totCsFormatted} cs`;
             document.getElementById('hero-total-cases-sub').innerHTML = `<span>${totalDispatchedCases.toLocaleString()} Physical Full Cases</span> • <span>${bottleCsFormatted} cs from Loose Bottles</span>`;
@@ -752,10 +824,36 @@
             document.getElementById('hero-clearance-rate').innerText = `${clearancePct}% Dispatched`;
             document.getElementById('hero-active-indents-label').innerText = `${totalAllPermits} Total Indents`;
 
-            document.getElementById('hero-pending-count').innerText = pendingPermitsSet.size;
-            document.getElementById('hero-pending-sub').innerText = `${totalPendingCases.toLocaleString()} cs + ${totalPendingBottles.toLocaleString()} b awaiting official Transit Pass`;
-            document.getElementById('hero-aging-fresh').innerText = `🟡 ${freshPendingSet.size} Fresh Today`;
-            document.getElementById('hero-aging-carried').innerText = `🟠 ${carriedPendingSet.size} Carried Over`;
+            // Separate Fresh & Carried Over Bindings in Hero Metric 3
+            document.getElementById('hero-pending-total-indents').innerText = `${pendingPermitsSet.size} Active Indents`;
+            document.getElementById('hero-pending-count').innerText = `${totalEquivalentPendingCs.toLocaleString(undefined, {maximumFractionDigits: 1})} cs`;
+            document.getElementById('hero-pending-sub').innerText = `${totalPendingCases.toLocaleString()} physical cs + ${totalPendingBottles.toLocaleString()} loose bottles in queue`;
+
+            const heroFreshVal = document.getElementById('hero-fresh-vol');
+            if (heroFreshVal) heroFreshVal.innerText = `${freshTotalEq.toLocaleString(undefined, {maximumFractionDigits: 1})} cs`;
+            const heroFreshMeta = document.getElementById('hero-fresh-meta');
+            if (heroFreshMeta) heroFreshMeta.innerText = `(${freshPendingSet.size} indents • ${freshPendingCases.toLocaleString()} cs + ${freshPendingBottles.toLocaleString()} b)`;
+
+            const heroCarriedVal = document.getElementById('hero-carried-vol');
+            if (heroCarriedVal) heroCarriedVal.innerText = `${carriedTotalEq.toLocaleString(undefined, {maximumFractionDigits: 1})} cs`;
+            const heroCarriedMeta = document.getElementById('hero-carried-meta');
+            if (heroCarriedMeta) heroCarriedMeta.innerText = `(${carriedPendingSet.size} indents • ${carriedPendingCases.toLocaleString()} cs + ${carriedPendingBottles.toLocaleString()} b)`;
+
+            // Date-wise Chips in Hero Metric 3
+            const heroChipsContainer = document.getElementById('hero-pending-dates-chips');
+            if (heroChipsContainer) {
+                const dateKeys = Object.keys(carriedPendingByDate);
+                if (dateKeys.length === 0) {
+                    heroChipsContainer.innerHTML = `<span style="color:var(--ink-40);">No carried over backlog</span>`;
+                } else {
+                    heroChipsContainer.innerHTML = dateKeys.map(d => {
+                        const info = carriedPendingByDate[d];
+                        const dTotalEq = info.cases + info.csEq;
+                        const dStr = dTotalEq % 1 === 0 ? dTotalEq.toLocaleString() : dTotalEq.toFixed(1);
+                        return `<span style="background: rgba(0,0,0,0.35); border: 1px solid rgba(249, 115, 22, 0.4); padding: 0.15rem 0.45rem; border-radius: 4px; color: #FED7AA;">📅 ${d}: <b>${dStr} cs</b> (${info.indents.size} indents)</span>`;
+                    }).join(' ');
+                }
+            }
 
             // Update KPI Cards
             const kpiTotEq = document.getElementById('kpi-total-equivalent-cases');
@@ -785,18 +883,36 @@
             if (kpiLpl) kpiLpl.innerText = `${totalDispatchedLPL.toLocaleString(undefined, {maximumFractionDigits: 2})} LPL`;
 
             document.getElementById('kpi-pending-permits').innerText = pendingPermitsSet.size;
-            document.getElementById('kpi-pending-meta').innerText = `${freshPendingSet.size} Fresh • ${carriedPendingSet.size} Carried Over`;
+            document.getElementById('kpi-pending-meta').innerText = `${freshPendingSet.size} Fresh (${freshTotalEq.toFixed(0)} cs) • ${carriedPendingSet.size} Carried (${carriedTotalEq.toFixed(0)} cs)`;
 
-            document.getElementById('badge-pending-count').innerText = `${pendingPermitsSet.size} permits`;
-            document.getElementById('badge-issued-count').innerText = `${dispatchedPermitsSet.size} permits`;
+            document.getElementById('badge-pending-count').innerText = `${pendingPermitsSet.size} permits (${totalEquivalentPendingCs.toFixed(0)} cs)`;
+            document.getElementById('badge-issued-count').innerText = `${dispatchedPermitsSet.size} permits (${totCsFormatted} cs)`;
 
-            // Update sub-filter counts
+            // Update sub-filter counts with cases
             const countAllElem = document.getElementById('count-pending-all');
             const countFreshElem = document.getElementById('count-pending-fresh');
             const countCarriedElem = document.getElementById('count-pending-carried');
-            if (countAllElem) countAllElem.innerText = pendingPermitsSet.size;
-            if (countFreshElem) countFreshElem.innerText = freshPendingSet.size;
-            if (countCarriedElem) countCarriedElem.innerText = carriedPendingSet.size;
+            if (countAllElem) countAllElem.innerText = `${pendingPermitsSet.size} • ${totalEquivalentPendingCs.toFixed(0)} cs`;
+            if (countFreshElem) countFreshElem.innerText = `${freshPendingSet.size} • ${freshTotalEq.toFixed(0)} cs`;
+            if (countCarriedElem) countCarriedElem.innerText = `${carriedPendingSet.size} • ${carriedTotalEq.toFixed(0)} cs`;
+
+            // Render interactive date chips in the pending filter toolbar
+            const dateChipsRow = document.getElementById('pending-date-chips-row');
+            if (dateChipsRow) {
+                const dKeys = Object.keys(carriedPendingByDate);
+                if (dKeys.length === 0 || activePendingFilter === 'FRESH') {
+                    dateChipsRow.innerHTML = '';
+                } else {
+                    let chipsHtml = `<span class="filter-pill ${activePendingDateFilter === 'ALL' ? 'active' : ''}" style="font-size:0.7rem; padding:0.2rem 0.55rem; cursor:pointer;" onclick="setPendingDateFilter('ALL')">All Carried Dates</span>`;
+                    dKeys.forEach(d => {
+                        const entry = carriedPendingByDate[d];
+                        const dTot = entry.cases + entry.csEq;
+                        const dStr = dTot % 1 === 0 ? dTot.toLocaleString() : dTot.toFixed(1);
+                        chipsHtml += `<span class="filter-pill ${activePendingDateFilter === d ? 'active' : ''}" style="font-size:0.7rem; padding:0.2rem 0.55rem; cursor:pointer;" onclick="setPendingDateFilter('${d}')">📅 ${d} (${entry.agingDays}d): <b>${dStr} cs</b> (${entry.indents.size} indents)</span>`;
+                    });
+                    dateChipsRow.innerHTML = chipsHtml;
+                }
+            }
 
             const btnPending = document.getElementById('btn-toggle-pending');
             const btnDispatched = document.getElementById('btn-toggle-dispatched');
@@ -824,6 +940,7 @@
                 if (isPending) {
                     if (activePendingFilter === 'FRESH' && isCarriedOver) return;
                     if (activePendingFilter === 'CARRIED' && !isCarriedOver) return;
+                    if (activePendingDateFilter !== 'ALL' && isCarriedOver && appDate !== activePendingDateFilter) return;
                 }
 
                 const card = document.createElement('div');
