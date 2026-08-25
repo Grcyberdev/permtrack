@@ -25,6 +25,9 @@ EXPOSE 8080
 # Environment defaults
 ENV PORT=8080
 ENV PYTHONUNBUFFERED=1
+ENV DATA_DIR=/data
+
+RUN mkdir -p /data
 
 # Command to run FastAPI server
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]

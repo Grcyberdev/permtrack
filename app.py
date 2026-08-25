@@ -14,6 +14,8 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(PROJECT_ROOT, "scripts"))
 
 from pdf_report import generate_report_pdf
+from reconciler import reconcile_permits, get_reconciliation_summary
+import automation_utils
 
 app = FastAPI(title="PermTrack - Assam Excise Revenue Tracker")
 
@@ -39,12 +41,12 @@ async def read_root():
     return "<h1>Permit Tracker Dashboard</h1><p>Static index.html not found.</p>"
 
 @app.get("/api/today-permits")
-async def get_today_permits(filename: str = None):
+async def get_today_permits(filename: str = None, lookback_days: int = 7):
     """
-    Returns latest scraped permits or specified backup file.
+    Returns latest scraped permits or specified backup file with 7-day carry-over reconciliation.
     """
     global LATEST_WEBHOOK_DATA
-    config_dir = os.path.join(PROJECT_ROOT, "config")
+    config_dir = automation_utils.get_data_dir()
     
     if not filename and LATEST_WEBHOOK_DATA:
         data = LATEST_WEBHOOK_DATA
@@ -65,7 +67,7 @@ async def get_today_permits(filename: str = None):
                 if os.path.exists(fallback):
                     latest_backup = fallback
                 else:
-                    return JSONResponse(content={"date": None, "pending": [], "completed": []})
+                    return JSONResponse(content={"date": None, "pending": [], "completed": [], "summary": {}})
             else:
                 backup_files.sort(key=os.path.getmtime, reverse=True)
                 latest_backup = backup_files[0]
@@ -80,14 +82,20 @@ async def get_today_permits(filename: str = None):
                 content={"error": f"Failed to read latest backup data: {str(e)}"}
             )
             
+    target_date = None
+    for item in data:
+        if item.get("Date"):
+            target_date = item.get("Date")
+            break
+            
+    # Apply reconciliation across past lookback_days
+    reconciled_data = reconcile_permits(data, target_date, config_dir, lookback_days=lookback_days)
+    summary_metrics = get_reconciliation_summary(reconciled_data)
+    
     pending = []
     completed = []
-    target_date = None
     
-    for item in data:
-        if not target_date:
-            target_date = item.get("Date")
-        
+    for item in reconciled_data:
         status = item.get("Status", "").upper()
         if status == "PENDING":
             pending.append(item)
@@ -98,7 +106,8 @@ async def get_today_permits(filename: str = None):
         "date": target_date,
         "filename": latest_backup_name,
         "pending": pending,
-        "completed": completed
+        "completed": completed,
+        "summary": summary_metrics
     })
 
 @app.get("/api/download-pdf")
@@ -106,7 +115,7 @@ async def download_pdf_report(filename: str = None):
     """
     Retrieves selected permit JSON file and returns PDF report.
     """
-    config_dir = os.path.join(PROJECT_ROOT, "config")
+    config_dir = automation_utils.get_data_dir()
     
     if filename:
         filename = os.path.basename(filename)
@@ -159,7 +168,7 @@ async def get_backups():
     Returns deduplicated, hierarchically sorted list of available date backups.
     """
     from datetime import datetime, timedelta
-    config_dir = os.path.join(PROJECT_ROOT, "config")
+    config_dir = automation_utils.get_data_dir()
     backup_files = glob.glob(os.path.join(config_dir, "backup_permits_*.json"))
     backup_files = [f for f in backup_files if "latest.json" not in f]
     
@@ -232,32 +241,37 @@ async def upload_results(request: Request):
         
         records = payload.get("records", [])
         date_str = payload.get("date")
-            
-        LATEST_WEBHOOK_DATA = records
         
-        config_dir = os.path.join(PROJECT_ROOT, "config")
+        config_dir = automation_utils.get_data_dir()
         os.makedirs(config_dir, exist_ok=True)
         
         from datetime import datetime
         parsed_date = None
+        target_dt = None
         for item in records:
             d = item.get("Date")
             if d:
                 try:
                     dt = datetime.strptime(d, "%d-%b-%Y")
                     parsed_date = dt.strftime("%Y%m%d")
+                    target_dt = dt
                     break
                 except: pass
         if not parsed_date:
-            parsed_date = datetime.now().strftime("%Y%m%d")
+            target_dt = datetime.now()
+            parsed_date = target_dt.strftime("%Y%m%d")
+            
+        # Reconcile incoming records with 7-day backups
+        reconciled_records = reconcile_permits(records, target_dt, config_dir, lookback_days=7)
+        LATEST_WEBHOOK_DATA = reconciled_records
             
         canonical_filename = f"backup_permits_{parsed_date}_000000.json"
         latest_filename = "backup_permits_latest.json"
         
         with open(os.path.join(config_dir, canonical_filename), "w") as f:
-            json.dump(records, f, indent=4)
+            json.dump(reconciled_records, f, indent=4)
         with open(os.path.join(config_dir, latest_filename), "w") as f:
-            json.dump(records, f, indent=4)
+            json.dump(reconciled_records, f, indent=4)
             
         # Clean up any extra timestamp files for the same target date
         for old_f in glob.glob(os.path.join(config_dir, f"backup_permits_{parsed_date}_*.json")):
@@ -265,10 +279,10 @@ async def upload_results(request: Request):
                 try: os.remove(old_f)
                 except: pass
                 
-        print(f"📥 Received {len(records)} scraped records via webhook for date {date_str} -> saved to {canonical_filename}")
+        print(f"📥 Received & Reconciled {len(reconciled_records)} scraped records via webhook for date {date_str} -> saved to {canonical_filename}")
         return JSONResponse(content={
             "status": "success",
-            "message": f"Saved {len(records)} records for date {date_str}",
+            "message": f"Saved and reconciled {len(reconciled_records)} records for date {date_str}",
             "filename": canonical_filename
         })
     except Exception as e:
@@ -283,6 +297,7 @@ async def trigger_github_run(request: Request):
         body = await request.json()
         date_val = body.get("date", "").strip()
         bond_val = body.get("bond", "BOTH")
+        lookback_val = body.get("lookback_days", 7)
         
         gh_token = os.environ.get("GITHUB_TOKEN")
         gh_repo = os.environ.get("GITHUB_REPO")
@@ -303,7 +318,8 @@ async def trigger_github_run(request: Request):
             "event_type": "run-scraper",
             "client_payload": {
                 "date": date_val,
-                "bond": bond_val
+                "bond": bond_val,
+                "lookback_days": lookback_val
             }
         }
         
@@ -333,6 +349,7 @@ async def websocket_run(websocket: WebSocket):
         target_date_val = config.get("date", "").strip()
         bond_type = config.get("bond", "BOTH")
         headless = config.get("headless", True)
+        lookback_days = config.get("lookback_days", 7)
         
         args_list = []
         if target_date_val:
@@ -341,6 +358,8 @@ async def websocket_run(websocket: WebSocket):
             args_list.extend(["--bond", bond_type])
         if not headless:
             args_list.append("--no-headless")
+        if lookback_days is not None:
+            args_list.extend(["--lookback-days", str(lookback_days)])
             
         script_path = os.path.join(PROJECT_ROOT, "scripts", "main_permits.py")
         if not os.path.exists(script_path):

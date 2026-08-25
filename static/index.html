@@ -178,6 +178,14 @@
                                 <span class="toggle-text">Minimize</span>
                             </button>
                         </div>
+
+                        <!-- Sub-filters for Pending permits (All / Fresh / Carried Over) -->
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin: 0.5rem 0 1rem 0; flex-wrap: wrap;">
+                            <span class="filter-pill active" id="pill-pending-all" onclick="setPendingFilter('ALL')">All Pending (<span id="count-pending-all">0</span>)</span>
+                            <span class="filter-pill" id="pill-pending-fresh" onclick="setPendingFilter('FRESH')">🟡 Today's Fresh (<span id="count-pending-fresh">0</span>)</span>
+                            <span class="filter-pill" id="pill-pending-carried" onclick="setPendingFilter('CARRIED')">🟠 Carried Over (<span id="count-pending-carried">0</span>)</span>
+                        </div>
+
                         <div id="pending-permits-list" class="collapsible-permits-container">
                             <!-- Injected dynamically -->
                         </div>
@@ -277,6 +285,16 @@
                         </select>
                     </div>
 
+                    <div class="form-field">
+                        <label for="lookback-days">Pending Lookback Window</label>
+                        <select id="lookback-days">
+                            <option value="7" selected>7 Days (Govt Validity - Recommended)</option>
+                            <option value="3">3 Days (Quick Scan)</option>
+                            <option value="1">Yesterday & Today (2 Days)</option>
+                            <option value="0">Today Only (Fastest)</option>
+                        </select>
+                    </div>
+
                     <div class="form-field" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem;">
                         <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">Headless Mode</span>
                         <input type="checkbox" id="headless-toggle" checked style="width: 1.2rem; height: 1.2rem; cursor: pointer;">
@@ -318,6 +336,7 @@
         let filteredPermitsData = [];
         let currentTab = 'permits';
         let activeBondFilter = 'ALL';
+        let activePendingFilter = 'ALL';
 
         // -------------------------------------------------------------
         // Theme Toggle Setup
@@ -355,6 +374,14 @@
             document.getElementById('pill-bond-imfl').classList.toggle('active', bondType === 'IMFL');
             document.getElementById('pill-bond-cs').classList.toggle('active', bondType === 'CS');
             handleSearch();
+        }
+
+        function setPendingFilter(filterType) {
+            activePendingFilter = filterType;
+            document.getElementById('pill-pending-all').classList.toggle('active', filterType === 'ALL');
+            document.getElementById('pill-pending-fresh').classList.toggle('active', filterType === 'FRESH');
+            document.getElementById('pill-pending-carried').classList.toggle('active', filterType === 'CARRIED');
+            renderDashboard();
         }
 
         function filterByParty(partyName) {
@@ -495,6 +522,8 @@
 
             let dispatchedPermitsSet = new Set();
             let pendingPermitsSet = new Set();
+            let freshPendingSet = new Set();
+            let carriedPendingSet = new Set();
             
             let imflDispatchedSet = new Set();
             let imflPendingSet = new Set();
@@ -521,6 +550,7 @@
                 const bondType = (item["Bond Type"] || 'IMFL').toUpperCase();
                 const bPerCs = getBottlesPerCase(item.Size);
                 const bottleCsEq = (item.Bottles || 0) / bPerCs;
+                const isCarriedOver = Boolean(item.is_carried_over);
 
                 if (bondType === 'IMFL') {
                     if (isPending) {
@@ -542,6 +572,11 @@
 
                 if (isPending) {
                     pendingPermitsSet.add(pKey);
+                    if (isCarriedOver) {
+                        carriedPendingSet.add(pKey);
+                    } else {
+                        freshPendingSet.add(pKey);
+                    }
                     totalPendingCases += (item.Cases || 0);
                     totalPendingBottles += (item.Bottles || 0);
                 } else {
@@ -611,10 +646,18 @@
             }
 
             document.getElementById('kpi-pending-permits').innerText = pendingPermitsSet.size;
-            document.getElementById('kpi-pending-meta').innerText = `${totalPendingCases} cs + ${totalPendingBottles} b pending`;
+            document.getElementById('kpi-pending-meta').innerText = `${freshPendingSet.size} Fresh • ${carriedPendingSet.size} Carried Over (${totalPendingCases} cs + ${totalPendingBottles} b)`;
 
             document.getElementById('badge-pending-count').innerText = `${pendingPermitsSet.size} permits`;
             document.getElementById('badge-issued-count').innerText = `${dispatchedPermitsSet.size} permits`;
+
+            // Update sub-filter counts
+            const countAllElem = document.getElementById('count-pending-all');
+            const countFreshElem = document.getElementById('count-pending-fresh');
+            const countCarriedElem = document.getElementById('count-pending-carried');
+            if (countAllElem) countAllElem.innerText = pendingPermitsSet.size;
+            if (countFreshElem) countFreshElem.innerText = freshPendingSet.size;
+            if (countCarriedElem) countCarriedElem.innerText = carriedPendingSet.size;
 
             const btnPending = document.getElementById('btn-toggle-pending');
             const btnDispatched = document.getElementById('btn-toggle-dispatched');
@@ -634,7 +677,16 @@
             Object.values(groupedByPermit).forEach(group => {
                 const info = group.info;
                 const isPending = info.Status === "PENDING";
+                const isCarriedOver = Boolean(info.is_carried_over);
+                const agingDays = info.aging_days || 0;
+                const appDate = info["Application Date"] || info.Date || '-';
                 
+                // Check sub-filter for Pending
+                if (isPending) {
+                    if (activePendingFilter === 'FRESH' && isCarriedOver) return;
+                    if (activePendingFilter === 'CARRIED' && !isCarriedOver) return;
+                }
+
                 const card = document.createElement('div');
                 card.className = 'permit-card-item';
 
@@ -653,20 +705,39 @@
                     `;
                 }).join('');
 
+                let statusBadgesHtml = '';
+                if (info.extraction_error || info.Status === "EXTRACTION_FAILED") {
+                    statusBadgesHtml = `<span class="status-badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4);">⚠️ Modal Extraction Failed</span>`;
+                } else if (isPending) {
+                    if (isCarriedOver) {
+                        statusBadgesHtml = `<span class="status-badge" style="background: rgba(249, 115, 22, 0.15); color: #f97316; border: 1px solid rgba(249, 115, 22, 0.35);">🟠 Carried Over (${agingDays}d ago • ${appDate})</span>`;
+                    } else {
+                        statusBadgesHtml = `<span class="status-badge pending">🟡 Fresh (Today)</span>`;
+                    }
+                } else {
+                    if (info.fulfilled_from_carry_over) {
+                        statusBadgesHtml = `<span class="status-badge issued">🟢 Pass Issued</span> <span class="status-badge" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.35);">🔵 Fulfilled Carry-Over (${info.turnaround_days || 1}d turnaround)</span>`;
+                    } else {
+                        statusBadgesHtml = `<span class="status-badge issued">🟢 Pass Issued</span>`;
+                    }
+                }
+
                 card.innerHTML = `
                     <div class="permit-card-top">
                         <div class="retailer-title">
                             🏢 ${info["Retailer Name"] || "Unknown Retailer"}
                             <span class="bond-pill">${info["Bond Type"] || 'IMFL'}</span>
                         </div>
-                        <span class="status-badge ${isPending ? 'pending' : 'issued'}">${info.Status}</span>
+                        <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
+                            ${statusBadgesHtml}
+                        </div>
                     </div>
 
                     <div class="permit-meta-grid">
                         <div>Indent: <span class="code-tag">${info["Indent Number"] || '-'}</span></div>
                         <div>Permit: <span class="code-tag" onclick="copyToClipboard('${info["Permit Number"]}')" style="cursor:pointer;" title="Click to copy">${info["Permit Number"] || '-'}</span></div>
                         <div>Vehicle: <span class="code-tag" style="color:var(--accent-cyan);">${info["Vehicle Number"] || 'No Vehicle'}</span></div>
-                        <div>Applied: <span>${info["Application Date"] || info.Date || '-'}</span></div>
+                        <div>Applied: <span>${appDate}</span></div>
                     </div>
 
                     ${group.lines.length > 0 ? `
@@ -688,7 +759,7 @@
                 }
             });
 
-            if (pCount === 0) pendingList.innerHTML = '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No pending permits found.</div>';
+            if (pCount === 0) pendingList.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No ${activePendingFilter === 'FRESH' ? "fresh " : (activePendingFilter === 'CARRIED' ? "carried over " : "")}pending permits found.</div>`;
             if (dCount === 0) dispatchedList.innerHTML = '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No dispatched permits found.</div>';
 
             // Render Party Summary Table & Footer
@@ -787,10 +858,18 @@
                 return;
             }
 
-            const headers = ["Date", "Retailer Name", "Retailer Code", "Indent Number", "Permit Number", "Transit Pass", "Vehicle Number", "Bond Type", "Status", "Product Name", "Size", "Cases", "Loose Bottles", "Total MRP"];
+            const headers = [
+                "Date", "Retailer Name", "Retailer Code", "Indent Number", "Permit Number",
+                "Transit Pass", "Vehicle Number", "Bond Type", "Status", "Is Carried Over",
+                "Aging (Days)", "Application Date", "Turnaround (Days)", "Product Name",
+                "Size", "Physical Cases", "Loose Bottles", "Bottle Case Equivalents", "Total Eq Cases", "Total MRP", "Extraction Error"
+            ];
             const csvRows = [headers.join(",")];
 
             filteredPermitsData.forEach(item => {
+                const bPerCs = getBottlesPerCase(item.Size);
+                const bottleCsEq = (item.Bottles || 0) / bPerCs;
+                const totalEqCs = (item.Cases || 0) + bottleCsEq;
                 const row = [
                     `"${item.Date || ''}"`,
                     `"${(item["Retailer Name"] || '').replace(/"/g, '""')}"`,
@@ -801,11 +880,18 @@
                     `"${item["Vehicle Number"] || ''}"`,
                     `"${item["Bond Type"] || ''}"`,
                     `"${item.Status || ''}"`,
+                    item.is_carried_over ? "YES" : "NO",
+                    item.aging_days || 0,
+                    `"${item["Application Date"] || item.Date || ''}"`,
+                    item.turnaround_days || 0,
                     `"${(item["Product Name"] || '').replace(/"/g, '""')}"`,
                     `"${item.Size || ''}"`,
                     item.Cases || 0,
                     item.Bottles || 0,
-                    item["Total MRP"] || 0
+                    bottleCsEq % 1 === 0 ? bottleCsEq : bottleCsEq.toFixed(2),
+                    totalEqCs % 1 === 0 ? totalEqCs : totalEqCs.toFixed(2),
+                    item["Total MRP"] || 0,
+                    item.extraction_error ? "YES" : "NO"
                 ];
                 csvRows.push(row.join(","));
             });
@@ -855,6 +941,7 @@
             const termOutput = document.getElementById('terminal-output');
             const dateVal = document.getElementById('scraper-date').value.trim();
             const bondVal = document.getElementById('bond-type').value;
+            const lookbackVal = document.getElementById('lookback-days').value;
             const headlessVal = document.getElementById('headless-toggle').checked;
 
             btn.disabled = true;
@@ -865,7 +952,11 @@
                 const res = await fetch('/api/trigger-run', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ date: dateVal, bond: bondVal })
+                    body: JSON.stringify({ 
+                        date: dateVal, 
+                        bond: bondVal,
+                        lookback_days: parseInt(lookbackVal, 10)
+                    })
                 });
                 const data = await res.json();
                 if (data.status === 'success') {
@@ -873,7 +964,7 @@
                     btn.innerText = "🚀 Run Live Permit Scraper";
                     showToast("🚀 GitHub Actions Cloud Scraper triggered!");
                     termPanel.classList.add('active');
-                    termOutput.innerText = `✅ GitHub Actions Cloud Scraper Triggered!\nDate: ${dateVal || 'Today'}\nBond: ${bondVal}\n\nThe scraper is executing in the cloud on GitHub Actions. Results will appear automatically here once completed.\n`;
+                    termOutput.innerText = `✅ GitHub Actions Cloud Scraper Triggered!\nDate: ${dateVal || 'Today'}\nBond: ${bondVal}\nLookback: ${lookbackVal} days\n\nThe scraper is executing in the cloud on GitHub Actions. Results will appear automatically here once completed.\n`;
                     const initialSel = document.getElementById('backup-selector').value;
                     let pollCount = 0;
                     const pollInterval = setInterval(async () => {
@@ -916,7 +1007,8 @@
                 ws.send(JSON.stringify({
                     date: dateVal,
                     bond: bondVal,
-                    headless: headlessVal
+                    headless: headlessVal,
+                    lookback_days: parseInt(lookbackVal, 10)
                 }));
             };
 

@@ -105,6 +105,61 @@ def navigate_to_url_with_retry(driver, url, max_retries=10, wait_time=10):
 # --- CONFIGURATION ---
 CHROME_DRIVER_VERSION = "114.0.5735.90" # Example default
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+def get_data_dir():
+    """
+    Resolves the persistent data storage directory.
+    Priority:
+    1. DATA_DIR environment variable
+    2. /data directory (if exists and writable, e.g. Fly.io persistent volume)
+    3. <project_root>/config (local development default)
+    """
+    env_dir = os.environ.get("DATA_DIR")
+    if env_dir:
+        os.makedirs(env_dir, exist_ok=True)
+        return os.path.abspath(env_dir)
+    if os.path.exists("/data") and os.access("/data", os.W_OK):
+        return "/data"
+    
+    # Fallback to local config directory
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    config_dir = os.path.join(project_root, "config")
+    os.makedirs(config_dir, exist_ok=True)
+    return config_dir
+
+def get_bottles_per_case(size_val):
+    """
+    Standard bottle-to-case pack size converter matching Assam excise rules.
+    650ml / 750ml / 1000ml -> 12 b/cs
+    375ml / 500ml -> 24 b/cs
+    180ml / 200ml -> 48 b/cs
+    <180ml (60ml / 90ml) -> 96 b/cs
+    """
+    if not size_val:
+        return 12
+    import re
+    digits = re.findall(r'\d+', str(size_val))
+    if not digits:
+        return 12
+    try:
+        s = int(digits[0])
+        if s >= 600:
+            return 12
+        if s >= 350:
+            return 24
+        if s >= 180:
+            return 48
+        if s > 0:
+            return 96
+    except:
+        pass
+    return 12
+
 def parse_arguments():
     """
     Parses common arguments for the liquor bond automation scripts.
@@ -129,24 +184,34 @@ def parse_arguments():
 def load_config():
     """
     Loads configuration credentials with priority:
-    1. Environment Variables (GitHub Secrets / Production)
-    2. config/config.json (Local Development)
+    1. Environment Variables (GitHub Secrets / Production / .env)
+    2. config/config.json (Local Development fallback)
+    Ignores placeholder template values.
     """
     config = {}
     
     # 1. Try Config File first (as base)
-    CONFIG_POSSIBLE = ["../config/config.json", "./config/config.json", "config/config.json"]
+    CONFIG_POSSIBLE = [
+        os.path.join(get_data_dir(), "config.json"),
+        "../config/config.json", 
+        "./config/config.json", 
+        "config/config.json"
+    ]
     config_file_path = next((p for p in CONFIG_POSSIBLE if os.path.exists(p)), None)
     
     if config_file_path:
         try:
             with open(config_file_path, "r") as f:
-                config = json.load(f)
+                file_config = json.load(f)
+            # Filter out template placeholders
+            for k, v in file_config.items():
+                if isinstance(v, str) and not v.startswith("YOUR_") and v.strip() != "":
+                    config[k] = v
             print(f"✅ Loaded local config from: {config_file_path}")
         except Exception as e:
             print(f"⚠️ Error reading config file: {e}")
 
-    # Special Handling for PORTAL_URL (Legacy Support: script expects 'portal_url' lowercase)
+    # Special Handling for PORTAL_URL
     portal_env = os.environ.get("PORTAL_URL") or os.environ.get("portal_url")
     if portal_env:
         config["portal_url"] = portal_env
@@ -163,17 +228,17 @@ def load_config():
     
     for var in env_vars:
         env_val = os.environ.get(var)
-        if env_val:
+        if env_val and not env_val.startswith("YOUR_") and env_val.strip() != "":
             config[var] = env_val
             if "PASSWORD" in var or "TOKEN" in var or "KEY" in var:
-                 masked_val = env_val[:2] + "****" if env_val else "EMPTY"
-                 print(f"🔐 Using Environment Variable for: {var} (Value: {masked_val})")
+                masked_val = env_val[:2] + "****" if len(env_val) > 2 else "****"
+                print(f"🔐 Using Environment Variable for: {var} (Value: {masked_val})")
             else:
-                 print(f"🔐 Using Environment Variable for: {var} (Value: {env_val})")
+                print(f"🔐 Using Environment Variable for: {var} (Value: {env_val})")
         else:
-             # Only print warning if not already in config (from file) to avoid noise
-             if var not in config and var not in ["USE_TOR_PROXY", "SCRAPER_API_KEY"]: # Optional vars
-                 print(f"⚠️ Environment Variable {var} is missing.")
+            if var not in config and var not in ["USE_TOR_PROXY", "SCRAPER_API_KEY"]:
+                # Suppress noisy warning for optional vars
+                pass
             
     return config
 

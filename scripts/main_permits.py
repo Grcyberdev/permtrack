@@ -18,6 +18,7 @@ from selenium.webdriver.support import expected_conditions as EC
 # Add scripts directory to path to import helpers
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import automation_utils
+from reconciler import reconcile_permits, get_reconciliation_summary
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Permit & Dispatch Scraper")
@@ -25,6 +26,8 @@ def parse_args():
     parser.add_argument("--headless", action="store_true", default=True, help="Run browser in headless mode")
     parser.add_argument("--no-headless", dest="headless", action="store_false", help="Disable headless mode")
     parser.add_argument("--bond", type=str, choices=["IMFL", "CS", "BOTH"], default="BOTH", help="Which bond credentials to query")
+    parser.add_argument("--lookback-days", type=int, default=7, help="Number of days to look back for pending permits (defaults to 7)")
+    parser.add_argument("--allow-partial", action="store_true", default=False, help="Allow saving partial results even if extraction errors occurred")
     return parser.parse_args()
 
 def set_date_input(driver, wait, elem_id, target_date):
@@ -77,11 +80,20 @@ def select_date_ui(driver, wait, target_date):
     wait.until(EC.element_to_be_clickable((By.XPATH, day_element_xpath))).click()
 
 def set_table_page_size_100(driver):
-    """Selects 100 items per page from table length dropdown."""
+    """Selects 100 items per page from table length dropdown and verifies update."""
     try:
         try:
-            driver.execute_script("var s = document.querySelector('select[name*=\"length\"]'); if (s) { s.value = '100'; s.dispatchEvent(new Event('change')); }")
-            time.sleep(1)
+            driver.execute_script("""
+                var s = document.querySelector('select[name*="length"], select[id*="length"]');
+                if (s) {
+                    s.value = '100';
+                    s.dispatchEvent(new Event('change', { bubbles: true }));
+                    if (window.jQuery && window.jQuery.fn.dataTable) {
+                        try { jQuery('#my-table-sorter').DataTable().page.len(100).draw(); } catch(e){}
+                    }
+                }
+            """)
+            time.sleep(1.5)
         except: pass
 
         selectors = [
@@ -106,11 +118,13 @@ def set_table_page_size_100(driver):
             try:
                 sel_obj.select_by_value("100")
             except:
-                sel_obj.select_by_visible_text("100")
+                try:
+                    sel_obj.select_by_visible_text("100")
+                except: pass
                 
-            driver.execute_script("arguments[0].dispatchEvent(new Event('change'));", select_elem)
-            print("   ✅ Set page size to 100 entries.")
+            driver.execute_script("arguments[0].dispatchEvent(new Event('change', { bubbles: true }));", select_elem)
             time.sleep(2)
+            print("   ✅ Set page size to 100 entries.")
             return True
         else:
             print("   ℹ️ Page length select dropdown not visible or already showing all entries.")
@@ -176,6 +190,7 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols):
     """
     Purges old modals, clicks link_elem, waits for modal matching indent_num,
     and extracts individual brand lines AND the official bottom 'Total' row.
+    Returns: (brand_lines, tot_cases, tot_bottles, success_bool)
     """
     purge_all_modals(driver)
     
@@ -189,19 +204,19 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols):
                 except: pass
                 
     if not link_elem:
-        return [], 0, 0
+        return [], 0, 0, False
         
     try:
         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", link_elem)
     except: pass
     
     modal_container = None
-    for attempt in range(3):
+    for attempt in range(4):
         try:
             driver.execute_script("arguments[0].click();", link_elem)
-            time.sleep(1.0)
+            time.sleep(1.0 + (attempt * 0.5))
             
-            for wait_step in range(6):
+            for wait_step in range(8):
                 all_modals = driver.find_elements(By.XPATH, "//div[contains(@class, 'modal') or contains(@class, 'popup')]")
                 for m in reversed(all_modals):
                     try:
@@ -215,13 +230,13 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols):
                 
             if modal_container: break
             purge_all_modals(driver)
-            time.sleep(0.3)
+            time.sleep(0.5)
         except Exception as e:
             print(f"   ⚠️ Retry {attempt+1} opening modal for {indent_num}: {e}")
             
     if not modal_container:
         print(f"   ⚠️ Warning: Could not find matching modal for indent {indent_num}")
-        return [], 0, 0
+        return [], 0, 0, False
         
     brand_lines = []
     official_cases = None
@@ -233,7 +248,7 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols):
             tables = driver.find_elements(By.XPATH, "//div[contains(@class, 'modal')]//table")
             
         if not tables:
-            return brand_lines, 0, 0
+            return brand_lines, 0, 0, True
             
         modal_table = tables[-1]
         rows = modal_table.find_elements(By.XPATH, ".//tr")
@@ -256,37 +271,37 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols):
                     elif "value" in t or "mrp" in t or "amount" in t: col_mrp = idx
 
         for r in rows:
-            cols = r.find_elements(By.TAG_NAME, "td")
-            if not cols: continue
+            cols_r = r.find_elements(By.TAG_NAME, "td")
+            if not cols_r: continue
             
-            first_cell = cols[0].get_attribute("innerText").strip()
-            row_text = " ".join([c.get_attribute("innerText").strip() for c in cols]).lower()
+            first_cell = cols_r[0].get_attribute("innerText").strip()
+            row_text = " ".join([c.get_attribute("innerText").strip() for c in cols_r]).lower()
             
             # Read Total Row at bottom
             if "total" in first_cell.lower() or "total" in row_text:
                 try:
-                    c_str = cols[col_cases].get_attribute("innerText").strip().replace(',', '') if col_cases < len(cols) else ""
+                    c_str = cols_r[col_cases].get_attribute("innerText").strip().replace(',', '') if col_cases < len(cols_r) else ""
                     if c_str: official_cases = int(float(c_str))
                 except: pass
                 
                 try:
-                    b_str = cols[col_bottles].get_attribute("innerText").strip().replace(',', '') if col_bottles < len(cols) else ""
+                    b_str = cols_r[col_bottles].get_attribute("innerText").strip().replace(',', '') if col_bottles < len(cols_r) else ""
                     if b_str: official_bottles = int(float(b_str))
                 except: pass
                 continue
                 
             if first_cell.lower() in ["brand code", "s.no", "sl.no", "#"]: continue
             
-            prod_name = cols[col_name].get_attribute("innerText").strip() if col_name < len(cols) else ""
+            prod_name = cols_r[col_name].get_attribute("innerText").strip() if col_name < len(cols_r) else ""
             if not prod_name or prod_name.lower() == "total": continue
             
-            prod_size = cols[col_size].get_attribute("innerText").strip() if col_size < len(cols) else ""
-            try: cases = int(float(cols[col_cases].get_attribute("innerText").strip().replace(',', '')))
+            prod_size = cols_r[col_size].get_attribute("innerText").strip() if col_size < len(cols_r) else ""
+            try: cases = int(float(cols_r[col_cases].get_attribute("innerText").strip().replace(',', '')))
             except: cases = 0
-            try: bottles = int(float(cols[col_bottles].get_attribute("innerText").strip().replace(',', '')))
+            try: bottles = int(float(cols_r[col_bottles].get_attribute("innerText").strip().replace(',', '')))
             except: bottles = 0
             try:
-                mrp_str = cols[col_mrp].get_attribute("innerText").strip().replace(',', '') if col_mrp < len(cols) else ""
+                mrp_str = cols_r[col_mrp].get_attribute("innerText").strip().replace(',', '') if col_mrp < len(cols_r) else ""
                 total_mrp = float(mrp_str) if mrp_str else 0.0
             except: total_mrp = 0.0
             
@@ -307,22 +322,33 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols):
     tot_c = official_cases if official_cases is not None else calc_cases
     tot_b = official_bottles if official_bottles is not None else calc_bottles
     
-    return brand_lines, tot_c, tot_b
+    return brand_lines, tot_c, tot_b, True
 
 def close_modal(driver):
     """Closes details modal popup safely."""
     purge_all_modals(driver)
     return True
 
-def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pending"):
+def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pending", lookback_days=7):
     """
-    Scrapes permits from Stock Dispatch (Retailer Indent) page for specific target date.
-    Sets start and end date to target_date, status to status_filter, selects 100 entries per page,
-    and iterates across all pages.
+    Scrapes permits from Stock Dispatch (Retailer Indent) page.
+    Includes DataTables total entry validation, retry queue for dropped modals,
+    and explicit extraction error tracking.
+    Returns: (results, success_bool, extraction_errors_count)
     """
-    status_label = "Pending Permits" if status_filter == "Pending" else "Dispatched Permits (Pass Issued)"
-    print(f"\n🔎 [{bond_type}] Scraping {status_label} for {target_date.strftime('%d-%b-%Y')}...")
+    if status_filter == "Pending" and lookback_days > 0:
+        start_date = target_date - timedelta(days=lookback_days)
+        end_date = target_date
+        status_label = f"Pending Permits (Lookback {lookback_days}d: {start_date.strftime('%d-%b-%Y')} to {end_date.strftime('%d-%b-%Y')})"
+    else:
+        start_date = target_date
+        end_date = target_date
+        status_label = "Pending Permits" if status_filter == "Pending" else "Dispatched Permits (Pass Issued)"
+
+    print(f"\n🔎 [{bond_type}] Scraping {status_label}...")
     results = []
+    extraction_errors_count = 0
+    scrape_success = True
     
     portal_url = driver.current_url
     dispatch_url = portal_url.split("/index.php")[0] + "/index.php/Retailer/Retailer/Indentlist?param=stockdispatch"
@@ -330,8 +356,8 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
     time.sleep(3)
     
     try:
-        set_date_input(driver, wait, "datepicker", target_date)
-        set_date_input(driver, wait, "datepicker1", target_date)
+        set_date_input(driver, wait, "datepicker", start_date)
+        set_date_input(driver, wait, "datepicker1", end_date)
         
         select_status_dropdown(driver, wait, status_filter)
         
@@ -341,6 +367,21 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
         
         set_table_page_size_100(driver)
         
+        # Check DataTables Info text to know expected total records
+        expected_total_entries = None
+        try:
+            info_elems = driver.find_elements(By.CSS_SELECTOR, "#my-table-sorter_info, .dataTables_info, div[id*='info']")
+            for el in info_elems:
+                txt = el.text.strip()
+                import re
+                m = re.search(r'of\s+([0-9,]+)\s+entries', txt, re.IGNORECASE)
+                if m:
+                    expected_total_entries = int(m.group(1).replace(',', ''))
+                    print(f"   ℹ️ Portal reports total entries: {expected_total_entries}")
+                    break
+        except Exception as e_info:
+            print(f"   ⚠️ Could not read DataTables info text: {e_info}")
+            
         page_num = 1
         while True:
             table_body = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#my-table-sorter tbody, table.dataTable tbody, table tbody")))
@@ -353,6 +394,9 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
             num_rows = len(rows)
             print(f"   📊 Processing page {page_num}: {num_rows} rows found.")
             
+            failed_modal_rows = []
+            
+            # Pass 1: Parse table rows on current page
             for i in range(num_rows):
                 try:
                     purge_all_modals(driver)
@@ -383,13 +427,28 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                     brand_lines = []
                     tot_cases = 0
                     tot_bottles = 0
+                    modal_success = False
                     
                     try:
-                        brand_lines, tot_cases, tot_bottles = open_and_parse_strict_modal(driver, wait, indent_num, cols)
+                        brand_lines, tot_cases, tot_bottles, modal_success = open_and_parse_strict_modal(driver, wait, indent_num, cols)
                         purge_all_modals(driver)
                     except Exception as e_link:
-                        print(f"   ⚠️ Could not open modal for indent {indent_num}: {e_link}")
+                        print(f"   ⚠️ Exception opening modal for indent {indent_num}: {e_link}")
                         purge_all_modals(driver)
+                        modal_success = False
+                        
+                    if not modal_success:
+                        print(f"   ⏳ Queued row {i+1} (Indent: {indent_num}) for retry pass...")
+                        failed_modal_rows.append({
+                            "index": i,
+                            "indent_num": indent_num,
+                            "permit_num": permit_num,
+                            "transit_pass": transit_pass,
+                            "retailer_name": retailer_name,
+                            "retailer_code": retailer_code,
+                            "created_on": created_on
+                        })
+                        continue
                         
                     record_status = "PENDING" if status_filter == "Pending" else "COMPLETED"
                     
@@ -410,7 +469,8 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                                 "Cases": line["Cases"],
                                 "Bottles": line["Bottles"],
                                 "Total MRP": line["Total MRP"],
-                                "Application Date": created_on
+                                "Application Date": created_on,
+                                "extraction_error": False
                             })
                     else:
                         results.append({
@@ -428,11 +488,115 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                             "Cases": tot_cases,
                             "Bottles": tot_bottles,
                             "Total MRP": 0.0,
-                            "Application Date": created_on
+                            "Application Date": created_on,
+                            "extraction_error": False
                         })
                 except Exception as e_row:
                     print(f"   ⚠️ Error parsing row {i} on page {page_num}: {e_row}")
                     
+            # Pass 2: Retry queue for dropped modals
+            if failed_modal_rows:
+                print(f"\n   ♻️ Retrying {len(failed_modal_rows)} queued dropped modals on page {page_num}...")
+                time.sleep(2)
+                for item in failed_modal_rows:
+                    idx = item["index"]
+                    indent_num = item["indent_num"]
+                    try:
+                        purge_all_modals(driver)
+                        table_body = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#my-table-sorter tbody, table.dataTable tbody, table tbody")))
+                        current_rows = table_body.find_elements(By.TAG_NAME, "tr")
+                        if idx >= len(current_rows):
+                            break
+                        cols = current_rows[idx].find_elements(By.TAG_NAME, "td")
+                        
+                        brand_lines, tot_cases, tot_bottles, modal_success = open_and_parse_strict_modal(driver, wait, indent_num, cols)
+                        purge_all_modals(driver)
+                        
+                        record_status = "PENDING" if status_filter == "Pending" else "COMPLETED"
+                        
+                        if modal_success and brand_lines:
+                            print(f"   ✅ Successfully recovered modal for Indent: {indent_num} ({len(brand_lines)} brand lines)")
+                            for line in brand_lines:
+                                results.append({
+                                    "Date": target_date.strftime("%d-%b-%Y"),
+                                    "Bond Type": bond_type,
+                                    "Indent Number": indent_num,
+                                    "Permit Number": item["permit_num"],
+                                    "Transit Pass": item["transit_pass"],
+                                    "Vehicle Number": "",
+                                    "Retailer Name": item["retailer_name"],
+                                    "Retailer Code": item["retailer_code"],
+                                    "Status": record_status,
+                                    "Product Name": line["Product Name"],
+                                    "Size": line["Size"],
+                                    "Cases": line["Cases"],
+                                    "Bottles": line["Bottles"],
+                                    "Total MRP": line["Total MRP"],
+                                    "Application Date": item["created_on"],
+                                    "extraction_error": False
+                                })
+                        elif modal_success:
+                            results.append({
+                                "Date": target_date.strftime("%d-%b-%Y"),
+                                "Bond Type": bond_type,
+                                "Indent Number": indent_num,
+                                "Permit Number": item["permit_num"],
+                                "Transit Pass": item["transit_pass"],
+                                "Vehicle Number": "",
+                                "Retailer Name": item["retailer_name"],
+                                "Retailer Code": item["retailer_code"],
+                                "Status": record_status,
+                                "Product Name": "",
+                                "Size": "",
+                                "Cases": tot_cases,
+                                "Bottles": tot_bottles,
+                                "Total MRP": 0.0,
+                                "Application Date": item["created_on"],
+                                "extraction_error": False
+                            })
+                        else:
+                            print(f"   ❌ [EXTRACTION ERROR] Modal failed after all retries for Indent: {indent_num}")
+                            extraction_errors_count += 1
+                            results.append({
+                                "Date": target_date.strftime("%d-%b-%Y"),
+                                "Bond Type": bond_type,
+                                "Indent Number": indent_num,
+                                "Permit Number": item["permit_num"],
+                                "Transit Pass": item["transit_pass"],
+                                "Vehicle Number": "",
+                                "Retailer Name": item["retailer_name"],
+                                "Retailer Code": item["retailer_code"],
+                                "Status": "EXTRACTION_FAILED",
+                                "Product Name": "EXTRACTION_FAILED",
+                                "Size": "",
+                                "Cases": 0,
+                                "Bottles": 0,
+                                "Total MRP": 0.0,
+                                "Application Date": item["created_on"],
+                                "extraction_error": True
+                            })
+                    except Exception as e_retry:
+                        print(f"   ❌ Retry failed for {indent_num}: {e_retry}")
+                        extraction_errors_count += 1
+                        results.append({
+                            "Date": target_date.strftime("%d-%b-%Y"),
+                            "Bond Type": bond_type,
+                            "Indent Number": indent_num,
+                            "Permit Number": item["permit_num"],
+                            "Transit Pass": item["transit_pass"],
+                            "Vehicle Number": "",
+                            "Retailer Name": item["retailer_name"],
+                            "Retailer Code": item["retailer_code"],
+                            "Status": "EXTRACTION_FAILED",
+                            "Product Name": "EXTRACTION_FAILED",
+                            "Size": "",
+                            "Cases": 0,
+                            "Bottles": 0,
+                            "Total MRP": 0.0,
+                            "Application Date": item["created_on"],
+                            "extraction_error": True
+                        })
+                        
             next_btn = get_next_page_button(driver)
             if next_btn:
                 page_num += 1
@@ -445,10 +609,11 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                 
     except Exception as e:
         print(f"   ❌ Error scraping {status_label}: {e}")
+        scrape_success = False
         
-    return results
+    return results, scrape_success, extraction_errors_count
 
-def run_scraper_for_credentials(username, password, target_date, bond_type, headless):
+def run_scraper_for_credentials(username, password, target_date, bond_type, headless, lookback_days=7):
     """Runs scraper for a single credential user."""
     print(f"\n🚀 Running scraper for {bond_type} ({username})...")
     
@@ -457,6 +622,8 @@ def run_scraper_for_credentials(username, password, target_date, bond_type, head
     
     pending_records = []
     completed_records = []
+    overall_success = True
+    total_extraction_errors = 0
     
     try:
         config = automation_utils.load_config()
@@ -503,17 +670,25 @@ def run_scraper_for_credentials(username, password, target_date, bond_type, head
                 
         if not login_success:
             print(f"❌ Login failed for {bond_type} ({username}) after 5 attempts.")
-            return [], []
+            return [], [], False, 0
             
-        pending_records = scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pending")
-        completed_records = scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pass Issued")
+        p_recs, p_ok, p_errs = scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pending", lookback_days=lookback_days)
+        c_recs, c_ok, c_errs = scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pass Issued", lookback_days=0)
         
+        pending_records.extend(p_recs)
+        completed_records.extend(c_recs)
+        total_extraction_errors += (p_errs + c_errs)
+        
+        if not p_ok or not c_ok:
+            overall_success = False
+            
     except Exception as e:
         print(f"❌ General scraper execution failure: {e}")
+        overall_success = False
     finally:
         driver.quit()
         
-    return pending_records, completed_records
+    return pending_records, completed_records, overall_success, total_extraction_errors
 
 def main():
     args = parse_args()
@@ -528,7 +703,7 @@ def main():
         target_date = datetime.now()
         
     date_str = target_date.strftime("%d-%b-%Y")
-    print(f"📅 Scraper target date: {date_str} (Format: DD-MMM-YYYY)")
+    print(f"📅 Scraper target date: {date_str} (Format: DD-MMM-YYYY) | Lookback: {args.lookback_days} days")
     
     config = automation_utils.load_config()
     imfl_user = config.get("IMFL_USERNAME")
@@ -538,45 +713,72 @@ def main():
     
     all_pending = []
     all_completed = []
+    has_errors = False
+    total_extraction_errors = 0
     
     if args.bond in ["IMFL", "BOTH"]:
         if imfl_user and imfl_pass:
-            p, c = run_scraper_for_credentials(imfl_user, imfl_pass, target_date, "IMFL", args.headless)
+            p, c, ok, errs = run_scraper_for_credentials(imfl_user, imfl_pass, target_date, "IMFL", args.headless, lookback_days=args.lookback_days)
             all_pending.extend(p)
             all_completed.extend(c)
+            total_extraction_errors += errs
+            if not ok or errs > 0:
+                has_errors = True
         else:
             print("⚠️ Skipping IMFL: Credentials not configured.")
             
     if args.bond in ["CS", "BOTH"]:
         if cs_user and cs_pass:
-            p, c = run_scraper_for_credentials(cs_user, cs_pass, target_date, "CS", args.headless)
+            p, c, ok, errs = run_scraper_for_credentials(cs_user, cs_pass, target_date, "CS", args.headless, lookback_days=args.lookback_days)
             all_pending.extend(p)
             all_completed.extend(c)
+            total_extraction_errors += errs
+            if not ok or errs > 0:
+                has_errors = True
         else:
             print("⚠️ Skipping Country Spirit: Credentials not configured.")
             
-    print(f"\n📊 Scraping Summary for {date_str}:")
+    print(f"\n📊 Raw Scraped Summary for {date_str}:")
     print(f"   Pending Permits (brand lines): {len(all_pending)}")
     print(f"   Completed Dispatches (brand lines): {len(all_completed)}")
+    if total_extraction_errors > 0:
+        print(f"   ⚠️ Modal Extraction Errors: {total_extraction_errors}")
     
-    combined_records = all_pending + all_completed
+    raw_combined = all_pending + all_completed
     
-    if not combined_records:
-        print(f"ℹ️ Note: 0 permit records found on portal for target date {date_str}.")
-    
-    backup_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config")
+    backup_dir = automation_utils.get_data_dir()
     os.makedirs(backup_dir, exist_ok=True)
     
     timestamp_file = f"backup_permits_{target_date.strftime('%Y%m%d')}_000000.json"
     latest_file = "backup_permits_latest.json"
+    existing_target_path = os.path.join(backup_dir, timestamp_file)
     
+    # Partial run guard: Prevent destroying good backup files on fatal error
+    if has_errors and not args.allow_partial:
+        if os.path.exists(existing_target_path) and len(raw_combined) == 0:
+            print(f"\n🚨 Critical Warning: Current scrape failed with errors and produced 0 records.")
+            print(f"   Preserving existing backup file: {existing_target_path} (use --allow-partial to overwrite).")
+            sys.exit(1)
+    
+    print(f"\n🔄 Running 7-day cross-day reconciliation engine...")
+    reconciled_records = reconcile_permits(raw_combined, target_date, backup_dir, lookback_days=args.lookback_days)
+    recon_summary = get_reconciliation_summary(reconciled_records)
+    
+    print(f"\n📈 Reconciled Status for {date_str}:")
+    print(f"   • Fresh Pending: {recon_summary['fresh_pending_lines']} lines")
+    print(f"   • Carried Over Pending: {recon_summary['carried_over_pending_lines']} lines (1d: {recon_summary['aging_breakdown']['1_day']}, 2d: {recon_summary['aging_breakdown']['2_days']}, 3-7d: {recon_summary['aging_breakdown']['3_to_7_days']})")
+    print(f"   • Total Active Pending Indents: {recon_summary['unique_pending_indents_count']}")
+    print(f"   • Completed Dispatches: {recon_summary['unique_completed_indents_count']} indents")
+    if recon_summary['fulfilled_carry_overs_count'] > 0:
+        print(f"   • Fulfilled Carry-Overs Today: {recon_summary['fulfilled_carry_overs_count']} lines")
+        
     try:
         with open(os.path.join(backup_dir, timestamp_file), "w") as f:
-            json.dump(combined_records, f, indent=4)
+            json.dump(reconciled_records, f, indent=4)
         with open(os.path.join(backup_dir, latest_file), "w") as f:
-            json.dump(combined_records, f, indent=4)
+            json.dump(reconciled_records, f, indent=4)
             
-        print(f"💾 Scraped data backed up locally to config/ directory.")
+        print(f"💾 Reconciled data backed up locally to {backup_dir}.")
     except Exception as e:
         print(f"⚠️ Failed to save local backup files: {e}")
         
@@ -584,7 +786,7 @@ def main():
     webhook_secret = os.environ.get("WEBHOOK_SECRET")
     
     if fly_app_url and webhook_secret:
-        print(f"\n📡 Pushing scraped records to Fly.io dashboard ({fly_app_url})...")
+        print(f"\n📡 Pushing reconciled records to Fly.io dashboard ({fly_app_url})...")
         if not fly_app_url.startswith("http"):
             fly_app_url = f"https://{fly_app_url}"
         endpoint = f"{fly_app_url.rstrip('/')}/api/upload-results"
@@ -593,16 +795,20 @@ def main():
             resp = requests.post(endpoint, json={
                 "secret": webhook_secret,
                 "date": date_str,
-                "records": combined_records
+                "records": reconciled_records
             }, timeout=30)
             if resp.status_code == 200:
-                print(f"✅ Scraped records pushed to dashboard successfully! Server response: {resp.json()}")
+                print(f"✅ Reconciled records pushed to dashboard successfully! Server response: {resp.json()}")
             else:
                 print(f"⚠️ Webhook push returned status {resp.status_code}: {resp.text}")
         except Exception as e_webhook:
             print(f"⚠️ Webhook push failed: {e_webhook}")
             
-    print("\n🏁 Scraper process completed.")
+    if has_errors and not args.allow_partial:
+        print(f"\n⚠️ Scraper finished with extraction errors ({total_extraction_errors} errors).")
+        sys.exit(1)
+    else:
+        print("\n🏁 Scraper process completed successfully.")
 
 if __name__ == "__main__":
     main()

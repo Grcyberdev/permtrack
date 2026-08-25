@@ -47,9 +47,7 @@ def generate_report_pdf(data_json):
     for item in data_json:
         status = item.get("Status", "").upper()
         if status == "PENDING":
-            app_date = item.get("Application Date")
-            if not app_date or app_date == date_str:
-                pending.append(item)
+            pending.append(item)
         elif status == "COMPLETED":
             prod_name = (item.get("Product Name") or "").upper()
             if not ("SUB TOTAL" in prod_name or "GRAND TOTAL" in prod_name or "SUBTOTAL" in prod_name or "GRANDTOTAL" in prod_name):
@@ -57,45 +55,64 @@ def generate_report_pdf(data_json):
             
     # Calculate metrics & summaries
     unique_pending_passes = set()
+    fresh_pending_count = 0
+    carried_pending_count = 0
     total_pending_cases = 0
     total_pending_bottles = 0
+    
     for p in pending:
         p_num = p.get("Permit Number") or p.get("Indent Number") or "N/A"
         unique_pending_passes.add(p_num)
         total_pending_cases += p.get("Cases", 0)
         total_pending_bottles += p.get("Bottles", 0)
+        if p.get("is_carried_over", False):
+            carried_pending_count += 1
+        else:
+            fresh_pending_count += 1
         
     unique_completed_passes = set()
     total_completed_cases = 0
     total_completed_bottles = 0
-    party_summary = {} # retailer -> {cases, bottles, mrp, passes}
+    total_completed_bottle_cs_eq = 0.0
+    party_summary = {} # retailer -> {cases, bottles, cs_eq, mrp, passes}
     grand_mrp = 0.0
     
+    from automation_utils import get_bottles_per_case
+
     for item in completed:
         pass_num = item.get("Transit Pass", "N/A")
         retailer = item.get("Retailer Name", "Unknown")
         cases = item.get("Cases", 0)
         bottles = item.get("Bottles", 0)
         mrp = item.get("Total MRP", 0.0)
+        b_per_cs = get_bottles_per_case(item.get("Size"))
+        bottle_cs_eq = bottles / b_per_cs if b_per_cs > 0 else 0.0
         
         if pass_num:
             unique_completed_passes.add(pass_num)
         total_completed_cases += cases
         total_completed_bottles += bottles
+        total_completed_bottle_cs_eq += bottle_cs_eq
         grand_mrp += mrp
         
         if retailer not in party_summary:
             party_summary[retailer] = {
                 "cases": 0,
                 "bottles": 0,
+                "cs_eq": 0.0,
                 "mrp": 0.0,
                 "passes": set()
             }
         party_summary[retailer]["cases"] += cases
         party_summary[retailer]["bottles"] += bottles
+        party_summary[retailer]["cs_eq"] += bottle_cs_eq
         party_summary[retailer]["mrp"] += mrp
         if pass_num:
             party_summary[retailer]["passes"].add(pass_num)
+
+    total_equivalent_cases = total_completed_cases + total_completed_bottle_cs_eq
+    tot_eq_str = f"{total_equivalent_cases:,.2f}".rstrip('0').rstrip('.') if total_equivalent_cases % 1 != 0 else f"{int(total_equivalent_cases):,}"
+    bot_eq_str = f"{total_completed_bottle_cs_eq:,.2f}".rstrip('0').rstrip('.') if total_completed_bottle_cs_eq % 1 != 0 else f"{int(total_completed_bottle_cs_eq):,}"
             
     # 2. Section: Summary Metrics
     pdf.set_font("Helvetica", "B", 12)
@@ -103,28 +120,30 @@ def generate_report_pdf(data_json):
     pdf.cell(0, 8, "SUMMARY METRICS", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(1.5)
     
-    metrics_headers = ["Pending Permits", "Dispatched Permits", "Cases Loaded", "Bottles Loaded", "Pending Cases"]
+    metrics_headers = ["Total Pending", "Fresh Pending", "Carried Over", "Dispatched Passes", "Dispatched Cases", "Loose Bottles", "Total Eq. Cases"]
     metrics_values = [
         str(len(unique_pending_passes)),
+        f"{len([p for p in unique_pending_passes if any(x.get('Permit Number') == p or x.get('Indent Number') == p for x in pending if not x.get('is_carried_over'))])}",
+        f"{len([p for p in unique_pending_passes if all(x.get('is_carried_over') for x in pending if x.get('Permit Number') == p or x.get('Indent Number') == p)])}",
         str(len(unique_completed_passes)),
-        str(total_completed_cases),
-        str(total_completed_bottles),
-        str(total_pending_cases)
+        f"{total_completed_cases:,} cs",
+        f"{total_completed_bottles:,} b (= {bot_eq_str} cs)",
+        f"{tot_eq_str} cs"
     ]
     
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(15, 23, 42)
     with pdf.table(
-        borders_layout="ALL", line_height=6, width=190, col_widths=(38, 38, 38, 38, 38),
-        text_align=("CENTER", "CENTER", "CENTER", "CENTER", "CENTER")
+        borders_layout="ALL", line_height=6, width=190, col_widths=(25, 25, 25, 25, 30, 32, 28),
+        text_align=("CENTER", "CENTER", "CENTER", "CENTER", "CENTER", "CENTER", "CENTER")
     ) as table:
         row = table.row()
-        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_font("Helvetica", "B", 7.5)
         pdf.set_text_color(71, 85, 105)
         for h in metrics_headers:
             row.cell(h)
         row = table.row()
-        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_font("Helvetica", "B", 8.5)
         pdf.set_text_color(15, 23, 42)
         for v in metrics_values:
             row.cell(v)
@@ -137,14 +156,14 @@ def generate_report_pdf(data_json):
         pdf.cell(0, 8, "PARTY-WISE LOADING SUMMARY", new_x="LMARGIN", new_y="NEXT")
         pdf.ln(1.5)
         
-        party_headers = ["Retailer / Party Name", "Permits", "Total Cases", "Total Bottles", "Total Value (Rs)"]
-        sorted_parties = sorted(party_summary.items(), key=lambda x: x[1]["cases"], reverse=True)
+        party_headers = ["Retailer / Party Name", "Permits", "Physical Cases", "Loose Bottles", "Total Eq. Cases", "Total Value (Rs)"]
+        sorted_parties = sorted(party_summary.items(), key=lambda x: (x[1]["cases"] + x[1]["cs_eq"]), reverse=True)
         
         pdf.set_font("Helvetica", "", 9)
         pdf.set_text_color(15, 23, 42)
         with pdf.table(
-            borders_layout="ALL", line_height=5.5, width=190, col_widths=(90, 20, 25, 25, 30),
-            text_align=("LEFT", "CENTER", "CENTER", "CENTER", "RIGHT")
+            borders_layout="ALL", line_height=5.5, width=190, col_widths=(75, 18, 24, 22, 25, 26),
+            text_align=("LEFT", "CENTER", "CENTER", "CENTER", "RIGHT", "RIGHT")
         ) as table:
             row = table.row()
             pdf.set_font("Helvetica", "B", 8)
@@ -155,11 +174,14 @@ def generate_report_pdf(data_json):
             pdf.set_font("Helvetica", "", 8)
             pdf.set_text_color(15, 23, 42)
             for party_name, stats in sorted_parties:
+                p_tot_eq = stats["cases"] + stats["cs_eq"]
+                p_tot_eq_str = f"{p_tot_eq:,.2f}".rstrip('0').rstrip('.') if p_tot_eq % 1 != 0 else f"{int(p_tot_eq):,}"
                 row = table.row()
                 row.cell(party_name)
                 row.cell(str(len(stats["passes"])))
-                row.cell(str(stats["cases"]))
-                row.cell(str(stats["bottles"]))
+                row.cell(f"{stats['cases']:,} cs")
+                row.cell(f"{stats['bottles']:,} b")
+                row.cell(f"{p_tot_eq_str} cs")
                 row.cell(f"{stats['mrp']:,.2f}")
                 
             row = table.row()
@@ -167,8 +189,9 @@ def generate_report_pdf(data_json):
             pdf.set_text_color(15, 23, 42)
             row.cell("TOTAL LOADING SUMMARY")
             row.cell(str(len(unique_completed_passes)))
-            row.cell(str(total_completed_cases))
-            row.cell(str(total_completed_bottles))
+            row.cell(f"{total_completed_cases:,} cs")
+            row.cell(f"{total_completed_bottles:,} b")
+            row.cell(f"{tot_eq_str} cs")
             row.cell(f"{grand_mrp:,.2f}")
             
         pdf.ln(8)
@@ -181,6 +204,9 @@ def generate_report_pdf(data_json):
             continue
         size = item.get("Size", "")
         key = f"{prod}|{size}"
+        b_per_cs = get_bottles_per_case(size)
+        bottles = item.get("Bottles", 0)
+        cs_eq = bottles / b_per_cs if b_per_cs > 0 else 0.0
         
         if key not in brand_summary:
             brand_summary[key] = {
@@ -188,26 +214,28 @@ def generate_report_pdf(data_json):
                 "size": size,
                 "cases": 0,
                 "bottles": 0,
+                "cs_eq": 0.0,
                 "mrp": 0.0
             }
         brand_summary[key]["cases"] += item.get("Cases", 0)
-        brand_summary[key]["bottles"] += item.get("Bottles", 0)
+        brand_summary[key]["bottles"] += bottles
+        brand_summary[key]["cs_eq"] += cs_eq
         brand_summary[key]["mrp"] += item.get("Total MRP", 0.0)
         
     if brand_summary:
         pdf.set_font("Helvetica", "B", 12)
         pdf.set_text_color(15, 23, 42)
-        pdf.cell(0, 8, "BRAND-WISE LOADING SUMMARY", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 8, "BRAND-WISE DAILY LOADING SUMMARY", new_x="LMARGIN", new_y="NEXT")
         pdf.ln(1.5)
         
-        brand_headers = ["Product / Brand Name", "Size", "Total Cases", "Total Bottles", "Total Value (Rs)"]
-        sorted_brands = sorted(brand_summary.values(), key=lambda x: x["cases"], reverse=True)
+        brand_headers = ["Product / Brand Name", "Size", "Physical Cases", "Loose Bottles", "Total Eq. Cases", "Total Value (Rs)"]
+        sorted_brands = sorted(brand_summary.values(), key=lambda x: (x["cases"] + x["cs_eq"]), reverse=True)
         
         pdf.set_font("Helvetica", "", 9)
         pdf.set_text_color(15, 23, 42)
         with pdf.table(
-            borders_layout="ALL", line_height=5.5, width=190, col_widths=(95, 20, 20, 20, 35),
-            text_align=("LEFT", "CENTER", "CENTER", "CENTER", "RIGHT")
+            borders_layout="ALL", line_height=5.5, width=190, col_widths=(75, 18, 24, 22, 25, 26),
+            text_align=("LEFT", "CENTER", "CENTER", "CENTER", "RIGHT", "RIGHT")
         ) as table:
             row = table.row()
             pdf.set_font("Helvetica", "B", 8)
@@ -222,11 +250,14 @@ def generate_report_pdf(data_json):
             grand_mrp_brands = 0.0
             
             for b in sorted_brands:
+                b_tot_eq = b["cases"] + b["cs_eq"]
+                b_tot_eq_str = f"{b_tot_eq:,.2f}".rstrip('0').rstrip('.') if b_tot_eq % 1 != 0 else f"{int(b_tot_eq):,}"
                 row = table.row()
                 row.cell(b["name"].replace("`", "'"))
                 row.cell(b["size"])
-                row.cell(str(b["cases"]))
-                row.cell(str(b["bottles"]))
+                row.cell(f"{b['cases']:,} cs")
+                row.cell(f"{b['bottles']:,} b")
+                row.cell(f"{b_tot_eq_str} cs")
                 row.cell(f"{b['mrp']:,.2f}")
                 
                 total_cases += b["cases"]
@@ -238,8 +269,9 @@ def generate_report_pdf(data_json):
             pdf.set_text_color(15, 23, 42)
             row.cell("TOTAL LOADING")
             row.cell("")
-            row.cell(str(total_cases))
-            row.cell(str(total_bottles))
+            row.cell(f"{total_cases:,} cs")
+            row.cell(f"{total_bottles:,} b")
+            row.cell(f"{tot_eq_str} cs")
             row.cell(f"{grand_mrp_brands:,.2f}")
             
         pdf.ln(8)
@@ -259,27 +291,42 @@ def generate_report_pdf(data_json):
         # Deduplicate pending listing and aggregate cases/bottles
         unique_pending = {}
         for p in pending:
-            p_num = p.get("Permit Number", "N/A")
-            if p_num not in unique_pending:
-                unique_pending[p_num] = {
+            p_key = p.get("Indent Number") or p.get("Permit Number") or f"{p.get('Retailer Code')}_{p.get('Retailer Name')}"
+            is_co = p.get("is_carried_over", False)
+            age = p.get("aging_days", 0)
+            app_d = p.get("Application Date") or p.get("carried_over_from") or date_str
+            
+            if p_key not in unique_pending:
+                unique_pending[p_key] = {
                     "retailer": p.get("Retailer Name", "Unknown"),
-                    "indent": p.get("Indent Number", "N/A"),
-                    "permit": p_num,
+                    "indent": p.get("Indent Number") or p.get("Permit Number") or "N/A",
+                    "app_date": app_d,
+                    "aging_str": f"{age}d ago" if is_co and age > 0 else "Today",
+                    "is_co": is_co,
+                    "age": age,
                     "type": p.get("Bond Type", "IMFL"),
                     "cases": 0,
                     "bottles": 0
                 }
-            unique_pending[p_num]["cases"] += p.get("Cases", 0)
-            unique_pending[p_num]["bottles"] += p.get("Bottles", 0)
+            unique_pending[p_key]["cases"] += p.get("Cases", 0)
+            unique_pending[p_key]["bottles"] += p.get("Bottles", 0)
             
-        pending_headers = ["S.No", "Retailer Name", "Indent Number", "Permit Number", "Bond Type", "Cases", "Bottles"]
+        pending_headers = ["S.No", "Retailer Name", "Indent / Permit #", "App Date", "Aging", "Bond", "Cases", "Bottles"]
+        
+        # Sort: fresh first, then by age descending
+        sorted_pending = sorted(
+            unique_pending.values(),
+            key=lambda x: (1 if x["is_co"] else 0, -x["age"], x["retailer"])
+        )
+        
         pending_rows = []
-        for idx, p in enumerate(unique_pending.values()):
+        for idx, p in enumerate(sorted_pending):
             pending_rows.append([
                 str(idx+1),
                 p["retailer"],
                 p["indent"],
-                p["permit"],
+                p["app_date"],
+                p["aging_str"],
                 p["type"],
                 str(p["cases"]),
                 str(p["bottles"])
@@ -288,15 +335,15 @@ def generate_report_pdf(data_json):
         pdf.set_font("Helvetica", "", 9)
         pdf.set_text_color(15, 23, 42)
         with pdf.table(
-            borders_layout="ALL", line_height=6, width=190, col_widths=(10, 70, 35, 35, 16, 12, 12),
-            text_align=("CENTER", "LEFT", "CENTER", "CENTER", "CENTER", "CENTER", "CENTER")
+            borders_layout="ALL", line_height=5.5, width=190, col_widths=(8, 62, 38, 22, 18, 14, 14, 14),
+            text_align=("CENTER", "LEFT", "CENTER", "CENTER", "CENTER", "CENTER", "CENTER", "CENTER")
         ) as table:
             row = table.row()
             pdf.set_font("Helvetica", "B", 8)
             pdf.set_text_color(71, 85, 105)
             for h in pending_headers:
                 row.cell(h)
-            pdf.set_font("Helvetica", "", 8)
+            pdf.set_font("Helvetica", "", 7.5)
             pdf.set_text_color(15, 23, 42)
             for r in pending_rows:
                 row = table.row()
@@ -347,11 +394,11 @@ def generate_report_pdf(data_json):
             pdf.ln(1.5)
             
             # Table of brands loaded
-            brand_headers = ["Product / Brand Name", "Size", "Cases", "Bottles", "Total MRP (Rs)"]
+            brand_headers = ["Product / Brand Name", "Size", "Cases", "Bottles", "Total Eq. Cases", "Total MRP (Rs)"]
             
             with pdf.table(
-                borders_layout="ALL", line_height=5.5, width=190, col_widths=(95, 20, 20, 20, 35),
-                text_align=("LEFT", "CENTER", "CENTER", "CENTER", "RIGHT")
+                borders_layout="ALL", line_height=5.5, width=190, col_widths=(80, 18, 22, 20, 24, 26),
+                text_align=("LEFT", "CENTER", "CENTER", "CENTER", "CENTER", "RIGHT")
             ) as table:
                 # Header Row
                 row = table.row()
@@ -365,28 +412,39 @@ def generate_report_pdf(data_json):
                 pdf.set_text_color(15, 23, 42)
                 total_cases = 0
                 total_bottles = 0
+                total_cs_eq = 0.0
                 grand_mrp_block = 0.0
                 
                 for b in details["brands"]:
+                    b_per_cs = get_bottles_per_case(b["size"])
+                    b_eq = b["bottles"] / b_per_cs if b_per_cs > 0 else 0.0
+                    tot_b_eq = b["cases"] + b_eq
+                    tot_b_eq_str = f"{tot_b_eq:,.2f}".rstrip('0').rstrip('.') if tot_b_eq % 1 != 0 else f"{int(tot_b_eq):,}"
+
                     row = table.row()
                     row.cell(b["name"].replace("`", "'"))
                     row.cell(b["size"])
-                    row.cell(str(b["cases"]))
-                    row.cell(str(b["bottles"]))
+                    row.cell(f"{b['cases']:,} cs")
+                    row.cell(f"{b['bottles']:,} b")
+                    row.cell(f"{tot_b_eq_str} cs")
                     row.cell(f"{b['mrp']:,.2f}")
                     
                     total_cases += b["cases"]
                     total_bottles += b["bottles"]
+                    total_cs_eq += b_eq
                     grand_mrp_block += b["mrp"]
                     
                 # Total Row
+                block_tot_eq = total_cases + total_cs_eq
+                block_tot_eq_str = f"{block_tot_eq:,.2f}".rstrip('0').rstrip('.') if block_tot_eq % 1 != 0 else f"{int(block_tot_eq):,}"
                 row = table.row()
                 pdf.set_font("Helvetica", "B", 8)
                 pdf.set_text_color(15, 23, 42)
                 row.cell("TOTAL LOADING SUMMARY")
                 row.cell("")
-                row.cell(str(total_cases))
-                row.cell(str(total_bottles))
+                row.cell(f"{total_cases:,} cs")
+                row.cell(f"{total_bottles:,} b")
+                row.cell(f"{block_tot_eq_str} cs")
                 row.cell(f"{grand_mrp_block:,.2f}")
                 
             pdf.ln(5)
