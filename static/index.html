@@ -11,7 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,600&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,600&display=swap" rel="stylesheet">
 
     <!-- Stylesheet -->
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/style.css?v=2.1.0">
 </head>
 <body>
 
@@ -404,14 +404,14 @@
         // Theme Toggle Setup
         // -------------------------------------------------------------
         const themeBtn = document.getElementById('theme-toggle');
-        const currentTheme = localStorage.getItem('theme') || 'light';
+        const currentTheme = localStorage.getItem('permtrack_theme') || 'light';
         document.documentElement.setAttribute('data-theme', currentTheme);
         themeBtn.innerText = currentTheme === 'dark' ? '☀️' : '🌙';
 
         themeBtn.addEventListener('click', () => {
             const nowTheme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
             document.documentElement.setAttribute('data-theme', nowTheme);
-            localStorage.setItem('theme', nowTheme);
+            localStorage.setItem('permtrack_theme', nowTheme);
             themeBtn.innerText = nowTheme === 'dark' ? '☀️' : '🌙';
             showToast(`Switched to ${nowTheme.toUpperCase()} theme`);
         });

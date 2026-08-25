@@ -37,8 +37,8 @@ async def read_root():
     index_path = os.path.join(STATIC_DIR, "index.html")
     if os.path.exists(index_path):
         with open(index_path, "r", encoding="utf-8") as f:
-            return f.read()
-    return "<h1>Permit Tracker Dashboard</h1><p>Static index.html not found.</p>"
+            return HTMLResponse(content=f.read(), headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+    return HTMLResponse(content="<h1>Permit Tracker Dashboard</h1><p>Static index.html not found.</p>", status_code=404)
 
 @app.get("/api/today-permits")
 async def get_today_permits(filename: str = None, lookback_days: int = 7):
