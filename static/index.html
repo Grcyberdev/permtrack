@@ -355,23 +355,37 @@
                     </div>
                 </div>
 
-                <!-- TAB 4: Visual Analytics -->
+                <!-- TAB 4: Visual Analytics (Multi-Category Top 5 Rankings) -->
                 <div id="tab-analytics-view" style="display: none;">
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem;">
                         <!-- Top Retailers Progress -->
                         <div class="kpi-card" style="padding: 1.5rem;">
-                            <h3 style="font-family: var(--font-serif); font-size: 1.05rem; margin-bottom: 1rem; color: var(--ink-primary);">🏆 Top 5 Retailers by Volume</h3>
-                            <div id="analytics-top-retailers">
-                                <!-- Injected dynamically -->
-                            </div>
+                            <h3 style="font-family: var(--font-serif); font-size: 1.05rem; margin-bottom: 1rem; color: var(--ink-primary);">🏢 Top 5 Retailers Dispatched</h3>
+                            <div id="analytics-top-retailers"></div>
                         </div>
 
-                        <!-- Top Brands Progress -->
-                        <div class="kpi-card" style="padding: 1.5rem;">
-                            <h3 style="font-family: var(--font-serif); font-size: 1.05rem; margin-bottom: 1rem; color: var(--ink-primary);">🍾 Top 5 Brands Dispatched</h3>
-                            <div id="analytics-top-brands">
-                                <!-- Injected dynamically -->
-                            </div>
+                        <!-- Top Beer Brands Progress -->
+                        <div class="kpi-card" style="padding: 1.5rem; border-left: 3px solid #EAB308;">
+                            <h3 style="font-family: var(--font-serif); font-size: 1.05rem; margin-bottom: 1rem; color: #FEF08A;">🍺 Top 5 Beer Brands Dispatched</h3>
+                            <div id="analytics-top-beer"></div>
+                        </div>
+
+                        <!-- Top IMFL Spirits Progress -->
+                        <div class="kpi-card" style="padding: 1.5rem; border-left: 3px solid #EC4899;">
+                            <h3 style="font-family: var(--font-serif); font-size: 1.05rem; margin-bottom: 1rem; color: #FBCFE8;">🍷 Top 5 IMFL Spirits Dispatched</h3>
+                            <div id="analytics-top-spirits"></div>
+                        </div>
+
+                        <!-- Top Country Spirit (CS) Progress -->
+                        <div class="kpi-card" style="padding: 1.5rem; border-left: 3px solid #06B6D4;">
+                            <h3 style="font-family: var(--font-serif); font-size: 1.05rem; margin-bottom: 1rem; color: #CFFAFE;">🍶 Top 5 Country Spirit (CS) Dispatched</h3>
+                            <div id="analytics-top-cs"></div>
+                        </div>
+
+                        <!-- Top Overall Brands Progress -->
+                        <div class="kpi-card" style="padding: 1.5rem; border-left: 3px solid var(--stamp-gold);">
+                            <h3 style="font-family: var(--font-serif); font-size: 1.05rem; margin-bottom: 1rem; color: var(--stamp-gold);">🍾 Top 5 Overall Brands Dispatched</h3>
+                            <div id="analytics-top-brands"></div>
                         </div>
                     </div>
                 </div>
@@ -537,6 +551,20 @@
             if (s >= 180) return 48;          // 180ml, 200ml -> 48 b/cs
             if (s < 180 && s > 0) return 96;  // 60ml, 90ml -> 96 b/cs
             return 12;
+        }
+
+        function getLiquorType(brandName, category, bondType) {
+            const b = (brandName || '').toLowerCase();
+            const c = (category || '').toLowerCase();
+            const bond = (bondType || '').toUpperCase();
+
+            if (bond === 'CS' || c.includes('country spirit') || c.includes('cs ') || b.includes('country spirit') || b.includes('c.s.') || b.includes('cs ') || b.includes('c.s')) {
+                return 'CS';
+            }
+            if (c.includes('beer') || b.includes('beer') || b.includes('lager') || b.includes('draught') || b.includes('pilsner') || b.includes('stout')) {
+                return 'BEER';
+            }
+            return 'IMFL_SPIRITS'; // Whisky, Rum, Vodka, Gin, Brandy, Wine
         }
 
         let isPendingCollapsed = false;
@@ -770,29 +798,43 @@
                     groupedByPermit[pKey].lines.push(item);
                 }
 
-                // Party Summary
-                const partyName = item["Retailer Name"] || "Unknown Retailer";
-                if (!partySummary[partyName]) {
-                    partySummary[partyName] = { permits: new Set(), cases: 0, bottles: 0, csEq: 0, mrp: 0.0, licensee: item["Licensee Name"] || '' };
-                }
-                partySummary[partyName].permits.add(pKey);
-                partySummary[partyName].cases += (item.Cases || 0);
-                partySummary[partyName].bottles += (item.Bottles || 0);
-                partySummary[partyName].csEq += bottleCsEq;
-                partySummary[partyName].mrp += (item["Total MRP"] || 0.0);
-
-                // Brand Summary
-                const prodName = item["Product Name"];
-                if (prodName) {
-                    const bKey = `${prodName}_${item.Size || ''}`;
-                    if (!brandSummary[bKey]) {
-                        brandSummary[bKey] = { name: prodName, category: item.Category || '', size: item.Size || '-', cases: 0, bottles: 0, bPerCs: bPerCs, csEq: 0, mrp: 0.0, bl: 0.0 };
+                // Party & Brand Summaries (Dispatched Items Only)
+                if (!isPending) {
+                    const partyName = item["Retailer Name"] || "Unknown Retailer";
+                    if (!partySummary[partyName]) {
+                        partySummary[partyName] = { permits: new Set(), cases: 0, bottles: 0, csEq: 0, mrp: 0.0, licensee: item["Licensee Name"] || '' };
                     }
-                    brandSummary[bKey].cases += (item.Cases || 0);
-                    brandSummary[bKey].bottles += (item.Bottles || 0);
-                    brandSummary[bKey].csEq += bottleCsEq;
-                    brandSummary[bKey].mrp += (item["Total MRP"] || 0.0);
-                    brandSummary[bKey].bl += (item["Bulk Litres"] || 0.0);
+                    partySummary[partyName].permits.add(pKey);
+                    partySummary[partyName].cases += (item.Cases || 0);
+                    partySummary[partyName].bottles += (item.Bottles || 0);
+                    partySummary[partyName].csEq += bottleCsEq;
+                    partySummary[partyName].mrp += (item["Total MRP"] || 0.0);
+
+                    const prodName = item["Product Name"];
+                    if (prodName) {
+                        const bKey = `${prodName}_${item.Size || ''}`;
+                        const liquorType = getLiquorType(prodName, item.Category, bondType);
+                        if (!brandSummary[bKey]) {
+                            brandSummary[bKey] = { 
+                                name: prodName, 
+                                category: item.Category || '', 
+                                size: item.Size || '-', 
+                                bondType: bondType,
+                                liquorType: liquorType,
+                                cases: 0, 
+                                bottles: 0, 
+                                bPerCs: bPerCs, 
+                                csEq: 0, 
+                                mrp: 0.0, 
+                                bl: 0.0 
+                            };
+                        }
+                        brandSummary[bKey].cases += (item.Cases || 0);
+                        brandSummary[bKey].bottles += (item.Bottles || 0);
+                        brandSummary[bKey].csEq += bottleCsEq;
+                        brandSummary[bKey].mrp += (item["Total MRP"] || 0.0);
+                        brandSummary[bKey].bl += (item["Bulk Litres"] || 0.0);
+                    }
                 }
             });
 
@@ -1102,58 +1144,85 @@
             renderVisualAnalytics(partyKeys, partySummary, brandValues, totalEquivalentDispatchedCs);
         }
 
-        // Render Visual Analytics Section
+        // Render Visual Analytics Section (Category-Specific Top 5 Rankings)
         function renderVisualAnalytics(partyKeys, partySummary, brandValues, totalVolume) {
+            // Helper to render ranked progress items
+            function renderRankedItems(containerId, items, barColor = 'var(--stamp-gold)', valColor = 'var(--stamp-gold)') {
+                const container = document.getElementById(containerId);
+                if (!container) return;
+                container.innerHTML = '';
+
+                const top5 = items.slice(0, 5);
+                if (top5.length === 0) {
+                    container.innerHTML = '<div style="color:var(--ink-40); font-size:0.8rem; padding:0.75rem 0; font-style:italic;">No dispatches recorded in this category</div>';
+                    return;
+                }
+
+                const maxVol = (top5[0].cases + top5[0].csEq) || 1;
+
+                top5.forEach((b, idx) => {
+                    const vol = b.cases + b.csEq;
+                    const pct = maxVol > 0 ? Math.round((vol / maxVol) * 100) : 0;
+                    const volStr = vol % 1 === 0 ? vol.toLocaleString() : vol.toFixed(1);
+                    const bottleSub = b.bottles > 0 ? ` <small style="color:var(--ink-40); font-size:0.7rem;">(${b.bottles} b)</small>` : '';
+
+                    const item = document.createElement('div');
+                    item.style.marginBottom = '0.9rem';
+                    item.innerHTML = `
+                        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600; margin-bottom: 0.25rem;">
+                            <span style="color: var(--ink-primary); max-width: 68%; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${b.name}">#${idx + 1} ${b.name} ${b.size && b.size !== '-' ? `(${b.size} ML)` : ''}</span>
+                            <span style="color: ${valColor}; font-family: var(--font-mono); font-weight: 700;">${volStr} cs${bottleSub}</span>
+                        </div>
+                        <div class="analytics-progress-bar">
+                            <div class="analytics-progress-fill" style="width: ${pct}%; background: ${barColor};"></div>
+                        </div>
+                    `;
+                    container.appendChild(item);
+                });
+            }
+
+            // 1. Top Retailers
             const topRetailersContainer = document.getElementById('analytics-top-retailers');
-            const topBrandsContainer = document.getElementById('analytics-top-brands');
-            if (!topRetailersContainer || !topBrandsContainer) return;
+            if (topRetailersContainer) {
+                topRetailersContainer.innerHTML = '';
+                const top5Parties = partyKeys.slice(0, 5);
+                const maxPartyVolume = top5Parties.length > 0 ? (partySummary[top5Parties[0]].cases + partySummary[top5Parties[0]].csEq) : 1;
 
-            topRetailersContainer.innerHTML = '';
-            topBrandsContainer.innerHTML = '';
+                top5Parties.forEach((p, idx) => {
+                    const vol = partySummary[p].cases + partySummary[p].csEq;
+                    const pct = maxPartyVolume > 0 ? Math.round((vol / maxPartyVolume) * 100) : 0;
+                    const volStr = vol % 1 === 0 ? vol.toLocaleString() : vol.toFixed(1);
+                    const bottleSub = partySummary[p].bottles > 0 ? ` <small style="color:var(--ink-40); font-size:0.7rem;">(${partySummary[p].bottles} b)</small>` : '';
 
-            const top5Parties = partyKeys.slice(0, 5);
-            const maxPartyVolume = top5Parties.length > 0 ? (partySummary[top5Parties[0]].cases + partySummary[top5Parties[0]].csEq) : 1;
+                    const item = document.createElement('div');
+                    item.style.marginBottom = '0.9rem';
+                    item.innerHTML = `
+                        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600; margin-bottom: 0.25rem;">
+                            <span style="color: var(--ink-primary); max-width: 68%; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${p}">#${idx + 1} ${p}</span>
+                            <span style="color: var(--ink-primary); font-family: var(--font-mono); font-weight: 700;">${volStr} cs${bottleSub}</span>
+                        </div>
+                        <div class="analytics-progress-bar">
+                            <div class="analytics-progress-fill" style="width: ${pct}%;"></div>
+                        </div>
+                    `;
+                    topRetailersContainer.appendChild(item);
+                });
+            }
 
-            top5Parties.forEach((p, idx) => {
-                const vol = partySummary[p].cases + partySummary[p].csEq;
-                const pct = maxPartyVolume > 0 ? Math.round((vol / maxPartyVolume) * 100) : 0;
-                const volStr = vol % 1 === 0 ? vol.toLocaleString() : vol.toFixed(1);
+            // 2. Top Beer Brands Dispatched
+            const beerBrands = brandValues.filter(b => b.liquorType === 'BEER');
+            renderRankedItems('analytics-top-beer', beerBrands, 'linear-gradient(90deg, #CA8A04, #EAB308)', '#FEF08A');
 
-                const item = document.createElement('div');
-                item.style.marginBottom = '1rem';
-                item.innerHTML = `
-                    <div style="display: flex; justify-content: space-between; font-size: 0.825rem; font-weight: 600; margin-bottom: 0.25rem;">
-                        <span style="color: var(--ink-primary);">#${idx + 1} ${p}</span>
-                        <span style="color: var(--ink-primary); font-family: var(--font-mono); font-weight: 700;">${volStr} cs</span>
-                    </div>
-                    <div class="analytics-progress-bar">
-                        <div class="analytics-progress-fill" style="width: ${pct}%;"></div>
-                    </div>
-                `;
-                topRetailersContainer.appendChild(item);
-            });
+            // 3. Top IMFL Spirits Dispatched
+            const spiritsBrands = brandValues.filter(b => b.liquorType === 'IMFL_SPIRITS');
+            renderRankedItems('analytics-top-spirits', spiritsBrands, 'linear-gradient(90deg, #DB2777, #EC4899)', '#FBCFE8');
 
-            const top5Brands = brandValues.slice(0, 5);
-            const maxBrandVolume = top5Brands.length > 0 ? (top5Brands[0].cases + top5Brands[0].csEq) : 1;
+            // 4. Top Country Spirit (CS) Dispatched
+            const csBrands = brandValues.filter(b => b.liquorType === 'CS');
+            renderRankedItems('analytics-top-cs', csBrands, 'linear-gradient(90deg, #0891B2, #06B6D4)', '#CFFAFE');
 
-            top5Brands.forEach((b, idx) => {
-                const vol = b.cases + b.csEq;
-                const pct = maxBrandVolume > 0 ? Math.round((vol / maxBrandVolume) * 100) : 0;
-                const volStr = vol % 1 === 0 ? vol.toLocaleString() : vol.toFixed(1);
-
-                const item = document.createElement('div');
-                item.style.marginBottom = '1rem';
-                item.innerHTML = `
-                    <div style="display: flex; justify-content: space-between; font-size: 0.825rem; font-weight: 600; margin-bottom: 0.25rem;">
-                        <span style="color: var(--ink-primary);">#${idx + 1} ${b.name} (${b.size} ML)</span>
-                        <span style="color: var(--stamp-gold); font-family: var(--font-mono); font-weight: 700;">${volStr} cs</span>
-                    </div>
-                    <div class="analytics-progress-bar">
-                        <div class="analytics-progress-fill" style="width: ${pct}%; background: var(--stamp-gold);"></div>
-                    </div>
-                `;
-                topBrandsContainer.appendChild(item);
-            });
+            // 5. Top Overall Brands Dispatched
+            renderRankedItems('analytics-top-brands', brandValues, 'var(--stamp-gold)', 'var(--stamp-gold)');
         }
 
         // Toggle Collapsible Brand Lines
