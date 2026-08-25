@@ -412,8 +412,16 @@ def open_and_parse_form34(driver, wait, indent_num, cols):
         official_bottles = None
         
         tables = driver.find_elements(By.XPATH, "//table")
-        if tables:
-            form_table = tables[-1]
+        form_table = None
+        for t in tables:
+            t_text = t.text.lower()
+            if "brand name" in t_text or ("cases" in t_text and "bottles" in t_text) or ("cases" in t_text and "size" in t_text):
+                form_table = t
+                break
+        if not form_table and tables:
+            form_table = tables[0]
+            
+        if form_table:
             rows = form_table.find_elements(By.XPATH, ".//tr")
             
             col_brand_no = 1
@@ -430,7 +438,7 @@ def open_and_parse_form34(driver, wait, indent_num, cols):
                 texts = [c.get_attribute("innerText").strip().lower() for c in cells]
                 if any("brand" in t for t in texts):
                     for idx, t in enumerate(texts):
-                        if "number" in t or "no" in t and "s.no" not in t: col_brand_no = idx
+                        if "number" in t or ("no" in t and "s.no" not in t and "sl" not in t): col_brand_no = idx
                         elif "brand name" in t or "item" in t: col_brand_name = idx
                         elif "category" in t: col_category = idx
                         elif "size" in t or "pack" in t: col_size = idx
@@ -445,21 +453,26 @@ def open_and_parse_form34(driver, wait, indent_num, cols):
                 first_cell = cols_r[0].get_attribute("innerText").strip()
                 row_text = " ".join([c.get_attribute("innerText").strip() for c in cols_r]).lower()
                 
+                # Check Total Row
                 if "total" in first_cell.lower() or "total" in row_text:
-                    try:
-                        c_str = cols_r[col_cases].get_attribute("innerText").strip().replace(',', '') if col_cases < len(cols_r) else ""
-                        if c_str: official_cases = int(float(c_str))
-                    except: pass
-                    try:
-                        b_str = cols_r[col_bottles].get_attribute("innerText").strip().replace(',', '') if col_bottles < len(cols_r) else ""
-                        if b_str: official_bottles = int(float(b_str))
-                    except: pass
+                    # In Form-34 total row: [0]=TOTAL, [1]=Cases, [2]=Bottles, [3]=BL, [4]=LPL
+                    for c_idx, cell in enumerate(cols_r):
+                        c_text = cell.get_attribute("innerText").strip().replace(',', '')
+                        if c_idx == 1 and c_text.replace('.', '').isdigit():
+                            try: official_cases = int(float(c_text))
+                            except: pass
+                        elif c_idx == 2 and c_text.replace('.', '').isdigit():
+                            try: official_bottles = int(float(c_text))
+                            except: pass
                     continue
                     
                 if first_cell.lower() in ["s.no", "sl.no", "#", "brand number"]: continue
                 
+                # S.No should normally be a number or valid row
                 prod_name = cols_r[col_brand_name].get_attribute("innerText").strip() if col_brand_name < len(cols_r) else ""
                 if not prod_name or prod_name.lower() == "total": continue
+                if "signature" in prod_name.lower() or "officer" in prod_name.lower() or "transport pass" in prod_name.lower():
+                    continue
                 
                 category = cols_r[col_category].get_attribute("innerText").strip() if col_category < len(cols_r) else ""
                 raw_size = cols_r[col_size].get_attribute("innerText").strip() if col_size < len(cols_r) else ""
@@ -497,6 +510,11 @@ def open_and_parse_form34(driver, wait, indent_num, cols):
         if len(driver.window_handles) > 1:
             driver.close()
             driver.switch_to.window(main_window)
+            
+        # Guard: If 0 items were parsed from Form-34, signal fallback to modal
+        if len(brand_lines) == 0:
+            print(f"   ⚠️ Form-34 parsed 0 items for {indent_num}, falling back to modal...")
+            return [], 0, 0, vehicle_no, challan_date, licensee_name, False
             
         return brand_lines, tot_c, tot_b, vehicle_no, challan_date, licensee_name, True
         
