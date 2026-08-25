@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PermTrack | Assam Excise Revenue Dashboard</title>
+    <title>PermTrack Enterprise | Assam Excise Revenue Dashboard</title>
 
-    <!-- Google Fonts: Outfit & Inter -->
+    <!-- Google Fonts: Plus Jakarta Sans, Outfit, JetBrains Mono -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
     <!-- Stylesheet -->
     <link rel="stylesheet" href="/static/css/style.css">
@@ -17,30 +17,45 @@
             padding: 0.35rem 0.85rem;
             border-radius: 9999px;
             font-size: 0.75rem;
-            font-weight: 600;
-            background: rgba(255, 255, 255, 0.05);
+            font-weight: 700;
+            background: rgba(255, 255, 255, 0.04);
             border: 1px solid var(--card-border);
             color: var(--text-secondary);
             cursor: pointer;
             transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+        .filter-pill:hover {
+            border-color: var(--card-border-hover);
+            color: var(--text-primary);
         }
         .filter-pill.active {
             background: var(--accent-indigo);
             color: #ffffff;
             border-color: var(--accent-indigo);
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
-        }
-        .summary-table tfoot tr {
-            background: rgba(99, 102, 241, 0.12);
-            font-weight: 700;
-            border-top: 2px solid var(--accent-indigo);
+            box-shadow: 0 2px 10px var(--accent-indigo-glow);
         }
         .party-row-clickable {
             cursor: pointer;
             transition: background 0.2s ease;
         }
         .party-row-clickable:hover {
-            background: rgba(99, 102, 241, 0.1) !important;
+            background: rgba(99, 102, 241, 0.12) !important;
+        }
+        .analytics-progress-bar {
+            height: 8px;
+            border-radius: 9999px;
+            background: rgba(255, 255, 255, 0.06);
+            overflow: hidden;
+            margin-top: 0.4rem;
+        }
+        .analytics-progress-fill {
+            height: 100%;
+            border-radius: 9999px;
+            background: linear-gradient(90deg, var(--accent-indigo), var(--accent-cyan));
+            transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
         }
     </style>
 </head>
@@ -51,17 +66,25 @@
         <!-- Top Navigation Bar -->
         <header class="navbar">
             <div class="brand-block">
-                <div class="brand-logo">📜</div>
+                <div class="brand-logo-glow">📜</div>
                 <div class="brand-title">
-                    <h1>PermTrack</h1>
-                    <div class="brand-subtitle">Assam Excise Revenue Management System</div>
+                    <h1>PermTrack <span class="brand-badge">Enterprise</span></h1>
+                    <div class="brand-subtitle">
+                        <span class="live-pulse-dot"></span>
+                        <span>Assam State Excise Revenue Portal</span>
+                    </div>
                 </div>
             </div>
 
             <div class="header-controls">
-                <select id="backup-selector" class="btn-glass" title="Select Historical Backup">
-                    <option value="">📅 Loading Backups...</option>
+                <select id="backup-selector" class="btn-glass" title="Select Historical Date">
+                    <option value="">📅 Loading Dates...</option>
                 </select>
+
+                <button class="btn-glass" onclick="loadPermitsData()" title="Refresh Current View">
+                    <span>🔄</span>
+                    <span>Refresh</span>
+                </button>
 
                 <button class="btn-glass" onclick="downloadCsvReport()" title="Export Filtered Data as CSV">
                     <span>📥</span>
@@ -79,11 +102,69 @@
             </div>
         </header>
 
+        <!-- Executive Analytics Hero Section -->
+        <div class="hero-stats-banner">
+            <!-- Metric 1: Total Equivalent Liquor Volume -->
+            <div class="hero-metric-card">
+                <div class="hero-metric-label">
+                    <span>Total Dispatched Volume</span>
+                    <span style="color: var(--accent-indigo); font-weight: 800;">📦 Total Eq. Cases</span>
+                </div>
+                <div class="hero-metric-val" id="hero-total-cases">0 cs</div>
+                <div class="hero-metric-subtext" id="hero-total-cases-sub">
+                    <span>0 Physical cs</span> • <span>0 cs from loose bottles</span>
+                </div>
+                <!-- Multi-segment distribution bar -->
+                <div class="distribution-bar-wrapper">
+                    <div class="distribution-bar">
+                        <div id="dist-imfl-bar" class="distribution-seg-imfl" style="width: 50%;" title="IMFL Volume"></div>
+                        <div id="dist-cs-bar" class="distribution-seg-cs" style="width: 50%;" title="CS Volume"></div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem;">
+                        <span id="dist-imfl-label">🍷 IMFL: 0 cs (0%)</span>
+                        <span id="dist-cs-label">🍶 CS: 0 cs (0%)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Metric 2: Estimated MRP Turnover -->
+            <div class="hero-metric-card">
+                <div class="hero-metric-label">
+                    <span>Dispatched Turnover</span>
+                    <span style="color: var(--accent-emerald); font-weight: 800;">💰 Total MRP</span>
+                </div>
+                <div class="hero-metric-val" id="hero-total-mrp" style="color: var(--accent-emerald);">₹ 0.00</div>
+                <div class="hero-metric-subtext" id="hero-total-mrp-sub">
+                    <span>Estimated gross value of dispatched stock</span>
+                </div>
+                <div style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem;">
+                    <span class="status-badge issued" id="hero-clearance-rate">100% Dispatched</span>
+                    <span style="color: var(--text-secondary);" id="hero-active-indents-label">0 Active Indents</span>
+                </div>
+            </div>
+
+            <!-- Metric 3: Active Pending Clearance Queue -->
+            <div class="hero-metric-card">
+                <div class="hero-metric-label">
+                    <span>Pending Clearance Queue</span>
+                    <span style="color: var(--accent-amber); font-weight: 800;">⏳ Active Indents</span>
+                </div>
+                <div class="hero-metric-val" id="hero-pending-count" style="color: var(--accent-amber);">0</div>
+                <div class="hero-metric-subtext" id="hero-pending-sub">
+                    <span>0 cs + 0 b awaiting official Transit Pass</span>
+                </div>
+                <div style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.4rem; font-size: 0.75rem;">
+                    <span class="filter-pill active" id="hero-aging-fresh" style="padding: 0.2rem 0.5rem; font-size: 0.7rem;">🟡 0 Fresh</span>
+                    <span class="filter-pill" id="hero-aging-carried" style="padding: 0.2rem 0.5rem; font-size: 0.7rem; background: rgba(249, 115, 22, 0.15); color: #f97316; border-color: rgba(249, 115, 22, 0.3);">🟠 0 Carried Over</span>
+                </div>
+            </div>
+        </div>
+
         <!-- KPI Hero Cards Grid -->
-        <div class="kpi-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+        <div class="kpi-grid">
             <div class="kpi-card">
                 <div class="kpi-header">
-                    <span class="kpi-title">Dispatched Permits</span>
+                    <span class="kpi-title">Dispatched Passes</span>
                     <div class="kpi-icon" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">✅</div>
                 </div>
                 <div class="kpi-value" id="kpi-dispatched-permits">0</div>
@@ -110,11 +191,11 @@
 
             <div class="kpi-card">
                 <div class="kpi-header">
-                    <span class="kpi-title">Dispatched Cases</span>
+                    <span class="kpi-title">Physical Cases</span>
                     <div class="kpi-icon" style="background: rgba(99, 102, 241, 0.15); color: #6366f1;">📦</div>
                 </div>
                 <div class="kpi-value" id="kpi-dispatched-cases">0 cs</div>
-                <div class="kpi-meta" id="kpi-dispatched-cases-meta">0 full cs + 0 cs from bottles</div>
+                <div class="kpi-meta" id="kpi-dispatched-cases-meta">Full unopened cases</div>
             </div>
 
             <div class="kpi-card">
@@ -128,7 +209,7 @@
 
             <div class="kpi-card">
                 <div class="kpi-header">
-                    <span class="kpi-title">Pending Permits</span>
+                    <span class="kpi-title">Pending Indents</span>
                     <div class="kpi-icon" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">⏳</div>
                 </div>
                 <div class="kpi-value" id="kpi-pending-permits">0</div>
@@ -137,22 +218,23 @@
         </div>
 
         <!-- Filter & View Switcher Bar -->
-        <div class="filter-bar" style="flex-wrap: wrap; gap: 1rem;">
+        <div class="filter-bar">
             <div class="tab-group">
-                <button class="tab-btn active" onclick="switchTab('permits')">📜 Loading Details</button>
-                <button class="tab-btn" onclick="switchTab('party')">🏢 Party Summary</button>
-                <button class="tab-btn" onclick="switchTab('brand')">🍾 Brand Summary</button>
+                <button class="tab-btn active" onclick="switchTab('permits')">📜 Loading & Dispatches</button>
+                <button class="tab-btn" onclick="switchTab('party')">🏢 Party Directory</button>
+                <button class="tab-btn" onclick="switchTab('brand')">🍾 Brand Loading</button>
+                <button class="tab-btn" onclick="switchTab('analytics')">📊 Visual Analytics</button>
             </div>
 
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <div class="filter-pill-group">
                 <span class="filter-pill active" id="pill-bond-all" onclick="setBondFilter('ALL')">All Bonds</span>
                 <span class="filter-pill" id="pill-bond-imfl" onclick="setBondFilter('IMFL')">🍷 IMFL Only</span>
                 <span class="filter-pill" id="pill-bond-cs" onclick="setBondFilter('CS')">🍶 CS Only</span>
             </div>
 
-            <div class="search-box" style="flex: 1; min-width: 220px;">
+            <div class="search-box">
                 <span class="search-icon">🔍</span>
-                <input type="text" id="search-input" placeholder="Search retailer, permit #, brand..." oninput="handleSearch()">
+                <input type="text" id="search-input" placeholder="Search retailer, permit #, brand, vehicle..." oninput="handleSearch()">
             </div>
         </div>
 
@@ -169,12 +251,12 @@
                     <div style="margin-bottom: 2rem;">
                         <div class="permit-section-header" onclick="togglePermitSection('pending')">
                             <div class="permit-section-header-title">
-                                <span style="color: #f59e0b;">🟡</span>
-                                <h2>Applied / Pending Permits</h2>
+                                <span style="color: #f59e0b; font-size: 1.1rem;">⏳</span>
+                                <h2>Applied / Pending Approval Permits</h2>
                                 <span id="badge-pending-count" class="status-badge pending">0 permits</span>
                             </div>
                             <button id="btn-toggle-pending" class="btn-toggle-section" onclick="event.stopPropagation(); togglePermitSection('pending');">
-                                <span class="toggle-icon">➖</span>
+                                <span class="toggle-icon">▼</span>
                                 <span class="toggle-text">Minimize</span>
                             </button>
                         </div>
@@ -195,12 +277,12 @@
                     <div>
                         <div class="permit-section-header" onclick="togglePermitSection('dispatched')">
                             <div class="permit-section-header-title">
-                                <span style="color: #10b981;">🟢</span>
+                                <span style="color: #10b981; font-size: 1.1rem;">🟢</span>
                                 <h2>Dispatched Permits (Pass Issued)</h2>
                                 <span id="badge-issued-count" class="status-badge issued">0 permits</span>
                             </div>
                             <button id="btn-toggle-dispatched" class="btn-toggle-section" onclick="event.stopPropagation(); togglePermitSection('dispatched');">
-                                <span class="toggle-icon">➖</span>
+                                <span class="toggle-icon">▼</span>
                                 <span class="toggle-text">Minimize</span>
                             </button>
                         </div>
@@ -214,9 +296,9 @@
                 <!-- TAB 2: Party-wise Summary Table -->
                 <div id="tab-party-view" style="display: none;">
                     <div class="kpi-card" style="padding: 1.5rem;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
-                            <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.1rem; color: var(--text-primary);">🏢 Party-wise Loading Summary</h2>
-                            <small style="color: var(--text-muted); font-size: 0.8rem;">💡 Tip: Click any row to view permits</small>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
+                            <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.2rem; color: var(--text-primary);">🏢 Party-wise Loading Summary</h2>
+                            <small style="color: var(--text-muted); font-size: 0.8rem;">💡 Tip: Click any row to filter permits</small>
                         </div>
                         <div class="summary-table-wrapper">
                             <table class="summary-table">
@@ -226,6 +308,7 @@
                                         <th style="text-align: center;">Permits</th>
                                         <th style="text-align: right;">Total Cases</th>
                                         <th style="text-align: right;">Total Bottles</th>
+                                        <th style="text-align: right;">Est. MRP</th>
                                     </tr>
                                 </thead>
                                 <tbody id="party-summary-tbody">
@@ -242,15 +325,16 @@
                 <!-- TAB 3: Brand-wise Summary Table -->
                 <div id="tab-brand-view" style="display: none;">
                     <div class="kpi-card" style="padding: 1.5rem;">
-                        <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.1rem; margin-bottom: 1.25rem;">🍾 Brand-wise Daily Loading Summary</h2>
+                        <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.2rem; margin-bottom: 1.25rem;">🍾 Brand-wise Daily Loading Summary</h2>
                         <div class="summary-table-wrapper">
                             <table class="summary-table">
                                 <thead>
                                     <tr>
                                         <th>Brand / Product Name</th>
-                                        <th style="text-align: center;">Size (ML)</th>
+                                        <th style="text-align: center;">Pack Size</th>
                                         <th style="text-align: right;">Total Cases</th>
-                                        <th style="text-align: right;">Total Loose Bottles</th>
+                                        <th style="text-align: right;">Loose Bottles</th>
+                                        <th style="text-align: right;">Est. MRP</th>
                                     </tr>
                                 </thead>
                                 <tbody id="brand-summary-tbody">
@@ -264,43 +348,67 @@
                     </div>
                 </div>
 
+                <!-- TAB 4: Visual Analytics -->
+                <div id="tab-analytics-view" style="display: none;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem;">
+                        <!-- Top Retailers Progress -->
+                        <div class="kpi-card" style="padding: 1.5rem;">
+                            <h3 style="font-family: 'Outfit', sans-serif; font-size: 1.05rem; margin-bottom: 1rem; color: var(--text-primary);">🏆 Top 5 Retailers by Volume</h3>
+                            <div id="analytics-top-retailers">
+                                <!-- Injected dynamically -->
+                            </div>
+                        </div>
+
+                        <!-- Top Brands Progress -->
+                        <div class="kpi-card" style="padding: 1.5rem;">
+                            <h3 style="font-family: 'Outfit', sans-serif; font-size: 1.05rem; margin-bottom: 1rem; color: var(--text-primary);">🍾 Top 5 Brands Dispatched</h3>
+                            <div id="analytics-top-brands">
+                                <!-- Injected dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </main>
 
-            <!-- Right Panel: Scraper Control Center -->
+            <!-- Right Panel: Scraper Control Operations Center -->
             <aside>
                 <div class="control-card">
-                    <div class="control-title">⚡ Scraper Control Center</div>
-
-                    <div class="form-field">
-                        <label for="scraper-date">Target Date</label>
-                        <input type="text" id="scraper-date" placeholder="DD-MM-YYYY (e.g. 21-07-2026)">
+                    <div class="control-title">
+                        <span>⚡</span>
+                        <span>Scraper Operations</span>
                     </div>
 
                     <div class="form-field">
-                        <label for="bond-type">Excise Bond Credentials</label>
+                        <label for="scraper-date">Target Scraping Date</label>
+                        <input type="text" id="scraper-date" placeholder="DD-MM-YYYY (Blank = Today)">
+                    </div>
+
+                    <div class="form-field">
+                        <label for="bond-type">Bond Channel</label>
                         <select id="bond-type">
-                            <option value="BOTH">Query Both (IMFL & CS)</option>
-                            <option value="IMFL">IMFL Only</option>
-                            <option value="CS">Country Spirit (CS) Only</option>
+                            <option value="BOTH">Both IMFL & Country Spirit</option>
+                            <option value="IMFL">IMFL Bond Only</option>
+                            <option value="CS">Country Spirit Only</option>
                         </select>
                     </div>
 
                     <div class="form-field">
                         <label for="lookback-days">Pending Lookback Window</label>
                         <select id="lookback-days">
-                            <option value="7" selected>7 Days (Govt Validity - Recommended)</option>
-                            <option value="3">3 Days (Quick Scan)</option>
-                            <option value="1">Yesterday & Today (2 Days)</option>
-                            <option value="0">Today Only (Fastest)</option>
+                            <option value="7" selected>7 Days Cross-Day Reconciliation</option>
+                            <option value="14">14 Days Deep Lookback</option>
+                            <option value="3">3 Days Lookback</option>
+                            <option value="0">0 Days (Today Only)</option>
                         </select>
                     </div>
 
-                    <div class="form-field" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem;">
-                        <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">Headless Mode</span>
+                    <div class="form-field" style="display: flex; align-items: center; justify-content: space-between;">
+                        <label for="headless-toggle" style="margin-bottom: 0;">Headless Browser Mode</label>
                         <input type="checkbox" id="headless-toggle" checked style="width: 1.2rem; height: 1.2rem; cursor: pointer;">
                     </div>
 
-                    <button id="run-scraper-btn" class="btn-glass btn-primary" style="width: 100%; justify-content: center; padding: 0.75rem;" onclick="triggerScraperRun()">
+                    <button id="run-scraper-btn" class="btn-glass btn-primary" style="width: 100%; justify-content: center; padding: 0.75rem; font-size: 0.85rem;" onclick="triggerScraperRun()">
                         🚀 Run Live Permit Scraper
                     </button>
 
@@ -360,12 +468,13 @@
         function switchTab(tabName) {
             currentTab = tabName;
             document.querySelectorAll('.tab-btn').forEach((btn, idx) => {
-                btn.classList.toggle('active', (tabName === 'permits' && idx === 0) || (tabName === 'party' && idx === 1) || (tabName === 'brand' && idx === 2));
+                btn.classList.toggle('active', (tabName === 'permits' && idx === 0) || (tabName === 'party' && idx === 1) || (tabName === 'brand' && idx === 2) || (tabName === 'analytics' && idx === 3));
             });
 
             document.getElementById('tab-permits-view').style.display = tabName === 'permits' ? 'block' : 'none';
             document.getElementById('tab-party-view').style.display = tabName === 'party' ? 'block' : 'none';
             document.getElementById('tab-brand-view').style.display = tabName === 'brand' ? 'block' : 'none';
+            document.getElementById('tab-analytics-view').style.display = tabName === 'analytics' ? 'block' : 'none';
         }
 
         function setBondFilter(bondType) {
@@ -397,10 +506,10 @@
         function getBottlesPerCase(sizeMl) {
             const s = parseInt(sizeMl, 10);
             if (isNaN(s)) return 12;
-            if (s >= 600) return 12;      // 750ml, 650ml, 1000ml -> 12 b/cs
-            if (s >= 350) return 24;      // 375ml, 500ml -> 24 b/cs
-            if (s >= 180) return 48;      // 180ml, 200ml -> 48 b/cs
-            if (s < 180 && s > 0) return 96; // 60ml, 90ml -> 96 b/cs
+            if (s >= 600) return 12;          // 750ml, 650ml, 1000ml -> 12 b/cs
+            if (s >= 350) return 24;          // 375ml, 500ml -> 24 b/cs
+            if (s >= 180) return 48;          // 180ml, 200ml -> 48 b/cs
+            if (s < 180 && s > 0) return 96;  // 60ml, 90ml -> 96 b/cs
             return 12;
         }
 
@@ -459,7 +568,8 @@
         async function loadPermitsData(filename = null) {
             try {
                 let url = '/api/today-permits';
-                if (filename) url += `?filename=${filename}`;
+                const selVal = filename || document.getElementById('backup-selector').value;
+                if (selVal) url += `?filename=${selVal}`;
                 
                 const res = await fetch(url);
                 const data = await res.json();
@@ -500,6 +610,8 @@
                     (item["Retailer Name"] || '').toLowerCase().includes(query) ||
                     (item["Permit Number"] || '').toLowerCase().includes(query) ||
                     (item["Indent Number"] || '').toLowerCase().includes(query) ||
+                    (item["Transit Pass"] || '').toLowerCase().includes(query) ||
+                    (item["Vehicle Number"] || '').toLowerCase().includes(query) ||
                     (item["Product Name"] || '').toLowerCase().includes(query) ||
                     (item["Bond Type"] || '').toLowerCase().includes(query)
                 );
@@ -533,12 +645,13 @@
             let totalDispatchedCases = 0;
             let totalDispatchedBottles = 0;
             let totalDispatchedBottleCsEq = 0;
+            let totalDispatchedMRP = 0.0;
 
             let totalPendingCases = 0;
             let totalPendingBottles = 0;
 
-            let imflCases = 0, imflBottles = 0;
-            let csCases = 0, csBottles = 0;
+            let imflCases = 0, imflBottles = 0, imflBottleCsEq = 0;
+            let csCases = 0, csBottles = 0, csBottleCsEq = 0;
 
             let groupedByPermit = {};
             let partySummary = {};
@@ -559,6 +672,7 @@
                         imflDispatchedSet.add(pKey);
                         imflCases += (item.Cases || 0);
                         imflBottles += (item.Bottles || 0);
+                        imflBottleCsEq += bottleCsEq;
                     }
                 } else {
                     if (isPending) {
@@ -567,6 +681,7 @@
                         csDispatchedSet.add(pKey);
                         csCases += (item.Cases || 0);
                         csBottles += (item.Bottles || 0);
+                        csBottleCsEq += bottleCsEq;
                     }
                 }
 
@@ -584,6 +699,7 @@
                     totalDispatchedCases += (item.Cases || 0);
                     totalDispatchedBottles += (item.Bottles || 0);
                     totalDispatchedBottleCsEq += bottleCsEq;
+                    totalDispatchedMRP += (item["Total MRP"] || 0.0);
                 }
 
                 // Group by Permit
@@ -600,29 +716,56 @@
                 // Party Summary
                 const partyName = item["Retailer Name"] || "Unknown Party";
                 if (!partySummary[partyName]) {
-                    partySummary[partyName] = { permits: new Set(), cases: 0, bottles: 0, csEq: 0 };
+                    partySummary[partyName] = { permits: new Set(), cases: 0, bottles: 0, csEq: 0, mrp: 0.0 };
                 }
                 partySummary[partyName].permits.add(pKey);
                 partySummary[partyName].cases += (item.Cases || 0);
                 partySummary[partyName].bottles += (item.Bottles || 0);
                 partySummary[partyName].csEq += bottleCsEq;
+                partySummary[partyName].mrp += (item["Total MRP"] || 0.0);
 
                 // Brand Summary
                 const prodName = item["Product Name"];
                 if (prodName) {
                     const bKey = `${prodName}_${item.Size || ''}`;
                     if (!brandSummary[bKey]) {
-                        brandSummary[bKey] = { name: prodName, size: item.Size || '-', cases: 0, bottles: 0, bPerCs: bPerCs, csEq: 0 };
+                        brandSummary[bKey] = { name: prodName, size: item.Size || '-', cases: 0, bottles: 0, bPerCs: bPerCs, csEq: 0, mrp: 0.0 };
                     }
                     brandSummary[bKey].cases += (item.Cases || 0);
                     brandSummary[bKey].bottles += (item.Bottles || 0);
                     brandSummary[bKey].csEq += bottleCsEq;
+                    brandSummary[bKey].mrp += (item["Total MRP"] || 0.0);
                 }
             });
 
             const totalEquivalentDispatchedCs = totalDispatchedCases + totalDispatchedBottleCsEq;
             const bottleCsFormatted = totalDispatchedBottleCsEq % 1 === 0 ? totalDispatchedBottleCsEq.toString() : totalDispatchedBottleCsEq.toFixed(2);
             const totCsFormatted = totalEquivalentDispatchedCs % 1 === 0 ? totalEquivalentDispatchedCs.toLocaleString() : totalEquivalentDispatchedCs.toFixed(2);
+
+            const totImflEq = imflCases + imflBottleCsEq;
+            const totCsEq = csCases + csBottleCsEq;
+            const imflPct = totalEquivalentDispatchedCs > 0 ? Math.round((totImflEq / totalEquivalentDispatchedCs) * 100) : 50;
+            const csPct = totalEquivalentDispatchedCs > 0 ? (100 - imflPct) : 50;
+
+            // Update Executive Hero Banner
+            document.getElementById('hero-total-cases').innerText = `${totCsFormatted} cs`;
+            document.getElementById('hero-total-cases-sub').innerHTML = `<span>${totalDispatchedCases.toLocaleString()} Physical cs</span> • <span>${bottleCsFormatted} cs from loose bottles</span>`;
+            
+            document.getElementById('dist-imfl-bar').style.width = `${imflPct}%`;
+            document.getElementById('dist-cs-bar').style.width = `${csPct}%`;
+            document.getElementById('dist-imfl-label').innerText = `🍷 IMFL: ${totImflEq.toLocaleString(undefined, {maximumFractionDigits: 1})} cs (${imflPct}%)`;
+            document.getElementById('dist-cs-label').innerText = `🍶 CS: ${totCsEq.toLocaleString(undefined, {maximumFractionDigits: 1})} cs (${csPct}%)`;
+
+            document.getElementById('hero-total-mrp').innerText = `₹ ${totalDispatchedMRP > 10000000 ? (totalDispatchedMRP / 10000000).toFixed(2) + ' Cr' : totalDispatchedMRP.toLocaleString('en-IN', {maximumFractionDigits: 0})}`;
+            const totalAllPermits = dispatchedPermitsSet.size + pendingPermitsSet.size;
+            const clearancePct = totalAllPermits > 0 ? Math.round((dispatchedPermitsSet.size / totalAllPermits) * 100) : 100;
+            document.getElementById('hero-clearance-rate').innerText = `${clearancePct}% Dispatched`;
+            document.getElementById('hero-active-indents-label').innerText = `${totalAllPermits} Total Indents`;
+
+            document.getElementById('hero-pending-count').innerText = pendingPermitsSet.size;
+            document.getElementById('hero-pending-sub').innerText = `${totalPendingCases.toLocaleString()} cs + ${totalPendingBottles.toLocaleString()} b awaiting official Transit Pass`;
+            document.getElementById('hero-aging-fresh').innerText = `🟡 ${freshPendingSet.size} Fresh Today`;
+            document.getElementById('hero-aging-carried').innerText = `🟠 ${carriedPendingSet.size} Carried Over`;
 
             // Update KPI Cards
             document.getElementById('kpi-dispatched-permits').innerText = dispatchedPermitsSet.size;
@@ -633,10 +776,10 @@
             document.getElementById('kpi-cs-permits').innerText = csDispatchedSet.size;
             document.getElementById('kpi-cs-meta').innerText = `${csCases.toLocaleString()} cs + ${csBottles.toLocaleString()} b (${csPendingSet.size} pending)`;
 
-            document.getElementById('kpi-dispatched-cases').innerText = `${totCsFormatted} cs`;
+            document.getElementById('kpi-dispatched-cases').innerText = `${totalDispatchedCases.toLocaleString()} cs`;
             const kpiCsMeta = document.getElementById('kpi-dispatched-cases-meta');
             if (kpiCsMeta) {
-                kpiCsMeta.innerText = `${totalDispatchedCases.toLocaleString()} Full cs + ${bottleCsFormatted} cs from bottles`;
+                kpiCsMeta.innerText = `Full unopened cases`;
             }
 
             document.getElementById('kpi-dispatched-bottles').innerText = `${totalDispatchedBottles.toLocaleString()} b`;
@@ -646,7 +789,7 @@
             }
 
             document.getElementById('kpi-pending-permits').innerText = pendingPermitsSet.size;
-            document.getElementById('kpi-pending-meta').innerText = `${freshPendingSet.size} Fresh • ${carriedPendingSet.size} Carried Over (${totalPendingCases} cs + ${totalPendingBottles} b)`;
+            document.getElementById('kpi-pending-meta').innerText = `${freshPendingSet.size} Fresh • ${carriedPendingSet.size} Carried Over`;
 
             document.getElementById('badge-pending-count').innerText = `${pendingPermitsSet.size} permits`;
             document.getElementById('badge-issued-count').innerText = `${dispatchedPermitsSet.size} permits`;
@@ -696,7 +839,7 @@
                     const bottleSubtext = line.Bottles > 0 ? ` (${line.Bottles} b = ${bottleCsEq % 1 === 0 ? bottleCsEq : bottleCsEq.toFixed(2)} cs)` : '';
                     return `
                         <div class="brand-row-item">
-                            <span class="brand-row-name">${line["Product Name"]} <small style="color:var(--text-muted);">(${line.Size || '-'} ML)</small></span>
+                            <span class="brand-row-name">${line["Product Name"]} <span class="code-tag" style="font-size: 0.7rem;">${line.Size || '-'} ML</span></span>
                             <div class="brand-row-qty">
                                 ${line.Cases > 0 ? `<span class="qty-pill-cases">${line.Cases} cs</span>` : ''}
                                 ${line.Bottles > 0 ? `<span class="qty-pill-bottles">${line.Bottles} b${bottleSubtext}</span>` : ''}
@@ -718,7 +861,7 @@
                     if (info.fulfilled_from_carry_over) {
                         statusBadgesHtml = `<span class="status-badge issued">🟢 Pass Issued</span> <span class="status-badge" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.35);">🔵 Fulfilled Carry-Over (${info.turnaround_days || 1}d turnaround)</span>`;
                     } else {
-                        statusBadgesHtml = `<span class="status-badge issued">🟢 Pass Issued</span>`;
+                        statusBadgesHtml = `<span class="status-badge issued">🟢 Pass Issued</span> <span class="status-badge" style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25);">⚡ Same-Day</span>`;
                     }
                 }
 
@@ -735,9 +878,9 @@
 
                     <div class="permit-meta-grid">
                         <div>Indent: <span class="code-tag">${info["Indent Number"] || '-'}</span></div>
-                        <div>Permit: <span class="code-tag" onclick="copyToClipboard('${info["Permit Number"]}')" style="cursor:pointer;" title="Click to copy">${info["Permit Number"] || '-'}</span></div>
-                        <div>Vehicle: <span class="code-tag" style="color:var(--accent-cyan);">${info["Vehicle Number"] || 'No Vehicle'}</span></div>
-                        <div>Applied: <span>${appDate}</span></div>
+                        <div>Transit Pass: <span class="code-tag" onclick="copyToClipboard('${info["Transit Pass"] || info["Permit Number"]}')" style="cursor:pointer; color: var(--accent-emerald);" title="Click to copy">${info["Transit Pass"] || info["Permit Number"] || '-'}</span></div>
+                        <div>Vehicle: <span class="code-tag" style="color:var(--accent-cyan);">${info["Vehicle Number"] ? '🚚 ' + info["Vehicle Number"] : 'No Vehicle'}</span></div>
+                        <div>Applied Date: <span>${appDate}</span></div>
                     </div>
 
                     ${group.lines.length > 0 ? `
@@ -759,8 +902,8 @@
                 }
             });
 
-            if (pCount === 0) pendingList.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No ${activePendingFilter === 'FRESH' ? "fresh " : (activePendingFilter === 'CARRIED' ? "carried over " : "")}pending permits found.</div>`;
-            if (dCount === 0) dispatchedList.innerHTML = '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No dispatched permits found.</div>';
+            if (pCount === 0) pendingList.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:1.25rem; text-align:center;">No ${activePendingFilter === 'FRESH' ? "fresh " : (activePendingFilter === 'CARRIED' ? "carried over " : "")}pending permits found.</div>`;
+            if (dCount === 0) dispatchedList.innerHTML = '<div style="color:var(--text-muted); font-size:0.85rem; padding:1.25rem; text-align:center;">No dispatched permits found.</div>';
 
             // Render Party Summary Table & Footer
             const partyTbody = document.getElementById('party-summary-tbody');
@@ -779,10 +922,11 @@
                 const pTotCs = partySummary[party].cases + partySummary[party].csEq;
                 const pTotCsStr = pTotCs % 1 === 0 ? pTotCs.toLocaleString() : pTotCs.toFixed(2);
                 row.innerHTML = `
-                    <td style="font-weight: 600; color: var(--text-primary);">🏢 ${party}</td>
+                    <td style="font-weight: 700; color: var(--text-primary);">🏢 ${party}</td>
                     <td style="text-align: center;"><span class="bond-pill">${partySummary[party].permits.size}</span></td>
-                    <td style="text-align: right; font-weight: 700; color: var(--accent-indigo);">${pTotCsStr} cs</td>
-                    <td style="text-align: right; font-weight: 700; color: var(--accent-purple);">${partySummary[party].bottles.toLocaleString()} b</td>
+                    <td style="text-align: right; font-weight: 800; color: var(--accent-indigo);">${pTotCsStr} cs</td>
+                    <td style="text-align: right; font-weight: 800; color: var(--accent-purple);">${partySummary[party].bottles.toLocaleString()} b</td>
+                    <td style="text-align: right; font-weight: 800; color: var(--accent-emerald);">₹ ${(partySummary[party].mrp).toLocaleString('en-IN', {maximumFractionDigits: 0})}</td>
                 `;
                 partyTbody.appendChild(row);
             });
@@ -791,8 +935,9 @@
             partyFootRow.innerHTML = `
                 <td style="font-weight: 800; color: var(--text-primary);">TOTAL (${partyKeys.length} Parties)</td>
                 <td style="text-align: center; font-weight: 800;"><span class="bond-pill" style="background: var(--accent-indigo); color:#fff;">${totalPartyPermits}</span></td>
-                <td style="text-align: right; font-weight: 800; color: var(--accent-indigo);">${totalEquivalentDispatchedCs % 1 === 0 ? totalEquivalentDispatchedCs.toLocaleString() : totalEquivalentDispatchedCs.toFixed(2)} cs</td>
+                <td style="text-align: right; font-weight: 800; color: var(--accent-indigo);">${totCsFormatted} cs</td>
                 <td style="text-align: right; font-weight: 800; color: var(--accent-purple);">${totalDispatchedBottles.toLocaleString()} b</td>
+                <td style="text-align: right; font-weight: 800; color: var(--accent-emerald);">₹ ${totalDispatchedMRP.toLocaleString('en-IN', {maximumFractionDigits: 0})}</td>
             `;
             partyTfoot.appendChild(partyFootRow);
 
@@ -810,21 +955,80 @@
                 
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td style="font-weight: 600; color: var(--text-primary);">🍾 ${brand.name}</td>
+                    <td style="font-weight: 700; color: var(--text-primary);">🍾 ${brand.name}</td>
                     <td style="text-align: center;"><span class="code-tag">${brand.size} ML</span></td>
-                    <td style="text-align: right; font-weight: 700; color: var(--accent-indigo);">${totalBrandCsStr} cs</td>
-                    <td style="text-align: right; font-weight: 700; color: var(--accent-purple);">${brand.bottles.toLocaleString()} b <small style="color:var(--text-muted); font-size:0.75rem;">${bottleSubtext}</small></td>
+                    <td style="text-align: right; font-weight: 800; color: var(--accent-indigo);">${totalBrandCsStr} cs</td>
+                    <td style="text-align: right; font-weight: 800; color: var(--accent-purple);">${brand.bottles.toLocaleString()} b <small style="color:var(--text-muted); font-size:0.75rem;">${bottleSubtext}</small></td>
+                    <td style="text-align: right; font-weight: 800; color: var(--accent-emerald);">₹ ${(brand.mrp).toLocaleString('en-IN', {maximumFractionDigits: 0})}</td>
                 `;
                 brandTbody.appendChild(row);
             });
 
             const brandFootRow = document.createElement('tr');
             brandFootRow.innerHTML = `
-                <td style="font-weight: 800; color: var(--text-primary);" colspan="2">TOTAL (${brandValues.length} Brands)</td>
-                <td style="text-align: right; font-weight: 800; color: var(--accent-indigo);">${totalEquivalentDispatchedCs % 1 === 0 ? totalEquivalentDispatchedCs.toLocaleString() : totalEquivalentDispatchedCs.toFixed(2)} cs</td>
+                <td style="font-weight: 800; color: var(--text-primary);" colspan="2">TOTAL (${brandValues.length} Brand SKUs)</td>
+                <td style="text-align: right; font-weight: 800; color: var(--accent-indigo);">${totCsFormatted} cs</td>
                 <td style="text-align: right; font-weight: 800; color: var(--accent-purple);">${totalDispatchedBottles.toLocaleString()} b</td>
+                <td style="text-align: right; font-weight: 800; color: var(--accent-emerald);">₹ ${totalDispatchedMRP.toLocaleString('en-IN', {maximumFractionDigits: 0})}</td>
             `;
             brandTfoot.appendChild(brandFootRow);
+
+            // Render Visual Analytics (Tab 4)
+            renderVisualAnalytics(partyKeys, partySummary, brandValues, totalEquivalentDispatchedCs);
+        }
+
+        // Render Visual Analytics Section
+        function renderVisualAnalytics(partyKeys, partySummary, brandValues, totalVolume) {
+            const topRetailersContainer = document.getElementById('analytics-top-retailers');
+            const topBrandsContainer = document.getElementById('analytics-top-brands');
+            if (!topRetailersContainer || !topBrandsContainer) return;
+
+            topRetailersContainer.innerHTML = '';
+            topBrandsContainer.innerHTML = '';
+
+            const top5Parties = partyKeys.slice(0, 5);
+            const maxPartyVolume = top5Parties.length > 0 ? (partySummary[top5Parties[0]].cases + partySummary[top5Parties[0]].csEq) : 1;
+
+            top5Parties.forEach((p, idx) => {
+                const vol = partySummary[p].cases + partySummary[p].csEq;
+                const pct = maxPartyVolume > 0 ? Math.round((vol / maxPartyVolume) * 100) : 0;
+                const volStr = vol % 1 === 0 ? vol.toLocaleString() : vol.toFixed(1);
+
+                const item = document.createElement('div');
+                item.style.marginBottom = '1rem';
+                item.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; font-size: 0.825rem; font-weight: 700;">
+                        <span style="color: var(--text-primary);">#${idx + 1} ${p}</span>
+                        <span style="color: var(--accent-indigo);">${volStr} cs</span>
+                    </div>
+                    <div class="analytics-progress-bar">
+                        <div class="analytics-progress-fill" style="width: ${pct}%;"></div>
+                    </div>
+                `;
+                topRetailersContainer.appendChild(item);
+            });
+
+            const top5Brands = brandValues.slice(0, 5);
+            const maxBrandVolume = top5Brands.length > 0 ? (top5Brands[0].cases + top5Brands[0].csEq) : 1;
+
+            top5Brands.forEach((b, idx) => {
+                const vol = b.cases + b.csEq;
+                const pct = maxBrandVolume > 0 ? Math.round((vol / maxBrandVolume) * 100) : 0;
+                const volStr = vol % 1 === 0 ? vol.toLocaleString() : vol.toFixed(1);
+
+                const item = document.createElement('div');
+                item.style.marginBottom = '1rem';
+                item.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; font-size: 0.825rem; font-weight: 700;">
+                        <span style="color: var(--text-primary);">#${idx + 1} ${b.name} (${b.size} ML)</span>
+                        <span style="color: var(--accent-purple);">${volStr} cs</span>
+                    </div>
+                    <div class="analytics-progress-bar">
+                        <div class="analytics-progress-fill" style="width: ${pct}%; background: linear-gradient(90deg, var(--accent-purple), var(--accent-violet));"></div>
+                    </div>
+                `;
+                topBrandsContainer.appendChild(item);
+            });
         }
 
         // Toggle Collapsible Brand Lines
