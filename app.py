@@ -280,77 +280,137 @@ async def upload_results(request: Request):
                 except: pass
                 
         print(f"📥 Received & Reconciled {len(reconciled_records)} scraped records via webhook for date {date_str} -> saved to {canonical_filename}")
+        
+        # Notify Job Manager of completion if cloud run was active
+        JOB_MANAGER.mark_completed(success=True)
+        JOB_MANAGER.add_log(f"📥 Webhook received & saved {len(reconciled_records)} records for date {date_str} -> {canonical_filename}\n")
+        
         return JSONResponse(content={
             "status": "success",
             "message": f"Saved and reconciled {len(reconciled_records)} records for date {date_str}",
             "filename": canonical_filename
         })
     except Exception as e:
+        JOB_MANAGER.mark_completed(success=False, error=str(e))
         return JSONResponse(status_code=500, content={"error": f"Failed to save uploaded records: {str(e)}"})
 
-@app.post("/api/trigger-run")
-async def trigger_github_run(request: Request):
-    """
-    Triggers GitHub Actions repository_dispatch event to run permit scraper in cloud.
-    """
-    try:
-        body = await request.json()
-        date_val = body.get("date", "").strip()
-        bond_val = body.get("bond", "BOTH")
-        lookback_val = body.get("lookback_days", 7)
-        
-        gh_token = os.environ.get("GITHUB_TOKEN")
-        gh_repo = os.environ.get("GITHUB_REPO")
-        
-        if not gh_token or not gh_repo:
-            return JSONResponse(content={
-                "status": "local_fallback",
-                "message": "GitHub Actions secrets not configured. Falling back to local execution."
-            })
-            
-        import requests
-        dispatch_url = f"https://api.github.com/repos/{gh_repo}/dispatches"
-        headers = {
-            "Authorization": f"Bearer {gh_token}",
-            "Accept": "application/vnd.github+json"
-        }
-        payload = {
-            "event_type": "run-scraper",
-            "client_payload": {
-                "date": date_val,
-                "bond": bond_val,
-                "lookback_days": lookback_val
-            }
-        }
-        
-        res = requests.post(dispatch_url, headers=headers, json=payload, timeout=10)
-        if res.status_code in [204, 200]:
-            return JSONResponse(content={
-                "status": "success",
-                "message": "🚀 Triggered GitHub Action scraper workflow successfully!"
-            })
-        else:
-            return JSONResponse(status_code=res.status_code, content={
-                "error": f"GitHub API error: {res.text}"
-            })
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+# -------------------------------------------------------------
+# Persistent Scraper Job Manager
+# -------------------------------------------------------------
+from collections import deque
+import time
 
-@app.websocket("/ws/run")
-async def websocket_run(websocket: WebSocket):
-    await websocket.accept()
-    print("🔌 Client connected to logs WebSocket.")
-    
-    running_process = None
+class ScraperJobManager:
+    def __init__(self):
+        self.status = "idle"  # "idle", "running", "success", "failed"
+        self.mode = "local"   # "cloud" or "local"
+        self.job_id = None
+        self.start_time = None
+        self.end_time = None
+        self.target_date = ""
+        self.bond_type = "BOTH"
+        self.lookback_days = 7
+        self.stage = "Ready"
+        self.progress_pct = 0
+        self.progress_curr = 0
+        self.progress_total = 0
+        self.logs = deque(maxlen=600)
+        self.process = None
+        self.error_msg = None
+        self._lock = asyncio.Lock()
+
+    def add_log(self, text: str):
+        if not text:
+            return
+        lines = text.splitlines(keepends=True)
+        for line in lines:
+            self.logs.append(line)
+            # Parse progress & stages
+            if "Scraping Pending Permits" in line:
+                self.stage = "Stage 1/4: Scraping Pending Permits"
+            elif "IMFL" in line and "Pass Issued" in line:
+                self.stage = "Stage 2/4: Scraping IMFL Dispatches"
+            elif "CS" in line and "Pass Issued" in line:
+                self.stage = "Stage 3/4: Scraping CS Dispatches"
+            elif "Form-34" in line:
+                self.stage = "Stage 4/4: Extracting Form-34 Data"
+            
+            import re
+            m = re.search(r'\[(\d+)/(\d+)\]', line)
+            if m:
+                curr = int(m.group(1))
+                total = int(m.group(2))
+                self.progress_curr = curr
+                self.progress_total = total
+                if total > 0:
+                    self.progress_pct = min(100, int((curr / total) * 100))
+
+    def get_state(self):
+        elapsed = 0
+        if self.start_time:
+            if self.end_time:
+                elapsed = int(self.end_time - self.start_time)
+            else:
+                elapsed = int(time.time() - self.start_time)
+        return {
+            "status": self.status,
+            "mode": self.mode,
+            "job_id": self.job_id,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "elapsed_seconds": elapsed,
+            "target_date": self.target_date,
+            "bond_type": self.bond_type,
+            "lookback_days": self.lookback_days,
+            "stage": self.stage,
+            "progress_percent": self.progress_pct,
+            "progress_current": self.progress_curr,
+            "progress_total": self.progress_total,
+            "logs": "".join(self.logs),
+            "error": self.error_msg
+        }
+
+    async def start_job(self, target_date="", bond_type="BOTH", lookback_days=7, mode="local"):
+        async with self._lock:
+            if self.status == "running":
+                return False, "A scraper job is already running."
+            
+            self.status = "running"
+            self.mode = mode
+            self.job_id = f"job_{int(time.time())}"
+            self.start_time = time.time()
+            self.end_time = None
+            self.target_date = target_date or "Today"
+            self.bond_type = bond_type
+            self.lookback_days = lookback_days
+            self.stage = "Initializing..."
+            self.progress_pct = 5
+            self.progress_curr = 0
+            self.progress_total = 0
+            self.logs.clear()
+            self.error_msg = None
+
+            self.add_log(f"🚀 [{mode.upper()} SCRAPER] Job {self.job_id} initiated\n")
+            self.add_log(f"📅 Target Date: {self.target_date} | Bond: {bond_type} | Lookback: {lookback_days}d\n")
+            self.add_log("═" * 60 + "\n")
+            return True, self.job_id
+
+    def mark_completed(self, success=True, error=None):
+        self.status = "success" if success else "failed"
+        self.end_time = time.time()
+        self.stage = "✅ Completed!" if success else "❌ Failed"
+        self.progress_pct = 100 if success else self.progress_pct
+        if error:
+            self.error_msg = error
+            self.add_log(f"\n❌ Error: {error}\n")
+        else:
+            self.add_log("\n🎉 SUCCESS: Permit scraping and reconciliation completed successfully!\n")
+
+JOB_MANAGER = ScraperJobManager()
+
+async def run_local_scraper_task(target_date_val, bond_type, headless, lookback_days):
+    """Runs local scraper process asynchronously detached from WebSocket connections."""
     try:
-        data = await websocket.receive_text()
-        config = json.loads(data)
-        
-        target_date_val = config.get("date", "").strip()
-        bond_type = config.get("bond", "BOTH")
-        headless = config.get("headless", True)
-        lookback_days = config.get("lookback_days", 7)
-        
         args_list = []
         if target_date_val:
             args_list.extend(["--date", target_date_val])
@@ -363,56 +423,136 @@ async def websocket_run(websocket: WebSocket):
             
         script_path = os.path.join(PROJECT_ROOT, "scripts", "main_permits.py")
         if not os.path.exists(script_path):
-            await websocket.send_text(f"❌ Error: Script not found at {script_path}\n")
-            await websocket.close()
+            JOB_MANAGER.mark_completed(success=False, error=f"Script not found at {script_path}")
             return
             
         python_exe = sys.executable
         cmd = [python_exe, "-u", script_path] + args_list
         
-        await websocket.send_text(f"🛠️ Starting Permit Scraper: {' '.join(cmd)}\n")
-        await websocket.send_text("═" * 60 + "\n")
+        JOB_MANAGER.add_log(f"🛠️ Starting Permit Scraper: {' '.join(cmd)}\n")
         
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
         
-        running_process = await asyncio.create_subprocess_exec(
+        process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=PROJECT_ROOT,
             env=env
         )
+        JOB_MANAGER.process = process
         
         while True:
-            line = await running_process.stdout.readline()
+            line = await process.stdout.readline()
             if not line:
                 break
             decoded_line = line.decode("utf-8", errors="ignore")
-            await websocket.send_text(decoded_line)
+            JOB_MANAGER.add_log(decoded_line)
             await asyncio.sleep(0.001)
             
-        returncode = await running_process.wait()
+        returncode = await process.wait()
+        JOB_MANAGER.process = None
         
-        await websocket.send_text("\n" + "═" * 60 + "\n")
         if returncode == 0:
-            await websocket.send_text(f"🎉 SUCCESS: Scraper finished with exit code 0\n")
-            await websocket.send_json({"status": "success", "code": 0})
+            JOB_MANAGER.mark_completed(success=True)
         else:
-            await websocket.send_text(f"❌ FAILURE: Scraper exited with code {returncode}\n")
-            await websocket.send_json({"status": "failed", "code": returncode})
+            JOB_MANAGER.mark_completed(success=False, error=f"Process exited with code {returncode}")
             
+    except Exception as e:
+        JOB_MANAGER.mark_completed(success=False, error=str(e))
+
+@app.get("/api/scraper/status")
+async def get_scraper_status():
+    """Returns the persistent state and latest logs of the scraper job."""
+    return JSONResponse(content=JOB_MANAGER.get_state())
+
+@app.post("/api/scraper/start")
+async def start_scraper_endpoint(request: Request):
+    """Starts a scraper run (cloud GitHub dispatch or local background process)."""
+    try:
+        body = await request.json()
+        date_val = body.get("date", "").strip()
+        bond_val = body.get("bond", "BOTH")
+        lookback_val = body.get("lookback_days", 7)
+        headless_val = body.get("headless", True)
+        
+        gh_token = os.environ.get("GITHUB_TOKEN")
+        gh_repo = os.environ.get("GITHUB_REPO")
+        
+        # If GitHub cloud dispatch is available:
+        if gh_token and gh_repo:
+            ok, job_or_err = await JOB_MANAGER.start_job(date_val, bond_val, lookback_val, mode="cloud")
+            if not ok:
+                return JSONResponse(status_code=400, content={"error": job_or_err})
+                
+            import requests
+            dispatch_url = f"https://api.github.com/repos/{gh_repo}/dispatches"
+            headers = {
+                "Authorization": f"Bearer {gh_token}",
+                "Accept": "application/vnd.github+json"
+            }
+            payload = {
+                "event_type": "run-scraper",
+                "client_payload": {
+                    "date": date_val,
+                    "bond": bond_val,
+                    "lookback_days": lookback_val
+                }
+            }
+            res = requests.post(dispatch_url, headers=headers, json=payload, timeout=10)
+            if res.status_code in [204, 200]:
+                JOB_MANAGER.add_log("🚀 GitHub Actions Cloud Scraper triggered successfully!\nWaiting for background execution and webhook sync...\n")
+                return JSONResponse(content={"status": "running", "mode": "cloud", "message": "Dispatched to GitHub Actions in cloud."})
+            else:
+                JOB_MANAGER.mark_completed(success=False, error=f"GitHub API Error: {res.text}")
+                return JSONResponse(status_code=res.status_code, content={"error": res.text})
+                
+        # Local / Server background task
+        ok, job_or_err = await JOB_MANAGER.start_job(date_val, bond_val, lookback_val, mode="local")
+        if not ok:
+            return JSONResponse(status_code=400, content={"error": job_or_err})
+            
+        asyncio.create_task(run_local_scraper_task(date_val, bond_val, headless_val, lookback_val))
+        return JSONResponse(content={"status": "running", "mode": "local", "message": "Started local background scraper task."})
+        
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.post("/api/scraper/cancel")
+async def cancel_scraper():
+    """Cancels any running scraper process."""
+    if JOB_MANAGER.process:
+        try:
+            JOB_MANAGER.process.terminate()
+            await asyncio.sleep(0.5)
+            if JOB_MANAGER.process:
+                JOB_MANAGER.process.kill()
+        except: pass
+    JOB_MANAGER.mark_completed(success=False, error="Job was cancelled by user.")
+    return JSONResponse(content={"status": "cancelled", "message": "Scraper job cancelled."})
+
+@app.websocket("/ws/run")
+async def websocket_run(websocket: WebSocket):
+    await websocket.accept()
+    print("🔌 Client connected to logs WebSocket.")
+    
+    # Stream current logs to newly connected client
+    await websocket.send_text(JOB_MANAGER.get_state()["logs"])
+    
+    last_log_len = len(JOB_MANAGER.logs)
+    try:
+        while True:
+            curr_len = len(JOB_MANAGER.logs)
+            if curr_len > last_log_len:
+                # Send delta lines
+                all_logs = list(JOB_MANAGER.logs)
+                delta = all_logs[last_log_len:curr_len]
+                await websocket.send_text("".join(delta))
+                last_log_len = curr_len
+            await asyncio.sleep(0.5)
     except WebSocketDisconnect:
         print("🔌 Client disconnected from WebSocket.")
-        if running_process:
-            try:
-                running_process.terminate()
-                await asyncio.wait_for(running_process.wait(), timeout=5.0)
-            except:
-                try:
-                    running_process.kill()
-                    await running_process.wait()
-                except: pass
 
 if __name__ == "__main__":
     import uvicorn

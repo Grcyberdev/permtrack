@@ -386,21 +386,32 @@
                         🚀 Run Live Permit Scraper
                     </button>
 
-                    <!-- Live Progress Bar & Stage Tracker -->
-                    <div id="progress-container" style="margin-top: 1.25rem; display: none;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 0.35rem;">
-                            <span id="progress-stage-text">Stage 1/4: Initializing...</span>
-                            <span id="progress-percent-text">0%</span>
+                    <!-- Enterprise Mac-Style Live Operations Terminal -->
+                    <div id="terminal-window" class="terminal-window">
+                        <div class="terminal-top-bar">
+                            <div class="terminal-traffic-lights">
+                                <span class="traffic-dot red" onclick="cancelScraperJob()" title="Cancel Scraper Process"></span>
+                                <span class="traffic-dot yellow" title="Scraper Status"></span>
+                                <span class="traffic-dot green" title="Scraper Ready"></span>
+                            </div>
+                            <div class="terminal-status-wrap">
+                                <span id="terminal-status-pill" class="terminal-status-pill idle">● IDLE</span>
+                                <span id="terminal-stopwatch" class="terminal-stopwatch">⏱️ 00:00</span>
+                                <button class="terminal-btn-action" onclick="copyTerminalLogs()" title="Copy logs to clipboard">📋 Copy</button>
+                            </div>
                         </div>
-                        <div style="width: 100%; height: 8px; background: rgba(255, 255, 255, 0.1); border-radius: 9999px; overflow: hidden; position: relative;">
-                            <div id="progress-bar-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-indigo), var(--accent-emerald)); border-radius: 9999px; transition: width 0.3s ease;"></div>
-                        </div>
-                        <div id="progress-item-text" style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.25rem; text-align: right;">0 / 0 Permits</div>
-                    </div>
 
-                    <!-- Socket Log Terminal -->
-                    <div id="terminal-panel" class="terminal-card">
-                        <div id="terminal-output">Ready to scrape. Logs will appear here in real-time...</div>
+                        <!-- Stepper & Progress -->
+                        <div class="terminal-stepper">
+                            <span id="stepper-stage-name" class="stepper-stage-name">System Ready</span>
+                            <span id="stepper-progress-text" class="stepper-progress-text">0 / 0 Permits</span>
+                        </div>
+                        <div class="terminal-progress-bar-bg">
+                            <div id="terminal-progress-bar-fill" class="terminal-progress-bar-fill"></div>
+                        </div>
+
+                        <!-- Log Viewport -->
+                        <div id="terminal-body" class="terminal-body">Ready to scrape. Click 'Run Live Permit Scraper' to begin...</div>
                     </div>
                 </div>
             </aside>
@@ -1126,159 +1137,155 @@
         }
 
         // Progress Bar Updater
-        function updateProgress(pct, curr, total, stageText = null) {
-            const container = document.getElementById('progress-container');
-            container.style.display = 'block';
-            
-            if (stageText) {
-                document.getElementById('progress-stage-text').innerText = stageText;
+        // -------------------------------------------------------------
+        // Persistent Scraper Operations Controller
+        // -------------------------------------------------------------
+        let scraperPollTimer = null;
+        let lastKnownLogText = "";
+
+        async function checkScraperStatus() {
+            try {
+                const res = await fetch('/api/scraper/status');
+                const state = await res.json();
+                updateTerminalUI(state);
+                
+                if (state.status === 'running') {
+                    if (!scraperPollTimer) {
+                        scraperPollTimer = setInterval(checkScraperStatus, 2000);
+                    }
+                } else {
+                    if (scraperPollTimer) {
+                        clearInterval(scraperPollTimer);
+                        scraperPollTimer = null;
+                        if (state.status === 'success') {
+                            fetchBackupsList();
+                            loadPermitsData();
+                        }
+                    }
+                }
+            } catch(e) {}
+        }
+
+        function updateTerminalUI(state) {
+            const termWindow = document.getElementById('terminal-window');
+            const statusPill = document.getElementById('terminal-status-pill');
+            const stopwatch = document.getElementById('terminal-stopwatch');
+            const stageName = document.getElementById('stepper-stage-name');
+            const progText = document.getElementById('stepper-progress-text');
+            const progBar = document.getElementById('terminal-progress-bar-fill');
+            const termBody = document.getElementById('terminal-body');
+            const runBtn = document.getElementById('run-scraper-btn');
+
+            if (!termWindow || !statusPill) return;
+
+            // Format elapsed seconds (MM:SS)
+            const el = state.elapsed_seconds || 0;
+            const mins = String(Math.floor(el / 60)).padStart(2, '0');
+            const secs = String(el % 60).padStart(2, '0');
+            stopwatch.innerText = `⏱️ ${mins}:${secs}`;
+
+            if (state.status === 'running') {
+                termWindow.classList.add('is-running');
+                statusPill.className = 'terminal-status-pill running';
+                statusPill.innerText = '● SCRAPING LIVE';
+                runBtn.disabled = true;
+                runBtn.innerText = '⏳ Scraping in Progress...';
+            } else if (state.status === 'success') {
+                termWindow.classList.remove('is-running');
+                statusPill.className = 'terminal-status-pill completed';
+                statusPill.innerText = '● COMPLETED';
+                runBtn.disabled = false;
+                runBtn.innerText = '🚀 Run Live Permit Scraper';
+            } else if (state.status === 'failed') {
+                termWindow.classList.remove('is-running');
+                statusPill.className = 'terminal-status-pill error';
+                statusPill.innerText = '● FAILED';
+                runBtn.disabled = false;
+                runBtn.innerText = '🚀 Run Live Permit Scraper';
+            } else {
+                termWindow.classList.remove('is-running');
+                statusPill.className = 'terminal-status-pill idle';
+                statusPill.innerText = '● IDLE';
+                runBtn.disabled = false;
+                runBtn.innerText = '🚀 Run Live Permit Scraper';
             }
-            document.getElementById('progress-percent-text').innerText = `${pct}%`;
-            document.getElementById('progress-bar-fill').style.width = `${pct}%`;
-            
-            if (curr !== undefined && total !== undefined) {
-                document.getElementById('progress-item-text').innerText = `${curr} / ${total} Permits`;
+
+            stageName.innerText = state.stage || 'System Ready';
+            if (state.progress_total > 0) {
+                progText.innerText = `${state.progress_current} / ${state.progress_total} Permits (${state.progress_percent}%)`;
+            } else {
+                progText.innerText = `${state.progress_percent || 0}%`;
+            }
+            progBar.style.width = `${state.progress_percent || 0}%`;
+
+            if (state.logs && state.logs !== lastKnownLogText) {
+                termBody.innerText = state.logs;
+                termBody.scrollTop = termBody.scrollHeight;
+                lastKnownLogText = state.logs;
             }
         }
 
-        // Scraper Handler (Cloud Dispatch + Local Fallback)
         async function triggerScraperRun() {
-            const btn = document.getElementById('run-scraper-btn');
-            const termPanel = document.getElementById('terminal-panel');
-            const termOutput = document.getElementById('terminal-output');
             const dateVal = document.getElementById('scraper-date').value.trim();
             const bondVal = document.getElementById('bond-type').value;
             const lookbackVal = document.getElementById('lookback-days').value;
             const headlessVal = document.getElementById('headless-toggle').checked;
 
-            btn.disabled = true;
-            btn.innerText = "⏳ Dispatching Scraper...";
+            const runBtn = document.getElementById('run-scraper-btn');
+            runBtn.disabled = true;
+            runBtn.innerText = "⏳ Initializing Job...";
 
-            // Check if server is configured for GitHub Actions cloud dispatch
             try {
-                const res = await fetch('/api/trigger-run', {
+                const res = await fetch('/api/scraper/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        date: dateVal, 
+                    body: JSON.stringify({
+                        date: dateVal,
                         bond: bondVal,
-                        lookback_days: parseInt(lookbackVal, 10)
+                        lookback_days: parseInt(lookbackVal, 10),
+                        headless: headlessVal
                     })
                 });
                 const data = await res.json();
-                if (data.status === 'success') {
-                    btn.disabled = false;
-                    btn.innerText = "🚀 Run Live Permit Scraper";
-                    showToast("🚀 GitHub Actions Cloud Scraper triggered!");
-                    termPanel.classList.add('active');
-                    termOutput.innerText = `✅ GitHub Actions Cloud Scraper Triggered!\nDate: ${dateVal || 'Today'}\nBond: ${bondVal}\nLookback: ${lookbackVal} days\n\nThe scraper is executing in the cloud on GitHub Actions. Results will appear automatically here once completed.\n`;
-                    const initialSel = document.getElementById('backup-selector').value;
-                    let pollCount = 0;
-                    const pollInterval = setInterval(async () => {
-                        pollCount++;
-                        termOutput.innerText = `⏳ Cloud Scraper in progress on GitHub Actions... (${pollCount * 10}s elapsed)\n\nWaiting for permit data webhook...`;
-                        await fetchBackupsList();
-                        const currentSel = document.getElementById('backup-selector').value;
-                        await loadPermitsData(currentSel);
-                        
-                        if (currentSel && currentSel !== initialSel) {
-                            clearInterval(pollInterval);
-                            btn.disabled = false;
-                            btn.innerText = "🚀 Run Live Permit Scraper";
-                            showToast("🎉 Scraped permit data received!");
-                            updateProgress(100, 100, 100, "✅ Completed!");
-                            termOutput.innerText += "\n\n✅ Scraped permit data successfully synced to dashboard!";
-                        }
-                    }, 10000);
-                    setTimeout(() => {
-                        clearInterval(pollInterval);
-                        btn.disabled = false;
-                        btn.innerText = "🚀 Run Live Permit Scraper";
-                    }, 420000);
-                    return;
-                }
-            } catch(e) {}
-
-            btn.innerText = "⏳ Running Permit Scraper...";
-            termPanel.classList.add('active');
-            termOutput.innerText = "🚀 Connecting to local scraper service...\n";
-            updateProgress(5, 0, 0, "Stage 1/4: Logging into Excise Portal...");
-
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const ws = new WebSocket(`${protocol}//${window.location.host}/ws/run`);
-
-            let currentStage = "Stage 1/4: Connecting...";
-
-            ws.onopen = () => {
-                termOutput.innerText += "✅ Connected! Starting scraping process...\n";
-                ws.send(JSON.stringify({
-                    date: dateVal,
-                    bond: bondVal,
-                    headless: headlessVal,
-                    lookback_days: parseInt(lookbackVal, 10)
-                }));
-            };
-
-            ws.onmessage = (event) => {
-                const text = event.data;
-                termOutput.innerText += text;
-                termPanel.scrollTop = termPanel.scrollHeight;
-
-                if (text.includes("Scraping Pending Permits")) {
-                    currentStage = "Stage 1/4: Scraping Pending Permits";
-                } else if (text.includes("IMFL") && text.includes("Pass Issued")) {
-                    currentStage = "Stage 2/4: Scraping IMFL Dispatches";
-                } else if (text.includes("CS") && text.includes("Pass Issued")) {
-                    currentStage = "Stage 3/4: Scraping CS Dispatches";
-                } else if (text.includes("TP Detail Report")) {
-                    currentStage = "Stage 4/4: Scraping Vehicle Numbers";
-                } else if (text.includes("Scraper process completed")) {
-                    currentStage = "✅ Completed!";
-                    updateProgress(100, 100, 100, "✅ Completed!");
-                }
-
-                // Match [X/Y] item progress, e.g. "🔎 [14/56] Extracting details..."
-                const match = text.match(/\[(\d+)\/(\d+)\]/);
-                if (match) {
-                    const curr = parseInt(match[1]);
-                    const total = parseInt(match[2]);
-                    const pct = Math.round((curr / total) * 100);
-                    updateProgress(pct, curr, total, currentStage);
-                }
-
-                try {
-                    const data = JSON.parse(text);
-                    if (data.status === 'success') {
-                        updateProgress(100, 100, 100, "✅ Completed!");
-                        btn.disabled = false;
-                        btn.innerText = "🚀 Run Live Permit Scraper";
-                        showToast("Scraper completed! Refreshing dashboard...");
-                        fetchBackupsList();
-                        loadPermitsData();
-                    } else if (data.status === 'failed') {
-                        btn.disabled = false;
-                        btn.innerText = "🚀 Run Live Permit Scraper";
-                        showToast("Scraper exited with error.");
+                if (data.status === 'running') {
+                    showToast("🚀 Scraper process initiated!");
+                    checkScraperStatus();
+                    if (!scraperPollTimer) {
+                        scraperPollTimer = setInterval(checkScraperStatus, 2000);
                     }
-                } catch(e) {}
-            };
-
-            ws.onerror = (err) => {
-                termOutput.innerText += "\n❌ WebSocket Error encountered.\n";
-                btn.disabled = false;
-                btn.innerText = "🚀 Run Live Permit Scraper";
-            };
-
-            ws.onclose = () => {
-                btn.disabled = false;
-                btn.innerText = "🚀 Run Live Permit Scraper";
-            };
+                } else {
+                    showToast(data.error || "Failed to start scraper.");
+                    runBtn.disabled = false;
+                    runBtn.innerText = "🚀 Run Live Permit Scraper";
+                }
+            } catch(e) {
+                showToast("Error starting scraper: " + e.message);
+                runBtn.disabled = false;
+                runBtn.innerText = "🚀 Run Live Permit Scraper";
+            }
         }
 
-        // Initialize on page load
+        async function cancelScraperJob() {
+            if (confirm("Are you sure you want to cancel the running scraper?")) {
+                try {
+                    await fetch('/api/scraper/cancel', { method: 'POST' });
+                    showToast("Scraper cancellation requested.");
+                    checkScraperStatus();
+                } catch(e) {}
+            }
+        }
+
+        function copyTerminalLogs() {
+            const logs = document.getElementById('terminal-body').innerText;
+            navigator.clipboard.writeText(logs);
+            showToast("Terminal logs copied to clipboard!");
+        }
+
+        // Initialize on page load (Restores active runs seamlessly)
         window.addEventListener('DOMContentLoaded', () => {
             fetchBackupsList();
             loadPermitsData();
+            checkScraperStatus();
         });
     </script>
 </body>

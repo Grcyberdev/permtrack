@@ -1001,25 +1001,190 @@ select.btn-glass option {
     cursor: not-allowed;
 }
 
-/* Live Terminal Log */
-.terminal-card {
-    background: #0C121E;
-    border: 1px solid #1C283E;
-    border-radius: var(--radius-xs);
-    padding: 0.85rem;
-    height: 220px;
-    overflow-y: auto;
-    font-family: var(--font-mono);
-    font-size: 0.72rem;
-    color: #34D399;
-    margin-top: 1rem;
-    display: none;
-    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4);
-    line-height: 1.45;
+/* =====================================================================
+   Enterprise Mac-Style Live Operations Terminal
+   ===================================================================== */
+.terminal-window {
+    background: #090D16;
+    border: 1px solid #1E293B;
+    border-radius: var(--radius-sm);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    margin-top: 1.15rem;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: border-color 0.2s ease;
 }
 
-.terminal-card.active {
-    display: block;
+.terminal-window.is-running {
+    border-color: rgba(52, 211, 153, 0.4);
+    box-shadow: 0 8px 28px rgba(16, 185, 129, 0.15);
+}
+
+.terminal-top-bar {
+    background: #0F172A;
+    padding: 0.55rem 0.85rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #1E293B;
+}
+
+.terminal-traffic-lights {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.traffic-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+.traffic-dot.red { background: #FF5F56; }
+.traffic-dot.yellow { background: #FFBD2E; }
+.traffic-dot.green { background: #27C93F; }
+
+.terminal-status-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.terminal-status-pill {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 0.15rem 0.55rem;
+    border-radius: 9999px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.terminal-status-pill.idle {
+    background: rgba(148, 163, 184, 0.12);
+    color: #94A3B8;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.terminal-status-pill.running {
+    background: rgba(52, 211, 153, 0.15);
+    color: #34D399;
+    border: 1px solid rgba(52, 211, 153, 0.4);
+    animation: terminalPulse 1.8s infinite;
+}
+
+.terminal-status-pill.completed {
+    background: rgba(16, 185, 129, 0.18);
+    color: #10B981;
+    border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.terminal-status-pill.error {
+    background: rgba(239, 68, 68, 0.18);
+    color: #EF4444;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+@keyframes terminalPulse {
+    0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.4); }
+    70% { box-shadow: 0 0 0 6px rgba(52, 211, 153, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+}
+
+.terminal-stopwatch {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: #CBD5E1;
+    background: rgba(0, 0, 0, 0.3);
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.terminal-btn-action {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #94A3B8;
+    font-size: 0.68rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.terminal-btn-action:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #F8FAFC;
+}
+
+/* Stepper Bar */
+.terminal-stepper {
+    background: #0B1120;
+    padding: 0.45rem 0.85rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #1E293B;
+    font-size: 0.68rem;
+    color: #64748B;
+    font-family: var(--font-sans);
+}
+
+.stepper-stage-name {
+    font-weight: 700;
+    color: #38BDF8;
+}
+
+.stepper-progress-text {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: #F1F5F9;
+}
+
+/* Luminous Terminal Progress Bar */
+.terminal-progress-bar-bg {
+    width: 100%;
+    height: 4px;
+    background: #1E293B;
+    position: relative;
+    overflow: hidden;
+}
+
+.terminal-progress-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #38BDF8, #34D399, #F59E0B);
+    transition: width 0.3s ease;
+}
+
+/* Terminal Log Viewport */
+.terminal-body {
+    background: #060911;
+    color: #E2E8F0;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    padding: 0.85rem;
+    height: 230px;
+    overflow-y: auto;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.terminal-body::-webkit-scrollbar {
+    width: 5px;
+}
+.terminal-body::-webkit-scrollbar-track {
+    background: #060911;
+}
+.terminal-body::-webkit-scrollbar-thumb {
+    background: #1E293B;
+    border-radius: 2px;
 }
 
 /* Toast Notification */
