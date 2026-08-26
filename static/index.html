@@ -11,7 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,600&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700;800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
 
     <!-- Stylesheet -->
-    <link rel="stylesheet" href="/static/css/style.css?v=3.0.0">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260826_1635">
 </head>
 <body>
 
@@ -854,8 +854,8 @@
     <!-- =========================================================
          5. Security Access Layer / Executive Login Modal
          ========================================================= -->
-    <div id="auth-overlay">
-        <div class="auth-card">
+    <div id="auth-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(10, 15, 29, 0.92); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); z-index: 100000; align-items: center; justify-content: center; padding: 1.5rem;">
+        <div class="auth-card" style="width: 100%; max-width: 440px; background: var(--bg-surface, #1e293b); border: 1px solid var(--border-subtle, rgba(255,255,255,0.1)); border-radius: 12px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); padding: 2.25rem 2rem; position: relative;">
             <div class="auth-header">
                 <div class="auth-shield-icon">🛡️</div>
                 <div class="auth-title">PermTrack Executive Access</div>
@@ -946,7 +946,7 @@
         async function checkAuthStatus() {
             try {
                 const res = await fetchWithAuth('/api/auth/status');
-                if (res.ok) {
+                if (res && res.ok) {
                     const data = await res.json();
                     if (data.authenticated && data.user) {
                         currentUser = data.user;
@@ -977,6 +977,7 @@
         function showAuthOverlay() {
             const overlay = document.getElementById('auth-overlay');
             if (overlay) {
+                overlay.style.display = 'flex';
                 overlay.classList.add('active');
                 setTimeout(() => {
                     const userInput = document.getElementById('auth-username');
@@ -988,6 +989,7 @@
         function hideAuthOverlay() {
             const overlay = document.getElementById('auth-overlay');
             if (overlay) {
+                overlay.style.display = 'none';
                 overlay.classList.remove('active');
             }
         }
