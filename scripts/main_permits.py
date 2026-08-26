@@ -527,6 +527,37 @@ def open_and_parse_form34(driver, wait, indent_num, cols):
         except: pass
         return [], 0, 0, "", "", "", False
 
+def merge_brand_data(f34_lines, modal_lines):
+    """
+    Merges official Form-34 brand lines (Vehicle, Licensee, BL, LPL, Pack Size, Category)
+    with Transport Permit / Indent modal lines (Total MRP, Unit Rates).
+    """
+    if not modal_lines:
+        return f34_lines
+    if not f34_lines:
+        return modal_lines
+        
+    import re
+    def norm_text(val):
+        return re.sub(r'[^A-Za-z0-9]', '', str(val or "")).upper()
+        
+    modal_lookup = {}
+    for m in modal_lines:
+        k = (norm_text(m.get("Product Name")), norm_text(m.get("Size")))
+        modal_lookup[k] = m.get("Total MRP", 0.0)
+        
+    for f in f34_lines:
+        k = (norm_text(f.get("Product Name")), norm_text(f.get("Size")))
+        if k in modal_lookup and modal_lookup[k] > 0:
+            f["Total MRP"] = modal_lookup[k]
+        else:
+            # Match by product name alone if unique
+            matching = [m for m in modal_lines if norm_text(m.get("Product Name")) == norm_text(f.get("Product Name"))]
+            if len(matching) == 1 and matching[0].get("Total MRP", 0.0) > 0:
+                f["Total MRP"] = matching[0].get("Total MRP", 0.0)
+                
+    return f34_lines
+
 def close_modal(driver):
     """Closes details modal popup safely."""
     purge_all_modals(driver)
@@ -535,7 +566,8 @@ def close_modal(driver):
 def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pending", lookback_days=7):
     """
     Scrapes permits from Stock Dispatch (Retailer Indent) page.
-    For completed dispatches, extracts from Form-34 (with vehicle, challan date, licensee, BL/LPL).
+    For completed dispatches, extracts from both Form-34 (vehicle, challan date, licensee, BL/LPL)
+    and Transport Permit modal (turnover/MRP).
     Includes DataTables total entry validation, retry queue for dropped items,
     and explicit extraction error tracking.
     Returns: (results, success_bool, extraction_errors_count)
@@ -636,16 +668,47 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                     licensee_name = ""
                     extract_success = False
                     
-                    # For completed permits, try Form-34 first for richest data
+                    # For completed permits, extract Form-34 (pass/vehicle/licensee/BL/LPL) AND Transport Permit modal (turnover/MRP)
                     if status_filter == "Pass Issued":
+                        f34_lines, f34_c, f34_b, f34_veh, f34_date, f34_lic, f34_ok = [], 0, 0, "", "", "", False
                         try:
-                            brand_lines, tot_cases, tot_bottles, vehicle_no, challan_date, licensee_name, extract_success = open_and_parse_form34(driver, wait, indent_num, cols)
+                            f34_lines, f34_c, f34_b, f34_veh, f34_date, f34_lic, f34_ok = open_and_parse_form34(driver, wait, indent_num, cols)
                         except Exception as e_f34:
-                            print(f"   ℹ️ Form-34 fallback to modal: {e_f34}")
-                            extract_success = False
+                            print(f"   ℹ️ Form-34 error for {indent_num}: {e_f34}")
                             
-                    # Fallback to standard modal if Form-34 was not applicable or failed
-                    if not extract_success:
+                        # Also fetch modal for Total MRP
+                        modal_lines, m_cases, m_bottles, modal_ok = [], 0, 0, False
+                        try:
+                            modal_lines, m_cases, m_bottles, modal_ok = open_and_parse_strict_modal(driver, wait, indent_num, cols)
+                            purge_all_modals(driver)
+                        except Exception as e_modal:
+                            purge_all_modals(driver)
+                            
+                        if f34_ok and modal_ok:
+                            brand_lines = merge_brand_data(f34_lines, modal_lines)
+                            tot_cases = f34_c
+                            tot_bottles = f34_b
+                            vehicle_no = f34_veh
+                            challan_date = f34_date
+                            licensee_name = f34_lic
+                            extract_success = True
+                        elif f34_ok:
+                            brand_lines = f34_lines
+                            tot_cases = f34_c
+                            tot_bottles = f34_b
+                            vehicle_no = f34_veh
+                            challan_date = f34_date
+                            licensee_name = f34_lic
+                            extract_success = True
+                        elif modal_ok:
+                            brand_lines = modal_lines
+                            tot_cases = m_cases
+                            tot_bottles = m_bottles
+                            extract_success = True
+                        else:
+                            extract_success = False
+                    else:
+                        # Pending permits (modal extraction)
                         try:
                             brand_lines, tot_cases, tot_bottles, extract_success = open_and_parse_strict_modal(driver, wait, indent_num, cols)
                             purge_all_modals(driver)
