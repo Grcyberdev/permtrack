@@ -16,6 +16,7 @@ sys.path.append(os.path.join(PROJECT_ROOT, "scripts"))
 from pdf_report import generate_report_pdf
 from reconciler import reconcile_permits, get_reconciliation_summary
 import automation_utils
+import auth
 
 app = FastAPI(title="PermTrack - Assam Excise Revenue Tracker")
 
@@ -27,6 +28,67 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# -------------------------------------------------------------
+# Authentication & Access Control Endpoints
+# -------------------------------------------------------------
+@app.post("/api/auth/login")
+async def auth_login(request: Request):
+    """
+    Validates executive credentials and creates an HMAC-SHA256 session cookie.
+    """
+    try:
+        body = await request.json()
+        username = body.get("username", "").strip()
+        password = body.get("password", "")
+        remember_me = bool(body.get("remember_me", False))
+
+        user = auth.authenticate_user(username, password)
+        if not user:
+            return JSONResponse(
+                status_code=401,
+                content={"status": "error", "error": "Invalid username or password"}
+            )
+
+        token = auth.create_session_token(user["username"], remember_me=remember_me)
+        max_age = (30 * 24 * 3600) if remember_me else (24 * 3600)
+
+        response = JSONResponse(content={
+            "status": "success",
+            "token": token,
+            "user": user
+        })
+
+        response.set_cookie(
+            key="permtrack_session",
+            value=token,
+            max_age=max_age,
+            httponly=True,
+            samesite="lax",
+            secure=False
+        )
+        return response
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": f"Login failed: {str(e)}"})
+
+@app.get("/api/auth/status")
+async def auth_status(request: Request):
+    """
+    Returns authentication state for current browser session.
+    """
+    user = auth.get_current_user(request)
+    if user:
+        return JSONResponse(content={"authenticated": True, "user": user})
+    return JSONResponse(content={"authenticated": False})
+
+@app.post("/api/auth/logout")
+async def auth_logout():
+    """
+    Clears the session cookie.
+    """
+    response = JSONResponse(content={"status": "success", "message": "Logged out successfully"})
+    response.delete_cookie("permtrack_session")
+    return response
 
 # Serve static frontend files
 STATIC_DIR = os.path.join(PROJECT_ROOT, "static")
@@ -62,10 +124,15 @@ def get_sorted_backup_files(config_dir):
     return files
 
 @app.get("/api/today-permits")
-async def get_today_permits(filename: str = None, lookback_days: int = 7):
+async def get_today_permits(request: Request, filename: str = None, lookback_days: int = 7):
     """
     Returns latest scraped permits or specified backup file with 7-day carry-over reconciliation.
+    Requires authenticated executive session.
     """
+    user = auth.get_current_user(request)
+    if not user:
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+
     global LATEST_WEBHOOK_DATA
     config_dir = automation_utils.get_data_dir()
     
@@ -145,10 +212,15 @@ async def get_today_permits(filename: str = None, lookback_days: int = 7):
     })
 
 @app.get("/api/download-pdf")
-async def download_pdf_report(filename: str = None):
+async def download_pdf_report(request: Request, filename: str = None):
     """
     Retrieves selected permit JSON file and returns PDF report.
+    Requires authenticated executive session.
     """
+    user = auth.get_current_user(request)
+    if not user:
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+
     config_dir = automation_utils.get_data_dir()
     
     if filename:
@@ -195,10 +267,14 @@ async def download_pdf_report(filename: str = None):
         )
 
 @app.get("/api/backups")
-async def get_backups():
+async def get_backups(request: Request):
     """
     Returns deduplicated, hierarchically sorted list of available date backups.
+    Requires authenticated executive session.
     """
+    user = auth.get_current_user(request)
+    if not user:
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
     from datetime import datetime, timedelta
     config_dir = automation_utils.get_data_dir()
     backup_files = glob.glob(os.path.join(config_dir, "backup_permits_*.json"))
@@ -495,13 +571,25 @@ async def run_local_scraper_task(target_date_val, bond_type, headless, lookback_
         JOB_MANAGER.mark_completed(success=False, error=str(e))
 
 @app.get("/api/scraper/status")
-async def get_scraper_status():
-    """Returns the persistent state and latest logs of the scraper job."""
+async def get_scraper_status(request: Request):
+    """
+    Returns the persistent state and latest logs of the scraper job.
+    Requires authenticated executive session.
+    """
+    user = auth.get_current_user(request)
+    if not user:
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
     return JSONResponse(content=JOB_MANAGER.get_state())
 
 @app.post("/api/scraper/start")
 async def start_scraper_endpoint(request: Request):
-    """Starts a scraper run (cloud GitHub dispatch or local background process)."""
+    """
+    Starts a scraper run (cloud GitHub dispatch or local background process).
+    Requires authenticated executive session.
+    """
+    user = auth.get_current_user(request)
+    if not user:
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
     try:
         body = await request.json()
         date_val = body.get("date", "").strip()
@@ -552,8 +640,14 @@ async def start_scraper_endpoint(request: Request):
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 @app.post("/api/scraper/cancel")
-async def cancel_scraper():
-    """Cancels any running scraper process."""
+async def cancel_scraper(request: Request):
+    """
+    Cancels any running scraper process.
+    Requires authenticated executive session.
+    """
+    user = auth.get_current_user(request)
+    if not user:
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
     if JOB_MANAGER.process:
         try:
             JOB_MANAGER.process.terminate()
@@ -566,6 +660,11 @@ async def cancel_scraper():
 
 @app.websocket("/ws/run")
 async def websocket_run(websocket: WebSocket):
+    user = auth.get_current_user(websocket)
+    if not user:
+        await websocket.close(code=1008)
+        return
+
     await websocket.accept()
     print("🔌 Client connected to logs WebSocket.")
     

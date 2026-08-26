@@ -148,6 +148,13 @@
                     <button id="theme-toggle" class="header-btn" title="Toggle Light/Dark Theme" style="padding: 0 0.55rem;">
                         🌙
                     </button>
+
+                    <!-- User Profile & Sign Out -->
+                    <div id="user-profile-container" class="user-profile-pill" style="display: none;">
+                        <div class="user-profile-avatar" id="user-avatar-initials">RG</div>
+                        <span class="user-profile-name" id="user-display-name">Admin</span>
+                        <button class="btn-signout" onclick="handleAuthLogout()" title="Sign Out">🔒 Exit</button>
+                    </div>
                 </div>
             </header>
 
@@ -845,10 +852,56 @@
     <div id="toast-shelf" class="toast-shelf"></div>
 
     <!-- =========================================================
-         5. Enterprise Frontend Engine Script
+         5. Security Access Layer / Executive Login Modal
+         ========================================================= -->
+    <div id="auth-overlay" class="active">
+        <div class="auth-card">
+            <div class="auth-header">
+                <div class="auth-shield-icon">🛡️</div>
+                <div class="auth-title">PermTrack Executive Access</div>
+                <div class="auth-subtitle">Restricted Operational Intelligence Terminal.<br>Please sign in with your authorized credentials.</div>
+            </div>
+
+            <div id="auth-error-box" class="auth-error-alert">
+                ⚠️ Invalid username or password. Please try again.
+            </div>
+
+            <form id="auth-form" onsubmit="handleAuthLogin(event)">
+                <div class="auth-form-group">
+                    <label class="auth-label" for="auth-username">USERNAME / IDENTIFIER</label>
+                    <div class="auth-input-wrapper">
+                        <input type="text" id="auth-username" class="auth-input" placeholder="e.g. rajdeep or admin" required autocomplete="username">
+                    </div>
+                </div>
+
+                <div class="auth-form-group">
+                    <label class="auth-label" for="auth-password">SECURITY PASSCODE</label>
+                    <div class="auth-input-wrapper">
+                        <input type="password" id="auth-password" class="auth-input" placeholder="Enter executive password" required autocomplete="current-password">
+                        <button type="button" class="auth-pwd-toggle" onclick="togglePasswordVisibility()" title="Show/Hide Password">👁️</button>
+                    </div>
+                </div>
+
+                <div class="auth-options">
+                    <label class="auth-remember-label">
+                        <input type="checkbox" id="auth-remember" checked>
+                        <span>Remember this device (30 days)</span>
+                    </label>
+                </div>
+
+                <button type="submit" id="auth-submit-btn" class="auth-submit-btn">
+                    <span>🔒 Unlock Terminal</span>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- =========================================================
+         6. Enterprise Frontend Engine Script
          ========================================================= -->
     <script>
         // Global Application State
+        let currentUser = null;
         let rawPermitsData = [];
         let filteredPermitsData = [];
         let currentView = 'overview';
@@ -863,6 +916,138 @@
         let scraperPollingInterval = null;
         let scraperElapsedTimer = null;
         let scraperStartTime = null;
+
+        // -------------------------------------------------------------
+        // Security & Authentication Handlers
+        // -------------------------------------------------------------
+        async function checkAuthStatus() {
+            try {
+                const res = await fetch('/api/auth/status');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.authenticated && data.user) {
+                        currentUser = data.user;
+                        setAuthenticatedUI(data.user);
+                        hideAuthOverlay();
+                        loadBackupsList().then(() => loadPermitsData());
+                        return;
+                    }
+                }
+            } catch (err) {
+                console.error("Auth check failed:", err);
+            }
+            showAuthOverlay();
+        }
+
+        function setAuthenticatedUI(user) {
+            const userContainer = document.getElementById('user-profile-container');
+            const userName = document.getElementById('user-display-name');
+            const userAvatar = document.getElementById('user-avatar-initials');
+            if (userContainer && userName && userAvatar) {
+                userName.innerText = user.name || user.username || 'Executive';
+                const initials = (user.name || user.username || 'EX').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                userAvatar.innerText = initials;
+                userContainer.style.display = 'flex';
+            }
+        }
+
+        function showAuthOverlay() {
+            const overlay = document.getElementById('auth-overlay');
+            if (overlay) {
+                overlay.classList.add('active');
+                setTimeout(() => {
+                    const userInput = document.getElementById('auth-username');
+                    if (userInput) userInput.focus();
+                }, 100);
+            }
+        }
+
+        function hideAuthOverlay() {
+            const overlay = document.getElementById('auth-overlay');
+            if (overlay) {
+                overlay.classList.remove('active');
+            }
+        }
+
+        function togglePasswordVisibility() {
+            const pwdInput = document.getElementById('auth-password');
+            if (pwdInput) {
+                pwdInput.type = pwdInput.type === 'password' ? 'text' : 'password';
+            }
+        }
+
+        async function handleAuthLogin(event) {
+            event.preventDefault();
+            const usernameInput = document.getElementById('auth-username');
+            const passwordInput = document.getElementById('auth-password');
+            const rememberInput = document.getElementById('auth-remember');
+            const errorBox = document.getElementById('auth-error-box');
+            const submitBtn = document.getElementById('auth-submit-btn');
+
+            const username = usernameInput ? usernameInput.value.trim() : '';
+            const password = passwordInput ? passwordInput.value : '';
+            const remember_me = rememberInput ? rememberInput.checked : true;
+
+            if (!username || !password) return;
+
+            if (errorBox) {
+                errorBox.classList.remove('visible');
+            }
+
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = `<span>⏳ Verifying...</span>`;
+            }
+
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password, remember_me })
+                });
+
+                const data = await res.json();
+
+                if (res.ok && data.status === 'success') {
+                    currentUser = data.user;
+                    setAuthenticatedUI(data.user);
+                    hideAuthOverlay();
+                    if (passwordInput) passwordInput.value = '';
+                    showToast(`Welcome back, ${data.user.name || data.user.username}!`);
+                    loadBackupsList().then(() => loadPermitsData());
+                } else {
+                    if (errorBox) {
+                        errorBox.innerText = `⚠️ ${data.error || 'Invalid credentials. Access denied.'}`;
+                        errorBox.classList.add('visible');
+                    }
+                }
+            } catch (err) {
+                if (errorBox) {
+                    errorBox.innerText = `⚠️ Network error: Could not reach authentication server.`;
+                    errorBox.classList.add('visible');
+                }
+            } finally {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = `<span>🔒 Unlock Terminal</span>`;
+                }
+            }
+        }
+
+        async function handleAuthLogout() {
+            try {
+                await fetch('/api/auth/logout', { method: 'POST' });
+            } catch (err) {
+                console.error("Logout error:", err);
+            }
+            currentUser = null;
+            const userContainer = document.getElementById('user-profile-container');
+            if (userContainer) userContainer.style.display = 'none';
+            rawPermitsData = [];
+            filteredPermitsData = [];
+            showAuthOverlay();
+            showToast("Logged out successfully");
+        }
 
         // -------------------------------------------------------------
         // View Routing / Navigation
@@ -1006,9 +1191,14 @@
         async function loadBackupsList() {
             try {
                 const res = await fetch('/api/backups');
+                if (res.status === 401) {
+                    showAuthOverlay();
+                    return;
+                }
                 if (!res.ok) return;
                 const data = await res.json();
                 const selector = document.getElementById('backup-selector');
+                if (!selector) return;
                 selector.innerHTML = '';
                 
                 data.forEach((b, idx) => {
@@ -1045,6 +1235,11 @@
             
             try {
                 const res = await fetch(url);
+                if (res.status === 401) {
+                    showAuthOverlay();
+                    if (lastUpText) lastUpText.innerText = 'Refresh';
+                    return;
+                }
                 if (!res.ok) throw new Error("Failed to fetch permit data");
                 const data = await res.json();
                 
@@ -2345,9 +2540,7 @@
         // App Initialization
         // -------------------------------------------------------------
         window.addEventListener('DOMContentLoaded', () => {
-            loadBackupsList().then(() => {
-                loadPermitsData();
-            });
+            checkAuthStatus();
         });
     </script>
 </body>
