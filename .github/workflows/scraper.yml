@@ -13,9 +13,6 @@ on:
         description: 'Bond Credentials (IMFL, CS, BOTH)'
         required: false
         default: 'BOTH'
-  schedule:
-    # Runs automatically every hour (at the top of the hour)
-    - cron: '0 * * * *'
 
 jobs:
   scrape-permits:
