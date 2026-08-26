@@ -187,6 +187,7 @@
                     <!-- Primary Executive KPI Grid (4 High-Impact Cards) -->
                     <div class="executive-kpi-grid">
                         <!-- Card 1: Total Volume -->
+                        <!-- Card 1: Total Volume -->
                         <div class="executive-kpi-card hero-primary">
                             <div class="kpi-eyebrow">
                                 <span>Total Dispatched Volume</span>
@@ -195,17 +196,18 @@
                             <div class="kpi-main-val" id="ov-total-cases">0 cs</div>
                             <div class="kpi-subtext" id="ov-total-cases-sub">0 Physical cs • 0 cs from Loose b</div>
                             <div class="kpi-mix-bar">
-                                <div id="ov-imfl-bar" class="kpi-mix-seg imfl" style="width: 50%;"></div>
-                                <div id="ov-cs-bar" class="kpi-mix-seg cs" style="width: 50%;"></div>
+                                <div id="ov-beer-bar" class="kpi-mix-seg beer" style="width: 33%;"></div>
+                                <div id="ov-imfl-bar" class="kpi-mix-seg imfl" style="width: 33%;"></div>
+                                <div id="ov-cs-bar" class="kpi-mix-seg cs" style="width: 34%;"></div>
                             </div>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem; font-family: var(--font-mono);">
-                                <span id="ov-imfl-share">🍷 IMFL: 0 cs (0%)</span>
-                                <span id="ov-cs-share">🍶 CS: 0 cs (0%)</span>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem; font-family: var(--font-mono); flex-wrap: wrap; gap: 0.25rem;">
+                                <span id="ov-beer-share" style="color: #f59e0b;">🍺 Beer: 0 cs (0%)</span>
+                                <span id="ov-imfl-share" style="color: #8b5cf6;">🍷 IMFL: 0 cs (0%)</span>
+                                <span id="ov-cs-share" style="color: #06b6d4;">🍶 CS: 0 cs (0%)</span>
                             </div>
                         </div>
 
                         <!-- Card 2: Dispatched Turnover -->
-                        <!-- Card 2: Dispatched Turnover / Volume -->
                         <div class="executive-kpi-card">
                             <div class="kpi-eyebrow">
                                 <span id="ov-mrp-title">Dispatched Turnover</span>
@@ -249,20 +251,25 @@
                         </div>
                     </div>
 
-                    <!-- Secondary Operational KPIs (6 Grid) -->
-                    <div class="secondary-kpi-grid">
+                    <!-- Secondary Operational KPIs (7 Grid) -->
+                    <div class="secondary-kpi-grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));">
                         <div class="mini-kpi-card">
-                            <div class="mini-kpi-title"><span>🍷 IMFL Permits</span><span>Dispatched</span></div>
+                            <div class="mini-kpi-title"><span>🍺 Beer</span><span>Dispatched</span></div>
+                            <div class="mini-kpi-value" id="kpi-beer-permits">0</div>
+                            <div class="mini-kpi-meta" id="kpi-beer-meta">0 cs (0 pend)</div>
+                        </div>
+                        <div class="mini-kpi-card">
+                            <div class="mini-kpi-title"><span>🍷 IMFL Spirits</span><span>Dispatched</span></div>
                             <div class="mini-kpi-value" id="kpi-imfl-permits">0</div>
-                            <div class="mini-kpi-meta" id="kpi-imfl-meta">0 cs + 0 b (0 pend)</div>
+                            <div class="mini-kpi-meta" id="kpi-imfl-meta">0 cs (0 pend)</div>
                         </div>
                         <div class="mini-kpi-card">
                             <div class="mini-kpi-title"><span>🍶 CS Permits</span><span>Dispatched</span></div>
                             <div class="mini-kpi-value" id="kpi-cs-permits">0</div>
-                            <div class="mini-kpi-meta" id="kpi-cs-meta">0 cs + 0 b (0 pend)</div>
+                            <div class="mini-kpi-meta" id="kpi-cs-meta">0 cs (0 pend)</div>
                         </div>
                         <div class="mini-kpi-card">
-                            <div class="mini-kpi-title"><span>📦 Physical Cases</span><span>Full Unopened</span></div>
+                            <div class="mini-kpi-title"><span>📦 Physical Cases</span><span>Full Cases</span></div>
                             <div class="mini-kpi-value" id="kpi-dispatched-cases">0 cs</div>
                             <div class="mini-kpi-meta">Whole sealed cases</div>
                         </div>
@@ -277,7 +284,7 @@
                             <div class="mini-kpi-meta">Active wine shops & bars</div>
                         </div>
                         <div class="mini-kpi-card">
-                            <div class="mini-kpi-title"><span>🍾 Brand SKUs</span><span>Dispatched</span></div>
+                            <div class="mini-kpi-title"><span>🏷️ Brand SKUs</span><span>Dispatched</span></div>
                             <div class="mini-kpi-value" id="kpi-total-brands">0</div>
                             <div class="mini-kpi-meta">Distinct product lines</div>
                         </div>
@@ -299,7 +306,7 @@
                         <!-- Top Brand SKUs -->
                         <div class="table-card">
                             <div class="table-toolbar">
-                                <span class="table-title">🍾 Top Brands Dispatched</span>
+                        <span class="table-title">🍾 Top Brands Dispatched</span>
                                 <button class="header-btn" onclick="switchView('brand')" style="height: 24px; font-size: 0.72rem;">All Brands →</button>
                             </div>
                             <div style="padding: 1rem;" id="ov-top-brands-list">
@@ -322,9 +329,10 @@
                             </div>
 
                             <div class="table-controls">
-                                <!-- Bond Filter Chips -->
+                                <!-- Category Filter Chips -->
                                 <div class="filter-chip-group">
-                                    <span class="filter-chip active" id="pill-bond-all" onclick="setBondFilter('ALL')">All Bonds</span>
+                                    <span class="filter-chip active" id="pill-bond-all" onclick="setBondFilter('ALL')">All</span>
+                                    <span class="filter-chip" id="pill-bond-beer" onclick="setBondFilter('BEER')">🍺 Beer</span>
                                     <span class="filter-chip" id="pill-bond-imfl" onclick="setBondFilter('IMFL')">🍷 IMFL</span>
                                     <span class="filter-chip" id="pill-bond-cs" onclick="setBondFilter('CS')">🍶 CS</span>
                                 </div>
@@ -346,15 +354,15 @@
                                 <thead>
                                     <tr>
                                         <th>Status</th>
-                                        <th>Retailer / Licensee Name</th>
-                                        <th>Bond</th>
+                                        <th>Retailer / Licensee</th>
+                                        <th>Category</th>
                                         <th>Indent #</th>
-                                        <th>Transit Pass #</th>
+                                        <th>Transit Pass</th>
                                         <th>Vehicle #</th>
-                                        <th>Applied Date</th>
-                                        <th style="text-align: right;">Total Eq Cs</th>
+                                        <th>Date</th>
+                                        <th style="text-align: right;">Dispatched Cases</th>
                                         <th style="text-align: right;">Loose Bottles</th>
-                                        <th style="text-align: right;">Est. MRP</th>
+                                        <th style="text-align: right;">Turnover (Rs)</th>
                                         <th style="text-align: center;">Action</th>
                                     </tr>
                                 </thead>
@@ -367,46 +375,47 @@
                 </div>
 
                 <!-- =====================================================
-                     VIEW 3: PENDING QUEUE (BACKLOG CLEARANCE WORKSPACE)
+                     VIEW 3: PENDING QUEUE
                      ===================================================== -->
                 <div id="view-pending" class="workspace-view">
-                    <div class="executive-kpi-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: 1.25rem;">
-                        <div class="executive-kpi-card" style="border-left: 3px solid var(--status-pending);">
-                            <div class="kpi-eyebrow">Active Pending Indents</div>
-                            <div class="kpi-main-val" id="pq-total-count" style="color: var(--status-pending);">0</div>
-                            <div class="kpi-subtext">Awaiting official Transit Pass</div>
-                        </div>
-                        <div class="executive-kpi-card">
-                            <div class="kpi-eyebrow">🟡 Fresh (Today)</div>
-                            <div class="kpi-main-val" id="pq-fresh-count">0</div>
-                            <div class="kpi-subtext">Applied on current scraping date</div>
-                        </div>
-                        <div class="executive-kpi-card">
-                            <div class="kpi-eyebrow">🟠 Carried Over (Aging)</div>
-                            <div class="kpi-main-val" id="pq-carried-count" style="color: var(--status-warning);">0</div>
-                            <div class="kpi-subtext" id="pq-oldest-age">Oldest pending: 0 days</div>
-                        </div>
-                        <div class="executive-kpi-card">
-                            <div class="kpi-eyebrow">Pending Liquor Volume</div>
-                            <div class="kpi-main-val" id="pq-total-volume">0 cs</div>
-                            <div class="kpi-subtext">Physical + bottle equivalents</div>
-                        </div>
-                    </div>
-
                     <div class="table-card">
                         <div class="table-toolbar">
                             <div class="table-title-area">
-                                <span class="table-title">⏳ Active Backlog Clearance Queue</span>
-                                <span class="table-count-badge" id="pending-table-count">0 Items</span>
+                                <span class="table-title">Pending Clearance Queue</span>
+                                <span class="table-count-badge" id="pending-table-count">0 Indents</span>
                             </div>
 
                             <div class="table-controls">
                                 <div class="filter-chip-group">
-                                    <span class="filter-chip active" id="pq-filter-all" onclick="setPendingSubFilter('ALL')">All Pending</span>
-                                    <span class="filter-chip" id="pq-filter-fresh" onclick="setPendingSubFilter('FRESH')">🟡 Fresh Today</span>
-                                    <span class="filter-chip" id="pq-filter-carried" onclick="setPendingSubFilter('CARRIED')">🟠 Carried Over</span>
+                                    <span class="filter-chip active" id="pill-pending-all" onclick="setPendingSubFilter('ALL')">All Pending</span>
+                                    <span class="filter-chip" id="pill-pending-fresh" onclick="setPendingSubFilter('FRESH')">🟡 Fresh Today</span>
+                                    <span class="filter-chip" id="pill-pending-carried" onclick="setPendingSubFilter('CARRIED')">🟠 Carried Over</span>
                                 </div>
-                                <input type="text" id="pending-search-input" class="table-search-input" placeholder="Search pending indents..." oninput="renderPendingQueue()">
+                                <input type="text" id="pending-search-input" class="table-search-input" placeholder="Search retailer or indent..." oninput="renderPendingQueue()">
+                            </div>
+                        </div>
+
+                        <!-- Aging Health Summary -->
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; padding: 1rem 1.25rem; background: var(--bg-surface-tint); border-bottom: 1px solid var(--border-subtle);">
+                            <div>
+                                <span style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Total Active Backlog</span>
+                                <div style="font-size: 1.2rem; font-weight: 800; color: var(--status-pending);" id="pq-total-count">0</div>
+                            </div>
+                            <div>
+                                <span style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Fresh Today</span>
+                                <div style="font-size: 1.2rem; font-weight: 800; color: #eab308;" id="pq-fresh-count">0</div>
+                            </div>
+                            <div>
+                                <span style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Carried Over</span>
+                                <div style="font-size: 1.2rem; font-weight: 800; color: #f97316;" id="pq-carried-count">0</div>
+                            </div>
+                            <div>
+                                <span style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Backlog Aging Max</span>
+                                <div style="font-size: 0.95rem; font-weight: 700; color: var(--text-primary);" id="pq-oldest-age">Oldest: 0 days</div>
+                            </div>
+                            <div>
+                                <span style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Volume in Clearance</span>
+                                <div style="font-size: 1.2rem; font-weight: 800; font-family: var(--font-mono); color: var(--text-primary);" id="pq-total-volume">0.0 cs</div>
                             </div>
                         </div>
 
@@ -417,12 +426,12 @@
                                         <th>Aging State</th>
                                         <th>Retailer / Licensee</th>
                                         <th>Bond</th>
-                                        <th>Indent Number</th>
-                                        <th>Applied Date</th>
-                                        <th>Aging Days</th>
-                                        <th style="text-align: right;">Cases</th>
-                                        <th style="text-align: right;">Loose Bottles</th>
-                                        <th style="text-align: right;">Est. MRP</th>
+                                        <th>Indent #</th>
+                                        <th>Application Date</th>
+                                        <th>Age (Days)</th>
+                                        <th style="text-align: right;">Pending Cases</th>
+                                        <th style="text-align: right;">Pending Bottles</th>
+                                        <th style="text-align: right;">Est. Value</th>
                                         <th style="text-align: center;">Action</th>
                                     </tr>
                                 </thead>
@@ -441,11 +450,11 @@
                     <div class="table-card">
                         <div class="table-toolbar">
                             <div class="table-title-area">
-                                <span class="table-title">🏢 Licensee & Party Loading Directory</span>
+                                <span class="table-title">Licensee & Retailer Party Directory</span>
                                 <span class="table-count-badge" id="party-table-count">0 Parties</span>
                             </div>
                             <div class="table-controls">
-                                <input type="text" id="party-search-input" class="table-search-input" placeholder="Search party or licensee..." oninput="renderPartyTable()">
+                                <input type="text" id="party-search-input" class="table-search-input" placeholder="Search licensee name..." oninput="renderPartyTable()">
                             </div>
                         </div>
 
@@ -453,12 +462,12 @@
                             <table class="enterprise-table">
                                 <thead>
                                     <tr>
-                                        <th>Retailer / Party Name</th>
-                                        <th style="text-align: center;">Permits</th>
+                                        <th>Licensee / Party Name</th>
+                                        <th style="text-align: center;">Permits Loaded</th>
                                         <th style="text-align: right;">Total Cases</th>
                                         <th style="text-align: right;">Loose Bottles</th>
-                                        <th style="text-align: right;">Est. MRP</th>
-                                        <th style="text-align: center;">Action</th>
+                                        <th style="text-align: right;">Gross MRP (Rs)</th>
+                                        <th style="text-align: center;">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="party-table-tbody">
@@ -482,11 +491,22 @@
                                 <span class="table-title">🍾 Brand & SKU Loading Analytics</span>
                                 <span class="table-count-badge" id="brand-table-count">0 SKUs</span>
                             </div>
-                            <div class="table-controls">
+                            <div class="table-controls" style="flex-wrap: wrap; gap: 0.5rem;">
+                                <!-- Category Filter Chips -->
+                                <div class="filter-chip-group">
+                                    <span class="filter-chip active" id="brand-cat-all" onclick="setBrandCategoryFilter('ALL')">All</span>
+                                    <span class="filter-chip" id="brand-cat-beer" onclick="setBrandCategoryFilter('BEER')">🍺 Beer</span>
+                                    <span class="filter-chip" id="brand-cat-imfl" onclick="setBrandCategoryFilter('IMFL')">🍷 IMFL</span>
+                                    <span class="filter-chip" id="brand-cat-cs" onclick="setBrandCategoryFilter('CS')">🍶 CS</span>
+                                </div>
+                                <!-- Size Filter Chips -->
                                 <div class="filter-chip-group">
                                     <span class="filter-chip active" id="brand-size-all" onclick="setBrandSizeFilter('ALL')">All Sizes</span>
                                     <span class="filter-chip" id="brand-size-750" onclick="setBrandSizeFilter('750')">750 ML</span>
+                                    <span class="filter-chip" id="brand-size-650" onclick="setBrandSizeFilter('650')">650 ML</span>
+                                    <span class="filter-chip" id="brand-size-500" onclick="setBrandSizeFilter('500')">500 ML</span>
                                     <span class="filter-chip" id="brand-size-375" onclick="setBrandSizeFilter('375')">375 ML</span>
+                                    <span class="filter-chip" id="brand-size-330" onclick="setBrandSizeFilter('330')">330 ML</span>
                                     <span class="filter-chip" id="brand-size-180" onclick="setBrandSizeFilter('180')">180 ML</span>
                                 </div>
                                 <input type="text" id="brand-search-input" class="table-search-input" placeholder="Search brand or product..." oninput="renderBrandTable()">
@@ -497,12 +517,12 @@
                             <table class="enterprise-table">
                                 <thead>
                                     <tr>
+                                        <th>Category</th>
                                         <th>Brand / Product Name</th>
                                         <th style="text-align: center;">Pack Size</th>
                                         <th style="text-align: right;">Total Cases</th>
                                         <th style="text-align: right;">Loose Bottles</th>
                                         <th style="text-align: right;">Est. MRP</th>
-                                        <th style="text-align: right;">Volume Share %</th>
                                     </tr>
                                 </thead>
                                 <tbody id="brand-table-tbody">
@@ -542,8 +562,14 @@
 
                         <!-- Top Brands Ranked -->
                         <div class="table-card">
-                            <div class="table-toolbar">
+                            <div class="table-toolbar" style="flex-wrap: wrap; gap: 0.5rem;">
                                 <span class="table-title">🍾 Top 10 Brand SKUs</span>
+                                <div class="filter-chip-group">
+                                    <span class="filter-chip active" id="analytics-cat-all" onclick="setAnalyticsCategoryFilter('ALL')">All</span>
+                                    <span class="filter-chip" id="analytics-cat-beer" onclick="setAnalyticsCategoryFilter('BEER')">🍺 Beer</span>
+                                    <span class="filter-chip" id="analytics-cat-imfl" onclick="setAnalyticsCategoryFilter('IMFL')">🍷 IMFL</span>
+                                    <span class="filter-chip" id="analytics-cat-cs" onclick="setAnalyticsCategoryFilter('CS')">🍶 CS</span>
+                                </div>
                             </div>
                             <div style="padding: 1.25rem;" id="analytics-top-brands-ranked"></div>
                         </div>
@@ -551,7 +577,7 @@
                         <!-- Beer vs Spirits vs CS -->
                         <div class="table-card">
                             <div class="table-toolbar">
-                                <span class="table-title">🍷 Category Mix Breakdown</span>
+                                <span class="table-title">📊 Category Mix Breakdown (Beer vs IMFL vs CS)</span>
                             </div>
                             <div style="padding: 1.25rem;" id="analytics-category-mix"></div>
                         </div>
@@ -568,7 +594,6 @@
 
                 <!-- =====================================================
                      VIEW 7: SCRAPER OPERATIONS (MISSION CONTROL CONSOLE)
-                     ===================================================== -->
                 <div id="view-scraper" class="workspace-view">
                     <!-- 4-Stage Visual Execution Stepper -->
                     <div class="pipeline-stepper">
@@ -827,10 +852,12 @@
         let rawPermitsData = [];
         let filteredPermitsData = [];
         let currentView = 'overview';
-        let activeBondFilter = 'ALL';
+        let activeBondFilter = 'ALL'; // 'ALL', 'BEER', 'IMFL', 'CS'
         let activeStatusFilter = 'ALL';
         let activePendingSubFilter = 'ALL';
+        let activeBrandCategoryFilter = 'ALL'; // 'ALL', 'BEER', 'IMFL', 'CS'
         let activeBrandSizeFilter = 'ALL';
+        let activeAnalyticsCategoryFilter = 'ALL'; // 'ALL', 'BEER', 'IMFL', 'CS'
         let activeAnalyticsMetric = 'EQ_CASES';
         let activeDrawerData = null;
         let scraperPollingInterval = null;
@@ -914,6 +941,54 @@
             return 12;
         }
 
+        // Three-way Category Classification (Beer vs IMFL Spirits vs Country Spirit)
+        function getProductCategory(item) {
+            if (!item) return "IMFL";
+            const bond = (item["Bond Type"] || "").toUpperCase();
+            const rawCat = (item.Category || "").toUpperCase();
+            const prod = (item["Product Name"] || "").toUpperCase();
+
+            if (bond === "CS" || rawCat.includes("COUNTRY") || prod.includes("MASTI") || prod.includes("CS ")) {
+                return "CS";
+            }
+            
+            // Check Beer keywords or category
+            if (
+                rawCat.includes("BEER") ||
+                prod.includes("BEER") ||
+                prod.includes("DRAUGHT") ||
+                prod.includes("LAGER") ||
+                prod.includes("ALE") ||
+                prod.includes("STOUT") ||
+                prod.includes("BIRA") ||
+                prod.includes("KINGFISHER") ||
+                prod.includes("TUBORG") ||
+                prod.includes("CARLSBERG") ||
+                prod.includes("BUDWEISER") ||
+                prod.includes("HE-MAN") ||
+                prod.includes("GODFATHER") ||
+                prod.includes("SIMBA") ||
+                prod.includes("CORONA") ||
+                prod.includes("HEINEKEN") ||
+                prod.includes("FOSTERS") ||
+                prod.includes("BREEZER") ||
+                prod.includes("BACARDI BREEZER") ||
+                prod.includes("HAYWARDS 5000") ||
+                prod.includes("KNOCK OUT") ||
+                prod.includes("KALYANI") ||
+                prod.includes("BLACK FORT") ||
+                prod.includes("ROYAL CHALLENGE BEER") ||
+                prod.includes("STERREN") ||
+                prod.includes("HUNTER") ||
+                prod.includes("SUPER STRONG BEER") ||
+                prod.includes("PREMIUM LAGER")
+            ) {
+                return "BEER";
+            }
+
+            return "IMFL";
+        }
+
         // Format Indian Currency
         function formatIndianCurrency(num) {
             if (isNaN(num)) return '₹ 0';
@@ -982,6 +1057,16 @@
                 } else {
                     rawPermitsData = [];
                 }
+
+                // Update Data Freshness in Health Strip with exact timestamp
+                const healthFreshness = document.getElementById('health-freshness');
+                if (healthFreshness) {
+                    if (data.last_updated) {
+                        healthFreshness.innerText = `Live (${data.last_updated})`;
+                    } else {
+                        healthFreshness.innerText = 'Live (Updated)';
+                    }
+                }
                 
                 if (lastUpText) lastUpText.innerText = 'Refresh';
                 applyFiltersAndRender();
@@ -993,44 +1078,66 @@
         }
 
         // Filter Handlers
-        function setBondFilter(bond) {
-            activeBondFilter = bond;
-            document.getElementById('pill-bond-all').classList.toggle('active', bond === 'ALL');
-            document.getElementById('pill-bond-imfl').classList.toggle('active', bond === 'IMFL');
-            document.getElementById('pill-bond-cs').classList.toggle('active', bond === 'CS');
+        function setBondFilter(cat) {
+            activeBondFilter = cat;
+            document.getElementById('pill-bond-all')?.classList.toggle('active', cat === 'ALL');
+            document.getElementById('pill-bond-beer')?.classList.toggle('active', cat === 'BEER');
+            document.getElementById('pill-bond-imfl')?.classList.toggle('active', cat === 'IMFL');
+            document.getElementById('pill-bond-cs')?.classList.toggle('active', cat === 'CS');
             applyFiltersAndRender();
         }
 
         function setStatusFilter(status) {
             activeStatusFilter = status;
-            document.getElementById('pill-status-all').classList.toggle('active', status === 'ALL');
-            document.getElementById('pill-status-dispatched').classList.toggle('active', status === 'DISPATCHED');
-            document.getElementById('pill-status-pending').classList.toggle('active', status === 'PENDING');
+            document.getElementById('pill-status-all')?.classList.toggle('active', status === 'ALL');
+            document.getElementById('pill-status-dispatched')?.classList.toggle('active', status === 'DISPATCHED');
+            document.getElementById('pill-status-pending')?.classList.toggle('active', status === 'PENDING');
             applyFiltersAndRender();
         }
 
         function setPendingSubFilter(sub) {
             activePendingSubFilter = sub;
-            document.getElementById('pq-filter-all').classList.toggle('active', sub === 'ALL');
-            document.getElementById('pq-filter-fresh').classList.toggle('active', sub === 'FRESH');
-            document.getElementById('pq-filter-carried').classList.toggle('active', sub === 'CARRIED');
+            document.getElementById('pill-pending-all')?.classList.toggle('active', sub === 'ALL');
+            document.getElementById('pill-pending-fresh')?.classList.toggle('active', sub === 'FRESH');
+            document.getElementById('pill-pending-carried')?.classList.toggle('active', sub === 'CARRIED');
             renderPendingQueue();
+        }
+
+        function setBrandCategoryFilter(cat) {
+            activeBrandCategoryFilter = cat;
+            document.getElementById('brand-cat-all')?.classList.toggle('active', cat === 'ALL');
+            document.getElementById('brand-cat-beer')?.classList.toggle('active', cat === 'BEER');
+            document.getElementById('brand-cat-imfl')?.classList.toggle('active', cat === 'IMFL');
+            document.getElementById('brand-cat-cs')?.classList.toggle('active', cat === 'CS');
+            renderBrandTable();
         }
 
         function setBrandSizeFilter(size) {
             activeBrandSizeFilter = size;
-            document.getElementById('brand-size-all').classList.toggle('active', size === 'ALL');
-            document.getElementById('brand-size-750').classList.toggle('active', size === '750');
-            document.getElementById('brand-size-375').classList.toggle('active', size === '375');
-            document.getElementById('brand-size-180').classList.toggle('active', size === '180');
+            document.getElementById('brand-size-all')?.classList.toggle('active', size === 'ALL');
+            document.getElementById('brand-size-750')?.classList.toggle('active', size === '750');
+            document.getElementById('brand-size-650')?.classList.toggle('active', size === '650');
+            document.getElementById('brand-size-500')?.classList.toggle('active', size === '500');
+            document.getElementById('brand-size-375')?.classList.toggle('active', size === '375');
+            document.getElementById('brand-size-330')?.classList.toggle('active', size === '330');
+            document.getElementById('brand-size-180')?.classList.toggle('active', size === '180');
             renderBrandTable();
+        }
+
+        function setAnalyticsCategoryFilter(cat) {
+            activeAnalyticsCategoryFilter = cat;
+            document.getElementById('analytics-cat-all')?.classList.toggle('active', cat === 'ALL');
+            document.getElementById('analytics-cat-beer')?.classList.toggle('active', cat === 'BEER');
+            document.getElementById('analytics-cat-imfl')?.classList.toggle('active', cat === 'IMFL');
+            document.getElementById('analytics-cat-cs')?.classList.toggle('active', cat === 'CS');
+            renderVisualAnalytics();
         }
 
         function setAnalyticsMetric(metric) {
             activeAnalyticsMetric = metric;
-            document.getElementById('metric-eq-cs').classList.toggle('active', metric === 'EQ_CASES');
-            document.getElementById('metric-bottles').classList.toggle('active', metric === 'BOTTLES');
-            document.getElementById('metric-mrp').classList.toggle('active', metric === 'MRP');
+            document.getElementById('metric-eq-cs')?.classList.toggle('active', metric === 'EQ_CASES');
+            document.getElementById('metric-bottles')?.classList.toggle('active', metric === 'BOTTLES');
+            document.getElementById('metric-mrp')?.classList.toggle('active', metric === 'MRP');
             renderVisualAnalytics();
         }
 
@@ -1043,7 +1150,8 @@
             const query = (document.getElementById('permits-search-input')?.value || '').toLowerCase().trim();
 
             filteredPermitsData = rawPermitsData.filter(item => {
-                if (activeBondFilter !== 'ALL' && item["Bond Type"] !== activeBondFilter) return false;
+                const itemCat = getProductCategory(item);
+                if (activeBondFilter !== 'ALL' && itemCat !== activeBondFilter) return false;
                 if (activeStatusFilter === 'DISPATCHED' && item.Status === 'PENDING') return false;
                 if (activeStatusFilter === 'PENDING' && item.Status !== 'PENDING') return false;
 
@@ -1083,15 +1191,20 @@
             let totalPendingBottleCsEq = 0;
             let totalPendingMRP = 0;
 
-            let imflCases = 0, imflBottleEq = 0;
-            let csCases = 0, csBottleEq = 0;
+            let beerCases = 0, beerBottleEq = 0, beerMRP = 0;
+            let imflCases = 0, imflBottleEq = 0, imflMRP = 0;
+            let csCases = 0, csBottleEq = 0, csMRP = 0;
 
             let uniquePendingPermits = new Set();
             let uniqueDispatchedPermits = new Set();
             let freshPendingPermits = new Set();
             let carriedPendingPermits = new Set();
+
+            let beerDispatchedPermits = new Set();
             let imflDispatchedPermits = new Set();
             let csDispatchedPermits = new Set();
+
+            let beerPendingPermits = new Set();
             let imflPendingPermits = new Set();
             let csPendingPermits = new Set();
 
@@ -1105,6 +1218,7 @@
                 if (agingDays > maxPendingAging) maxPendingAging = agingDays;
                 if (item.extraction_error || item.Status === "EXTRACTION_FAILED") extractionWarnings++;
 
+                const itemCat = getProductCategory(item);
                 const bPerCs = getBottlesPerCase(item.Size);
                 const bottleCsEq = (item.Bottles || 0) / bPerCs;
                 const lineEqCases = (item.Cases || 0) + bottleCsEq;
@@ -1141,13 +1255,12 @@
                     totalPendingBottleCsEq += bottleCsEq;
                     totalPendingMRP += lineMRP;
 
-                    if (isCarriedOver) {
-                        carriedPendingPermits.add(permitKey);
-                    } else {
-                        freshPendingPermits.add(permitKey);
-                    }
+                    if (isCarriedOver) carriedPendingPermits.add(permitKey);
+                    else freshPendingPermits.add(permitKey);
 
-                    if (item["Bond Type"] === "CS") {
+                    if (itemCat === "BEER") {
+                        beerPendingPermits.add(permitKey);
+                    } else if (itemCat === "CS") {
                         csPendingPermits.add(permitKey);
                     } else {
                         imflPendingPermits.add(permitKey);
@@ -1161,14 +1274,21 @@
                     totalDispatchedBL += (item["Bulk Litres"] || 0);
                     totalDispatchedLPL += (item["LPL"] || 0);
 
-                    if (item["Bond Type"] === "CS") {
+                    if (itemCat === "BEER") {
+                        beerDispatchedPermits.add(permitKey);
+                        beerCases += (item.Cases || 0);
+                        beerBottleEq += bottleCsEq;
+                        beerMRP += lineMRP;
+                    } else if (itemCat === "CS") {
                         csDispatchedPermits.add(permitKey);
                         csCases += (item.Cases || 0);
                         csBottleEq += bottleCsEq;
+                        csMRP += lineMRP;
                     } else {
                         imflDispatchedPermits.add(permitKey);
                         imflCases += (item.Cases || 0);
                         imflBottleEq += bottleCsEq;
+                        imflMRP += lineMRP;
                     }
 
                     // Aggregations for Party & Brand (Dispatched volume)
@@ -1186,7 +1306,7 @@
                     const bSize = item.Size || "Other";
                     const brandKey = `${bName}_${bSize}`;
                     if (!brandSummary[brandKey]) {
-                        brandSummary[brandKey] = { name: bName, size: bSize, cases: 0, bottles: 0, csEq: 0, mrp: 0, bond: item["Bond Type"] || 'IMFL' };
+                        brandSummary[brandKey] = { name: bName, size: bSize, cases: 0, bottles: 0, csEq: 0, mrp: 0, category: itemCat, bond: item["Bond Type"] || 'IMFL' };
                     }
                     brandSummary[brandKey].cases += (item.Cases || 0);
                     brandSummary[brandKey].bottles += (item.Bottles || 0);
@@ -1232,20 +1352,46 @@
             document.getElementById('ov-aging-carried').innerText = `🟠 ${carriedPendingPermits.size} Carried Over`;
             document.getElementById('ov-dispatched-permits').innerText = uniqueDispatchedPermits.size;
 
-            // Category Bar
-            const totCatVolume = (imflCases + imflBottleEq) + (csCases + csBottleEq);
-            const imflPct = totCatVolume > 0 ? Math.round(((imflCases + imflBottleEq) / totCatVolume) * 100) : 0;
-            const csPct = 100 - imflPct;
-            document.getElementById('ov-imfl-bar').style.width = `${imflPct}%`;
-            document.getElementById('ov-cs-bar').style.width = `${csPct}%`;
-            document.getElementById('ov-imfl-share').innerText = `🍷 IMFL: ${(imflCases + imflBottleEq).toFixed(1)} cs (${imflPct}%)`;
-            document.getElementById('ov-cs-share').innerText = `🍶 CS: ${(csCases + csBottleEq).toFixed(1)} cs (${csPct}%)`;
+            // 3-Segment Category Mix Bar
+            const beerTotVol = beerCases + beerBottleEq;
+            const imflTotVol = imflCases + imflBottleEq;
+            const csTotVol = csCases + csBottleEq;
+            const totCatVolume = beerTotVol + imflTotVol + csTotVol;
 
-            // Secondary KPIs: Specific IMFL & CS counts
-            document.getElementById('kpi-imfl-permits').innerText = imflDispatchedPermits.size;
-            document.getElementById('kpi-imfl-meta').innerText = `${(imflCases + imflBottleEq).toFixed(1)} cs (${imflPendingPermits.size} pend)`;
-            document.getElementById('kpi-cs-permits').innerText = csDispatchedPermits.size;
-            document.getElementById('kpi-cs-meta').innerText = `${(csCases + csBottleEq).toFixed(1)} cs (${csPendingPermits.size} pend)`;
+            const beerPct = totCatVolume > 0 ? Math.round((beerTotVol / totCatVolume) * 100) : 0;
+            const imflPct = totCatVolume > 0 ? Math.round((imflTotVol / totCatVolume) * 100) : 0;
+            const csPct = totCatVolume > 0 ? Math.max(0, 100 - beerPct - imflPct) : 0;
+
+            const beerBar = document.getElementById('ov-beer-bar');
+            const imflBar = document.getElementById('ov-imfl-bar');
+            const csBar = document.getElementById('ov-cs-bar');
+            if (beerBar) beerBar.style.width = `${beerPct}%`;
+            if (imflBar) imflBar.style.width = `${imflPct}%`;
+            if (csBar) csBar.style.width = `${csPct}%`;
+
+            const beerShare = document.getElementById('ov-beer-share');
+            const imflShare = document.getElementById('ov-imfl-share');
+            const csShare = document.getElementById('ov-cs-share');
+            if (beerShare) beerShare.innerText = `🍺 Beer: ${beerTotVol.toFixed(1)} cs (${beerPct}%)`;
+            if (imflShare) imflShare.innerText = `🍷 IMFL: ${imflTotVol.toFixed(1)} cs (${imflPct}%)`;
+            if (csShare) csShare.innerText = `🍶 CS: ${csTotVol.toFixed(1)} cs (${csPct}%)`;
+
+            // Secondary KPIs: Specific Beer, IMFL & CS counts
+            const kpiBeerPermits = document.getElementById('kpi-beer-permits');
+            const kpiBeerMeta = document.getElementById('kpi-beer-meta');
+            if (kpiBeerPermits) kpiBeerPermits.innerText = beerDispatchedPermits.size;
+            if (kpiBeerMeta) kpiBeerMeta.innerText = `${beerTotVol.toFixed(1)} cs (${beerPendingPermits.size} pend)`;
+
+            const kpiImflPermits = document.getElementById('kpi-imfl-permits');
+            const kpiImflMeta = document.getElementById('kpi-imfl-meta');
+            if (kpiImflPermits) kpiImflPermits.innerText = imflDispatchedPermits.size;
+            if (kpiImflMeta) kpiImflMeta.innerText = `${imflTotVol.toFixed(1)} cs (${imflPendingPermits.size} pend)`;
+
+            const kpiCsPermits = document.getElementById('kpi-cs-permits');
+            const kpiCsMeta = document.getElementById('kpi-cs-meta');
+            if (kpiCsPermits) kpiCsPermits.innerText = csDispatchedPermits.size;
+            if (kpiCsMeta) kpiCsMeta.innerText = `${csTotVol.toFixed(1)} cs (${csPendingPermits.size} pend)`;
+
             document.getElementById('kpi-dispatched-cases').innerText = `${totalDispatchedCases.toLocaleString()} cs`;
             document.getElementById('kpi-dispatched-bottles').innerText = `${totalDispatchedBottles.toLocaleString()} b`;
             document.getElementById('kpi-dispatched-bottles-meta').innerText = `= ${totalDispatchedBottleCsEq.toFixed(2)} cs Eq`;
@@ -1348,6 +1494,7 @@
                 const appDate = info["Application Date"] || info.Date || '-';
                 const tpNum = info["Transit Pass"] || info["Permit Number"] || '-';
                 const eqCsStr = group.totalEqCases % 1 === 0 ? group.totalEqCases.toLocaleString() : group.totalEqCases.toFixed(2);
+                const itemCat = getProductCategory(info);
 
                 let statusBadgeHtml = '';
                 if (info.extraction_error || info.Status === "EXTRACTION_FAILED") {
@@ -1362,12 +1509,14 @@
                         : `<span class="badge-status success">🟢 Pass Issued</span>`;
                 }
 
+                const catBadgeHtml = `<span class="cat-badge ${itemCat.toLowerCase()}">${itemCat === 'BEER' ? '🍺 BEER' : (itemCat === 'CS' ? '🍶 CS' : '🍷 IMFL')}</span>`;
+
                 const tr = document.createElement('tr');
                 tr.onclick = () => openPermitDrawer(group);
                 tr.innerHTML = `
                     <td>${statusBadgeHtml}</td>
                     <td style="font-weight: 600; color: var(--text-primary);">🏢 ${info["Retailer Name"] || 'Unknown Retailer'}</td>
-                    <td><span class="mono-code">${info["Bond Type"] || 'IMFL'}</span></td>
+                    <td>${catBadgeHtml}</td>
                     <td><span class="mono-code">${info["Indent Number"] || '-'}</span></td>
                     <td><span class="mono-code copyable" onclick="event.stopPropagation(); copyToClipboard('${tpNum}')" title="Click to copy">${tpNum}</span></td>
                     <td><span class="mono-code">${info["Vehicle Number"] ? '🚚 ' + info["Vehicle Number"] : 'No Vehicle'}</span></td>
@@ -1480,7 +1629,6 @@
             const tfoot = document.getElementById('party-table-tfoot');
             if (!tbody) return;
 
-            // Reconstruct if summary is passed or pull from filtered dataset
             const summary = partySummary || buildPartySummary();
             tbody.innerHTML = '';
             tfoot.innerHTML = '';
@@ -1562,6 +1710,7 @@
 
             const query = (document.getElementById('brand-search-input')?.value || '').toLowerCase().trim();
             const brandValues = Object.values(summary).filter(b => {
+                if (activeBrandCategoryFilter !== 'ALL' && b.category !== activeBrandCategoryFilter) return false;
                 if (activeBrandSizeFilter !== 'ALL' && !String(b.size).includes(activeBrandSizeFilter)) return false;
                 if (query && !b.name.toLowerCase().includes(query)) return false;
                 return true;
@@ -1576,6 +1725,7 @@
                 const totalBrandCs = brand.cases + brand.csEq;
                 const totalBrandCsStr = totalBrandCs % 1 === 0 ? totalBrandCs.toLocaleString() : totalBrandCs.toFixed(2);
                 const sharePct = globalVolume > 0 ? ((totalBrandCs / globalVolume) * 100).toFixed(1) : '0.0';
+                const catBadgeHtml = `<span class="cat-badge ${brand.category.toLowerCase()}">${brand.category === 'BEER' ? '🍺 BEER' : (brand.category === 'CS' ? '🍶 CS' : '🍷 IMFL')}</span>`;
 
                 totCs += totalBrandCs;
                 totBottles += brand.bottles;
@@ -1583,6 +1733,7 @@
 
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
+                    <td>${catBadgeHtml}</td>
                     <td style="font-weight: 600; color: var(--text-primary);">🍾 ${brand.name}</td>
                     <td style="text-align: center;"><span class="mono-code">${brand.size} ML</span></td>
                     <td style="text-align: right; font-weight: 700; color: var(--text-primary); font-family: var(--font-mono);">${totalBrandCsStr} cs</td>
@@ -1595,7 +1746,7 @@
 
             tfoot.innerHTML = `
                 <tr>
-                    <td style="font-weight: 800;" colspan="2">TOTAL (${brandValues.length} Brand SKUs)</td>
+                    <td style="font-weight: 800;" colspan="3">TOTAL (${brandValues.length} Brand SKUs)</td>
                     <td style="text-align: right; font-weight: 800; font-family: var(--font-mono);">${totCs.toFixed(2)} cs</td>
                     <td style="text-align: right; font-weight: 800; color: var(--brand-gold); font-family: var(--font-mono);">${totBottles.toLocaleString()} b</td>
                     <td style="text-align: right; font-weight: 800; color: var(--status-success); font-family: var(--font-mono);">${formatIndianCurrency(totMrp)}</td>
@@ -1610,11 +1761,12 @@
                 if (item.Status === "PENDING") return;
                 const bName = item["Product Name"] || "Unknown Brand";
                 const bSize = item.Size || "Other";
+                const itemCat = getProductCategory(item);
                 const brandKey = `${bName}_${bSize}`;
                 const bPerCs = getBottlesPerCase(item.Size);
                 const bottleCsEq = (item.Bottles || 0) / bPerCs;
 
-                if (!summary[brandKey]) summary[brandKey] = { name: bName, size: bSize, cases: 0, bottles: 0, csEq: 0, mrp: 0 };
+                if (!summary[brandKey]) summary[brandKey] = { name: bName, size: bSize, cases: 0, bottles: 0, csEq: 0, mrp: 0, category: itemCat };
                 summary[brandKey].cases += (item.Cases || 0);
                 summary[brandKey].bottles += (item.Bottles || 0);
                 summary[brandKey].csEq += bottleCsEq;
@@ -1638,8 +1790,6 @@
 
             rankedRetailers.innerHTML = '';
             rankedBrands.innerHTML = '';
-            if (catMixDiv) catMixDiv.innerHTML = '';
-            if (agingMixDiv) agingMixDiv.innerHTML = '';
 
             // Top Retailers Ranked
             const sortedParties = Object.keys(pSummary).sort((a, b) => {
@@ -1668,8 +1818,11 @@
                 `;
             });
 
-            // Top Brands Ranked
-            const sortedBrands = Object.values(bSummary).sort((a, b) => {
+            // Top Brands Ranked (filtered by category if selected)
+            const sortedBrands = Object.values(bSummary).filter(b => {
+                if (activeAnalyticsCategoryFilter !== 'ALL' && b.category !== activeAnalyticsCategoryFilter) return false;
+                return true;
+            }).sort((a, b) => {
                 if (activeAnalyticsMetric === 'MRP') return b.mrp - a.mrp;
                 if (activeAnalyticsMetric === 'BOTTLES') return b.bottles - a.bottles;
                 return (b.cases + b.csEq) - (a.cases + a.csEq);
@@ -1677,23 +1830,122 @@
 
             const maxBrandVal = sortedBrands.length > 0 ? getBrandMetricValue(sortedBrands[0]) : 1;
 
-            sortedBrands.forEach((b, idx) => {
-                const val = getBrandMetricValue(b);
-                const valStr = formatMetricValue(val);
-                const pct = maxBrandVal > 0 ? Math.round((val / maxBrandVal) * 100) : 0;
+            if (sortedBrands.length === 0) {
+                rankedBrands.innerHTML = `<div style="color: var(--text-muted); font-size: 0.8rem; padding: 1rem; text-align: center;">No SKUs found for selected category.</div>`;
+            } else {
+                sortedBrands.forEach((b, idx) => {
+                    const val = getBrandMetricValue(b);
+                    const valStr = formatMetricValue(val);
+                    const pct = maxBrandVal > 0 ? Math.round((val / maxBrandVal) * 100) : 0;
+                    const catBadgeHtml = `<span class="cat-badge ${b.category.toLowerCase()}" style="font-size: 0.62rem; padding: 0.1rem 0.3rem;">${b.category}</span>`;
 
-                rankedBrands.innerHTML += `
-                    <div style="margin-bottom: 0.85rem;">
-                        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600;">
-                            <span>#${idx + 1} ${b.name} (${b.size} ML)</span>
-                            <span class="mono-code" style="color: var(--brand-gold);">${valStr}</span>
+                    rankedBrands.innerHTML += `
+                        <div style="margin-bottom: 0.85rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; font-weight: 600;">
+                                <span>#${idx + 1} ${catBadgeHtml} ${b.name} (${b.size} ML)</span>
+                                <span class="mono-code" style="color: var(--brand-gold);">${valStr}</span>
+                            </div>
+                            <div style="height: 6px; background: var(--bg-surface-tint); border-radius: 2px; margin-top: 0.3rem; overflow: hidden;">
+                                <div style="width: ${pct}%; height: 100%; background: var(--brand-gold);"></div>
+                            </div>
                         </div>
-                        <div style="height: 6px; background: var(--bg-surface-tint); border-radius: 2px; margin-top: 0.3rem; overflow: hidden;">
-                            <div style="width: ${pct}%; height: 100%; background: var(--brand-gold);"></div>
+                    `;
+                });
+            }
+
+            // Category Mix Breakdown (Beer vs IMFL Spirits vs Country Spirit)
+            if (catMixDiv) {
+                const catStats = {
+                    BEER: { name: 'Beer', icon: '🍺', color: '#f59e0b', cases: 0, bottles: 0, mrp: 0 },
+                    IMFL: { name: 'IMFL Spirits', icon: '🍷', color: '#8b5cf6', cases: 0, bottles: 0, mrp: 0 },
+                    CS: { name: 'Country Spirit (CS)', icon: '🍶', color: '#06b6d4', cases: 0, bottles: 0, mrp: 0 }
+                };
+
+                filteredPermitsData.forEach(item => {
+                    if (item.Status === "PENDING") return;
+                    const cat = getProductCategory(item);
+                    const bPerCs = getBottlesPerCase(item.Size);
+                    const bottleCsEq = (item.Bottles || 0) / bPerCs;
+                    const eqCs = (item.Cases || 0) + bottleCsEq;
+                    const mrp = item["Total MRP"] || 0;
+
+                    if (catStats[cat]) {
+                        catStats[cat].cases += eqCs;
+                        catStats[cat].bottles += (item.Bottles || 0);
+                        catStats[cat].mrp += mrp;
+                    }
+                });
+
+                const totalMixVol = catStats.BEER.cases + catStats.IMFL.cases + catStats.CS.cases;
+
+                catMixDiv.innerHTML = Object.entries(catStats).map(([k, stat]) => {
+                    const pct = totalMixVol > 0 ? ((stat.cases / totalMixVol) * 100).toFixed(1) : '0.0';
+                    return `
+                        <div style="margin-bottom: 0.85rem; padding: 0.75rem; background: var(--bg-surface-tint); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                                <span style="font-weight: 700; font-size: 0.85rem;">${stat.icon} ${stat.name}</span>
+                                <span class="mono-code" style="font-size: 0.85rem; font-weight: 800; color: ${stat.color};">${stat.cases.toFixed(1)} cs (${pct}%)</span>
+                            </div>
+                            <div style="height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; margin-bottom: 0.45rem;">
+                                <div style="width: ${pct}%; height: 100%; background: ${stat.color};"></div>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono);">
+                                <span>Turnover: <strong style="color: var(--status-success);">${formatIndianCurrency(stat.mrp)}</strong></span>
+                                <span>Loose Bottles: <strong>${stat.bottles.toLocaleString()} b</strong></span>
+                            </div>
                         </div>
-                    </div>
-                `;
-            });
+                    `;
+                }).join('');
+            }
+
+            // Backlog Aging Distribution
+            if (agingMixDiv) {
+                const agingBuckets = {
+                    fresh: { label: '🟡 Fresh Today (0 Days)', count: 0, cases: 0, color: '#eab308' },
+                    day1: { label: '🟠 1 Day Backlog', count: 0, cases: 0, color: '#f97316' },
+                    day2: { label: '🔴 2 Days Backlog', count: 0, cases: 0, color: '#ef4444' },
+                    day3plus: { label: '🚨 3+ Days Critical Backlog', count: 0, cases: 0, color: '#dc2626' }
+                };
+
+                const pendingIndents = {};
+                rawPermitsData.forEach(item => {
+                    if (item.Status !== "PENDING") return;
+                    const pKey = item["Indent Number"] || `${item["Retailer Name"]}_${item.Date}`;
+                    const bPerCs = getBottlesPerCase(item.Size);
+                    const bottleCsEq = (item.Bottles || 0) / bPerCs;
+                    const lineEqCs = (item.Cases || 0) + bottleCsEq;
+                    const age = item.aging_days || 0;
+
+                    if (!pendingIndents[pKey]) {
+                        pendingIndents[pKey] = { age: age, cases: 0 };
+                    }
+                    pendingIndents[pKey].cases += lineEqCs;
+                });
+
+                const totalPendingInds = Object.keys(pendingIndents).length;
+
+                Object.values(pendingIndents).forEach(p => {
+                    if (p.age === 0) { agingBuckets.fresh.count++; agingBuckets.fresh.cases += p.cases; }
+                    else if (p.age === 1) { agingBuckets.day1.count++; agingBuckets.day1.cases += p.cases; }
+                    else if (p.age === 2) { agingBuckets.day2.count++; agingBuckets.day2.cases += p.cases; }
+                    else { agingBuckets.day3plus.count++; agingBuckets.day3plus.cases += p.cases; }
+                });
+
+                agingMixDiv.innerHTML = Object.values(agingBuckets).map(b => {
+                    const pct = totalPendingInds > 0 ? Math.round((b.count / totalPendingInds) * 100) : 0;
+                    return `
+                        <div style="margin-bottom: 0.85rem;">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600;">
+                                <span>${b.label}</span>
+                                <span class="mono-code" style="color: ${b.color}; font-weight: 700;">${b.count} indents (${b.cases.toFixed(1)} cs)</span>
+                            </div>
+                            <div style="height: 6px; background: var(--bg-surface-tint); border-radius: 2px; margin-top: 0.3rem; overflow: hidden;">
+                                <div style="width: ${pct}%; height: 100%; background: ${b.color};"></div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
         }
 
         function getPartyMetricValue(partyItem) {

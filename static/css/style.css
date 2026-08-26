@@ -723,15 +723,65 @@ body {
     transition: width 0.3s ease;
 }
 
-.kpi-mix-seg.imfl {
-    background: var(--brand-navy);
+.kpi-mix-seg.beer {
+    background: #f59e0b;
 }
-[data-theme="dark"] .kpi-mix-seg.imfl {
-    background: var(--brand-gold);
+
+.kpi-mix-seg.imfl {
+    background: #8b5cf6;
 }
 
 .kpi-mix-seg.cs {
-    background: var(--status-info);
+    background: #06b6d4;
+}
+
+.cat-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.cat-badge.beer {
+    background: rgba(245, 158, 11, 0.15);
+    color: #d97706;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+[data-theme="dark"] .cat-badge.beer {
+    background: rgba(245, 158, 11, 0.2);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.cat-badge.imfl {
+    background: rgba(139, 92, 246, 0.15);
+    color: #7c3aed;
+    border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+[data-theme="dark"] .cat-badge.imfl {
+    background: rgba(139, 92, 246, 0.2);
+    color: #a78bfa;
+    border: 1px solid rgba(139, 92, 246, 0.4);
+}
+
+.cat-badge.cs {
+    background: rgba(6, 182, 212, 0.15);
+    color: #0891b2;
+    border: 1px solid rgba(6, 182, 212, 0.3);
+}
+
+[data-theme="dark"] .cat-badge.cs {
+    background: rgba(6, 182, 212, 0.2);
+    color: #22d3ee;
+    border: 1px solid rgba(6, 182, 212, 0.4);
 }
 
 /* Secondary KPI Strip (6-grid) */

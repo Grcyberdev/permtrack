@@ -121,9 +121,24 @@ async def get_today_permits(filename: str = None, lookback_days: int = 7):
         elif status == "COMPLETED":
             completed.append(item)
             
+    last_updated_str = "Live (Updated)"
+    last_updated_ts = None
+    if latest_backup and os.path.exists(latest_backup):
+        try:
+            mtime = os.path.getmtime(latest_backup)
+            last_updated_ts = mtime
+            from datetime import datetime, timezone, timedelta
+            ist = timezone(timedelta(hours=5, minutes=30))
+            dt_ist = datetime.fromtimestamp(mtime, tz=ist)
+            last_updated_str = dt_ist.strftime("%d-%b-%Y, %I:%M %p")
+        except Exception:
+            pass
+
     return JSONResponse(content={
         "date": target_date,
         "filename": latest_backup_name,
+        "last_updated": last_updated_str,
+        "last_updated_ts": last_updated_ts,
         "pending": pending,
         "completed": completed,
         "summary": summary_metrics
