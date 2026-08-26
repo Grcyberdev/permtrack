@@ -854,7 +854,7 @@
     <!-- =========================================================
          5. Security Access Layer / Executive Login Modal
          ========================================================= -->
-    <div id="auth-overlay" class="active">
+    <div id="auth-overlay">
         <div class="auth-card">
             <div class="auth-header">
                 <div class="auth-shield-icon">🛡️</div>
@@ -920,9 +920,32 @@
         // -------------------------------------------------------------
         // Security & Authentication Handlers
         // -------------------------------------------------------------
+        async function fetchWithAuth(url, options = {}) {
+            const token = localStorage.getItem('permtrack_session_token');
+            const headers = { ...(options.headers || {}) };
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            const opts = {
+                ...options,
+                headers,
+                credentials: 'same-origin'
+            };
+
+            try {
+                const res = await fetch(url, opts);
+                if (res.status === 401) {
+                    showAuthOverlay();
+                }
+                return res;
+            } catch (err) {
+                throw err;
+            }
+        }
+
         async function checkAuthStatus() {
             try {
-                const res = await fetch('/api/auth/status');
+                const res = await fetchWithAuth('/api/auth/status');
                 if (res.ok) {
                     const data = await res.json();
                     if (data.authenticated && data.user) {
@@ -1003,6 +1026,7 @@
                 const res = await fetch('/api/auth/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
                     body: JSON.stringify({ username, password, remember_me })
                 });
 
@@ -1010,6 +1034,9 @@
 
                 if (res.ok && data.status === 'success') {
                     currentUser = data.user;
+                    if (data.token) {
+                        localStorage.setItem('permtrack_session_token', data.token);
+                    }
                     setAuthenticatedUI(data.user);
                     hideAuthOverlay();
                     if (passwordInput) passwordInput.value = '';
@@ -1036,10 +1063,11 @@
 
         async function handleAuthLogout() {
             try {
-                await fetch('/api/auth/logout', { method: 'POST' });
+                await fetchWithAuth('/api/auth/logout', { method: 'POST' });
             } catch (err) {
                 console.error("Logout error:", err);
             }
+            localStorage.removeItem('permtrack_session_token');
             currentUser = null;
             const userContainer = document.getElementById('user-profile-container');
             if (userContainer) userContainer.style.display = 'none';
@@ -1190,12 +1218,8 @@
         // -------------------------------------------------------------
         async function loadBackupsList() {
             try {
-                const res = await fetch('/api/backups');
-                if (res.status === 401) {
-                    showAuthOverlay();
-                    return;
-                }
-                if (!res.ok) return;
+                const res = await fetchWithAuth('/api/backups');
+                if (!res || !res.ok) return;
                 const data = await res.json();
                 const selector = document.getElementById('backup-selector');
                 if (!selector) return;
@@ -1234,13 +1258,11 @@
             if (lastUpText) lastUpText.innerText = 'Loading...';
             
             try {
-                const res = await fetch(url);
-                if (res.status === 401) {
-                    showAuthOverlay();
+                const res = await fetchWithAuth(url);
+                if (!res || !res.ok) {
                     if (lastUpText) lastUpText.innerText = 'Refresh';
                     return;
                 }
-                if (!res.ok) throw new Error("Failed to fetch permit data");
                 const data = await res.json();
                 
                 if (data.records && Array.isArray(data.records)) {
@@ -2321,7 +2343,7 @@
             btn.innerText = 'Initializing Scraper...';
 
             try {
-                const res = await fetch('/api/scraper/start', {
+                const res = await fetchWithAuth('/api/scraper/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ date: dateVal, bond: bondVal, lookback_days: lookbackVal, headless: headlessVal })
@@ -2340,7 +2362,7 @@
 
         async function cancelScraperJob() {
             try {
-                await fetch('/api/scraper/cancel', { method: 'POST' });
+                await fetchWithAuth('/api/scraper/cancel', { method: 'POST' });
                 showToast("Cancelled scraper job");
                 stopScraperMonitoring();
             } catch (err) {
@@ -2374,7 +2396,9 @@
 
         function connectScraperWebSocket() {
             const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const ws = new WebSocket(`${proto}//${window.location.host}/ws/run`);
+            const token = localStorage.getItem('permtrack_session_token') || '';
+            const query = token ? `?token=${encodeURIComponent(token)}` : '';
+            const ws = new WebSocket(`${proto}//${window.location.host}/ws/run${query}`);
             const terminal = document.getElementById('terminal-stream');
 
             ws.onmessage = (event) => {
@@ -2386,8 +2410,8 @@
 
         async function checkScraperStatus() {
             try {
-                const res = await fetch('/api/scraper/status');
-                if (!res.ok) return;
+                const res = await fetchWithAuth('/api/scraper/status');
+                if (!res || !res.ok) return;
                 const state = await res.json();
                 
                 // Update Pipeline Stepper
@@ -2520,8 +2544,8 @@
             if (label) label.innerText = 'Generating PDF...';
 
             try {
-                const res = await fetch(url);
-                if (!res.ok) throw new Error("PDF generation failed on server");
+                const res = await fetchWithAuth(url);
+                if (!res || !res.ok) throw new Error("PDF generation failed on server");
                 const blob = await res.blob();
                 const link = document.createElement("a");
                 link.href = URL.createObjectURL(blob);
