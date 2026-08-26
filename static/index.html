@@ -1199,30 +1199,16 @@
             document.getElementById('ov-total-cases').innerText = `${totalCsStr} cs`;
             document.getElementById('ov-total-cases-sub').innerText = `${totalDispatchedCases.toLocaleString()} Physical cs • ${totalDispatchedBottleCsEq.toFixed(2)} cs Loose`;
 
-            // Card 2: Turnover vs Official Bulk Litres (BL / LPL)
+            // Card 2: Dispatched Turnover (Gross MRP)
             const mrpTitle = document.getElementById('ov-mrp-title');
             const mrpBadge = document.getElementById('ov-mrp-badge');
             const mrpVal = document.getElementById('ov-total-mrp');
             const mrpSub = document.getElementById('ov-mrp-sub');
 
-            if (totalDispatchedMRP > 0) {
-                if (mrpTitle) mrpTitle.innerText = 'Dispatched Turnover';
-                if (mrpBadge) mrpBadge.innerText = 'GROSS MRP';
-                if (mrpVal) mrpVal.innerText = formatIndianCurrency(totalDispatchedMRP);
-                if (mrpSub) mrpSub.innerText = totalDispatchedBL > 0 
-                    ? `Gross Value • ${totalDispatchedBL.toLocaleString('en-IN', { maximumFractionDigits: 1 })} BL`
-                    : 'Estimated gross value of dispatched stock';
-            } else if (totalDispatchedBL > 0) {
-                if (mrpTitle) mrpTitle.innerText = 'Dispatched Volume';
-                if (mrpBadge) mrpBadge.innerText = 'BULK LITRES';
-                if (mrpVal) mrpVal.innerText = `${totalDispatchedBL.toLocaleString('en-IN', { maximumFractionDigits: 1 })} BL`;
-                if (mrpSub) mrpSub.innerText = `💧 Official Bulk Litres • ${totalDispatchedLPL.toLocaleString('en-IN', { maximumFractionDigits: 2 })} LPL`;
-            } else {
-                if (mrpTitle) mrpTitle.innerText = 'Dispatched Turnover';
-                if (mrpBadge) mrpBadge.innerText = 'GROSS MRP';
-                if (mrpVal) mrpVal.innerText = '₹ 0';
-                if (mrpSub) mrpSub.innerText = 'Estimated gross value of dispatched stock';
-            }
+            if (mrpTitle) mrpTitle.innerText = 'Dispatched Turnover';
+            if (mrpBadge) mrpBadge.innerText = 'GROSS MRP';
+            if (mrpVal) mrpVal.innerText = formatIndianCurrency(totalDispatchedMRP);
+            if (mrpSub) mrpSub.innerText = 'Estimated gross value of dispatched stock';
 
             document.getElementById('ov-clearance-rate').innerText = `${clearanceRatePct}% Dispatched`;
             document.getElementById('ov-active-indents-label').innerText = `${totalActiveIndents} Total Indents`;
