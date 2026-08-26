@@ -14,8 +14,8 @@ on:
         required: false
         default: 'BOTH'
   schedule:
-    # Runs automatically every day at 12:30 UTC (6:00 PM IST)
-    - cron: '30 12 * * *'
+    # Runs automatically every hour (at the top of the hour)
+    - cron: '0 * * * *'
 
 jobs:
   scrape-permits:
