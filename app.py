@@ -658,6 +658,50 @@ async def cancel_scraper(request: Request):
     JOB_MANAGER.mark_completed(success=False, error="Job was cancelled by user.")
     return JSONResponse(content={"status": "cancelled", "message": "Scraper job cancelled."})
 
+@app.get("/api/cron/trigger")
+@app.post("/api/cron/trigger")
+async def cron_trigger(request: Request, key: str = None):
+    """
+    Precision cron endpoint for cron-job.org.
+    Validates secret key and triggers the scraper pipeline to run.
+    """
+    secret = key or request.query_params.get("key") or request.headers.get("x-cron-secret")
+    expected = os.environ.get("CRON_SECRET") or os.environ.get("WEBHOOK_SECRET") or "permtrack_cron_2026"
+    
+    if not secret or secret != expected:
+        return JSONResponse(status_code=401, content={"error": "Invalid or missing cron key"})
+
+    gh_token = os.environ.get("GITHUB_TOKEN")
+    gh_repo = os.environ.get("GITHUB_REPO") or "Grcyberdev/permtrack"
+
+    if gh_token:
+        import requests
+        dispatch_url = f"https://api.github.com/repos/{gh_repo}/dispatches"
+        headers = {
+            "Authorization": f"Bearer {gh_token}",
+            "Accept": "application/vnd.github+json"
+        }
+        payload = {
+            "event_type": "run-scraper",
+            "client_payload": {
+                "date": "",
+                "bond": "BOTH",
+                "lookback_days": 7
+            }
+        }
+        res = requests.post(dispatch_url, headers=headers, json=payload, timeout=10)
+        if res.status_code in [204, 200]:
+            return JSONResponse(content={"status": "success", "message": "Dispatched cloud scraper to GitHub Actions", "target": gh_repo})
+        else:
+            return JSONResponse(status_code=res.status_code, content={"error": res.text})
+    else:
+        # Local background runner fallback
+        ok, job_or_err = await JOB_MANAGER.start_job("", "BOTH", 7, mode="local")
+        if ok:
+            asyncio.create_task(run_local_scraper_task("", "BOTH", True, 7))
+            return JSONResponse(content={"status": "success", "message": "Started local background scraper task"})
+        return JSONResponse(status_code=400, content={"error": job_or_err})
+
 @app.websocket("/ws/run")
 async def websocket_run(websocket: WebSocket):
     user = auth.get_current_user(websocket)
