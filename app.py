@@ -40,6 +40,27 @@ async def read_root():
             return HTMLResponse(content=f.read(), headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
     return HTMLResponse(content="<h1>Permit Tracker Dashboard</h1><p>Static index.html not found.</p>", status_code=404)
 
+def get_sorted_backup_files(config_dir):
+    """
+    Returns backup files sorted chronologically by date key (YYYYMMDD) descending,
+    with mtime as secondary tiebreaker.
+    """
+    files = glob.glob(os.path.join(config_dir, "backup_permits_*.json"))
+    files = [f for f in files if "latest.json" not in f]
+    
+    def sort_key(filepath):
+        basename = os.path.basename(filepath)
+        ts = basename.replace("backup_permits_", "").replace(".json", "")
+        date_key = ts.split("_")[0]
+        try:
+            mtime = os.path.getmtime(filepath)
+        except:
+            mtime = 0
+        return (date_key if date_key.isdigit() and len(date_key) == 8 else "00000000", mtime)
+        
+    files.sort(key=sort_key, reverse=True)
+    return files
+
 @app.get("/api/today-permits")
 async def get_today_permits(filename: str = None, lookback_days: int = 7):
     """
@@ -59,8 +80,7 @@ async def get_today_permits(filename: str = None, lookback_days: int = 7):
                 return JSONResponse(status_code=404, content={"error": "Backup file not found"})
             latest_backup = target_path
         else:
-            backup_files = glob.glob(os.path.join(config_dir, "backup_permits_*.json"))
-            backup_files = [f for f in backup_files if "latest.json" not in f]
+            backup_files = get_sorted_backup_files(config_dir)
             
             if not backup_files:
                 fallback = os.path.join(config_dir, "backup_permits_latest.json")
@@ -69,7 +89,6 @@ async def get_today_permits(filename: str = None, lookback_days: int = 7):
                 else:
                     return JSONResponse(content={"date": None, "pending": [], "completed": [], "summary": {}})
             else:
-                backup_files.sort(key=os.path.getmtime, reverse=True)
                 latest_backup = backup_files[0]
             
         try:
@@ -124,8 +143,7 @@ async def download_pdf_report(filename: str = None):
             return JSONResponse(status_code=404, content={"error": "Backup file not found"})
         latest_backup = target_path
     else:
-        backup_files = glob.glob(os.path.join(config_dir, "backup_permits_*.json"))
-        backup_files = [f for f in backup_files if "latest.json" not in f]
+        backup_files = get_sorted_backup_files(config_dir)
         if not backup_files:
             fallback = os.path.join(config_dir, "backup_permits_latest.json")
             if os.path.exists(fallback):
@@ -136,7 +154,6 @@ async def download_pdf_report(filename: str = None):
                     content={"error": "No cached permit files found to generate PDF report."}
                 )
         else:
-            backup_files.sort(key=os.path.getmtime, reverse=True)
             latest_backup = backup_files[0]
         
     try:

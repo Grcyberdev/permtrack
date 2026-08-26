@@ -1969,10 +1969,10 @@
             }
 
             const headers = [
-                "Date", "Retailer Name", "Retailer Code", "Indent Number", "Permit Number",
-                "Transit Pass", "Vehicle Number", "Bond Type", "Status", "Is Carried Over",
-                "Aging (Days)", "Application Date", "Turnaround (Days)", "Product Name",
-                "Size", "Physical Cases", "Loose Bottles", "Bottle Case Equivalents", "Total Eq Cases", "Total MRP", "Extraction Error"
+                "Date", "Retailer Name", "Retailer Code", "Licensee Name", "Indent Number", "Permit Number",
+                "Transit Pass", "Challan Date", "Vehicle Number", "Bond Type", "Status", "Is Carried Over",
+                "Aging (Days)", "Application Date", "Turnaround (Days)", "Category", "Product Name",
+                "Size (ML)", "Pack Size", "Physical Cases", "Loose Bottles", "Bottle Case Equivalents", "Total Eq Cases", "Bulk Litres (BL)", "LPL", "Total MRP", "Extraction Error"
             ];
             const csvRows = [headers.join(",")];
 
@@ -1985,9 +1985,11 @@
                     `"${item.Date || ''}"`,
                     `"${(item["Retailer Name"] || '').replace(/"/g, '""')}"`,
                     `"${item["Retailer Code"] || ''}"`,
+                    `"${(item["Licensee Name"] || '').replace(/"/g, '""')}"`,
                     `"${item["Indent Number"] || ''}"`,
                     `"${item["Permit Number"] || ''}"`,
                     `"${item["Transit Pass"] || ''}"`,
+                    `"${item["Challan Date"] || ''}"`,
                     `"${item["Vehicle Number"] || ''}"`,
                     `"${item["Bond Type"] || 'IMFL'}"`,
                     `"${item.Status || 'PENDING'}"`,
@@ -1995,12 +1997,16 @@
                     item.aging_days || 0,
                     `"${item["Application Date"] || ''}"`,
                     item.turnaround_days || 0,
+                    `"${(item.Category || '').replace(/"/g, '""')}"`,
                     `"${(item["Product Name"] || '').replace(/"/g, '""')}"`,
                     `"${item.Size || ''}"`,
+                    `"${item["Pack Size"] || ''}"`,
                     item.Cases || 0,
                     item.Bottles || 0,
                     bottleCsEq.toFixed(2),
                     totalEqCs.toFixed(2),
+                    (item["Bulk Litres"] || 0).toFixed(2),
+                    (item["LPL"] || 0).toFixed(4),
                     item["Total MRP"] || 0,
                     item.extraction_error ? "TRUE" : "FALSE"
                 ];
@@ -2013,7 +2019,7 @@
             link.href = URL.createObjectURL(blob);
             link.download = `PermTrack_Excise_Report_${dateStr}.csv`;
             link.click();
-            showToast("📥 Exported 21-column CSV report");
+            showToast("📥 Exported master CSV report");
         }
 
         async function downloadPdfReport() {
