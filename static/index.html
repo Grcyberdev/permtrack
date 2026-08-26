@@ -1085,12 +1085,16 @@
 
             let imflCases = 0, imflBottleEq = 0;
             let csCases = 0, csBottleEq = 0;
-            let imflPendingPermits = 0, csPendingPermits = 0;
 
             let uniquePendingPermits = new Set();
             let uniqueDispatchedPermits = new Set();
-            let freshPendingCount = 0;
-            let carriedPendingCount = 0;
+            let freshPendingPermits = new Set();
+            let carriedPendingPermits = new Set();
+            let imflDispatchedPermits = new Set();
+            let csDispatchedPermits = new Set();
+            let imflPendingPermits = new Set();
+            let csPendingPermits = new Set();
+
             let maxPendingAging = 0;
             let extractionWarnings = 0;
 
@@ -1136,11 +1140,18 @@
                     totalPendingBottles += (item.Bottles || 0);
                     totalPendingBottleCsEq += bottleCsEq;
                     totalPendingMRP += lineMRP;
-                    if (isCarriedOver) carriedPendingCount++;
-                    else freshPendingCount++;
 
-                    if (item["Bond Type"] === "CS") csPendingPermits++;
-                    else imflPendingPermits++;
+                    if (isCarriedOver) {
+                        carriedPendingPermits.add(permitKey);
+                    } else {
+                        freshPendingPermits.add(permitKey);
+                    }
+
+                    if (item["Bond Type"] === "CS") {
+                        csPendingPermits.add(permitKey);
+                    } else {
+                        imflPendingPermits.add(permitKey);
+                    }
                 } else {
                     uniqueDispatchedPermits.add(permitKey);
                     totalDispatchedCases += (item.Cases || 0);
@@ -1151,9 +1162,11 @@
                     totalDispatchedLPL += (item["LPL"] || 0);
 
                     if (item["Bond Type"] === "CS") {
+                        csDispatchedPermits.add(permitKey);
                         csCases += (item.Cases || 0);
                         csBottleEq += bottleCsEq;
                     } else {
+                        imflDispatchedPermits.add(permitKey);
                         imflCases += (item.Cases || 0);
                         imflBottleEq += bottleCsEq;
                     }
@@ -1190,7 +1203,7 @@
             // 1. Update Navigation Badges & Health Strip
             document.getElementById('badge-nav-dispatched').innerText = uniqueDispatchedPermits.size;
             document.getElementById('badge-nav-pending').innerText = uniquePendingPermits.size;
-            document.getElementById('health-carried-count').innerText = `${carriedPendingCount} indents`;
+            document.getElementById('health-carried-count').innerText = `${carriedPendingPermits.size} indents`;
             document.getElementById('health-errors-count').innerText = extractionWarnings;
             document.getElementById('health-sameday-rate').innerText = `${clearanceRatePct}%`;
 
@@ -1215,8 +1228,8 @@
 
             document.getElementById('ov-pending-count').innerText = uniquePendingPermits.size;
             document.getElementById('ov-pending-sub').innerText = `${totalPendingEqCs.toFixed(1)} cs awaiting Pass`;
-            document.getElementById('ov-aging-fresh').innerText = `🟡 ${freshPendingCount} Fresh Today`;
-            document.getElementById('ov-aging-carried').innerText = `🟠 ${carriedPendingCount} Carried Over`;
+            document.getElementById('ov-aging-fresh').innerText = `🟡 ${freshPendingPermits.size} Fresh Today`;
+            document.getElementById('ov-aging-carried').innerText = `🟠 ${carriedPendingPermits.size} Carried Over`;
             document.getElementById('ov-dispatched-permits').innerText = uniqueDispatchedPermits.size;
 
             // Category Bar
@@ -1228,11 +1241,11 @@
             document.getElementById('ov-imfl-share').innerText = `🍷 IMFL: ${(imflCases + imflBottleEq).toFixed(1)} cs (${imflPct}%)`;
             document.getElementById('ov-cs-share').innerText = `🍶 CS: ${(csCases + csBottleEq).toFixed(1)} cs (${csPct}%)`;
 
-            // Secondary KPIs
-            document.getElementById('kpi-imfl-permits').innerText = uniqueDispatchedPermits.size;
-            document.getElementById('kpi-imfl-meta').innerText = `${(imflCases + imflBottleEq).toFixed(1)} cs (${imflPendingPermits} pend)`;
-            document.getElementById('kpi-cs-permits').innerText = uniqueDispatchedPermits.size;
-            document.getElementById('kpi-cs-meta').innerText = `${(csCases + csBottleEq).toFixed(1)} cs (${csPendingPermits} pend)`;
+            // Secondary KPIs: Specific IMFL & CS counts
+            document.getElementById('kpi-imfl-permits').innerText = imflDispatchedPermits.size;
+            document.getElementById('kpi-imfl-meta').innerText = `${(imflCases + imflBottleEq).toFixed(1)} cs (${imflPendingPermits.size} pend)`;
+            document.getElementById('kpi-cs-permits').innerText = csDispatchedPermits.size;
+            document.getElementById('kpi-cs-meta').innerText = `${(csCases + csBottleEq).toFixed(1)} cs (${csPendingPermits.size} pend)`;
             document.getElementById('kpi-dispatched-cases').innerText = `${totalDispatchedCases.toLocaleString()} cs`;
             document.getElementById('kpi-dispatched-bottles').innerText = `${totalDispatchedBottles.toLocaleString()} b`;
             document.getElementById('kpi-dispatched-bottles-meta').innerText = `= ${totalDispatchedBottleCsEq.toFixed(2)} cs Eq`;
