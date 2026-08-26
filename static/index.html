@@ -964,17 +964,29 @@
             const selectedFile = selector ? selector.value : '';
             const url = selectedFile ? `/api/today-permits?filename=${encodeURIComponent(selectedFile)}` : '/api/today-permits';
             
-            document.getElementById('last-updated-text').innerText = 'Loading...';
+            const lastUpText = document.getElementById('last-updated-text');
+            if (lastUpText) lastUpText.innerText = 'Loading...';
+            
             try {
                 const res = await fetch(url);
                 if (!res.ok) throw new Error("Failed to fetch permit data");
                 const data = await res.json();
-                rawPermitsData = Array.isArray(data) ? data : [];
-                document.getElementById('last-updated-text').innerText = 'Refresh';
+                
+                if (data.records && Array.isArray(data.records)) {
+                    rawPermitsData = data.records;
+                } else if (Array.isArray(data)) {
+                    rawPermitsData = data;
+                } else if (data.pending || data.completed) {
+                    rawPermitsData = [...(data.pending || []), ...(data.completed || [])];
+                } else {
+                    rawPermitsData = [];
+                }
+                
+                if (lastUpText) lastUpText.innerText = 'Refresh';
                 applyFiltersAndRender();
             } catch (err) {
                 console.error("Error loading permits:", err);
-                document.getElementById('last-updated-text').innerText = 'Refresh';
+                if (lastUpText) lastUpText.innerText = 'Refresh';
                 showToast("Error loading dataset");
             }
         }
