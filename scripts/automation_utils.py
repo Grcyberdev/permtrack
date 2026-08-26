@@ -288,10 +288,6 @@ def setup_driver(headless=False):
     elif config.get("USE_TOR_PROXY") == "true":
         print("🧅 TOR PROXY ENABLED: Configuring Chrome to use SOCKS5 127.0.0.1:9050")
         chrome_options.add_argument("--proxy-server=socks5://127.0.0.1:9050")
-        # Ensure DNS resolution happens through the proxy to prevent leaks/failures
-        # CRITICAL: Force remote DNS resolution
-        chrome_options.add_argument("--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1")
-        # CRITICAL: Bypass proxy for localhost to allow ChromeDriver to talk to Chrome!
         chrome_options.add_argument("--proxy-bypass-list=<-loopback>")
     
     # PAGE LOAD STRATEGY: Eager (Waits for DOM only, ignores slow images/styles)

@@ -948,20 +948,23 @@ def run_scraper_for_credentials(username, password, target_date, bond_type, head
         login_success = False
         for attempt in range(5):
             print(f"🔐 Login attempt {attempt + 1}/5...")
-            driver.get(portal_url)
-            time.sleep(3)
+            automation_utils.navigate_to_url_with_retry(driver, portal_url, max_retries=3, wait_time=3)
+            time.sleep(2)
             
             try:
-                temp_user = driver.find_element(By.ID, "LoginForm_username")
-                if not temp_user.is_displayed():
-                    login_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(@class, 'header-login-btn') or contains(text(), 'Login')]")))
-                    driver.execute_script("arguments[0].click();", login_btn)
-                    time.sleep(2)
+                temp_user = driver.find_elements(By.ID, "LoginForm_username")
+                if not temp_user or not temp_user[0].is_displayed():
+                    try:
+                        login_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(@class, 'header-login-btn') or contains(text(), 'Login')]")))
+                        driver.execute_script("arguments[0].click();", login_btn)
+                        time.sleep(2)
+                    except: pass
             except: pass
 
             try:
-                wait.until(EC.presence_of_element_located((By.ID, "LoginForm_username"))).clear()
-                driver.find_element(By.ID, "LoginForm_username").send_keys(username)
+                user_elem = wait.until(EC.presence_of_element_located((By.ID, "LoginForm_username")))
+                user_elem.clear()
+                user_elem.send_keys(username)
                 pwd_box = driver.find_element(By.ID, "LoginForm_password")
                 try: driver.execute_script("arguments[0].removeAttribute('readonly')", pwd_box)
                 except: pass
@@ -976,13 +979,15 @@ def run_scraper_for_credentials(username, password, target_date, bond_type, head
                 time.sleep(5)
                 
                 if "Login" not in driver.title and len(driver.find_elements(By.ID, "LoginForm_username")) == 0:
-                    print("✅ Login successful!")
+                    print(f"✅ Login successful for {bond_type} ({username})!")
                     login_success = True
                     break
                 else:
-                    print("⚠️ Login failed. Retrying...")
+                    err_elems = driver.find_elements(By.CSS_SELECTOR, ".errorMessage, .alert-danger, #LoginForm_verifyCode_em_")
+                    err_txt = " | ".join([e.text for e in err_elems if e.text])
+                    print(f"⚠️ Login attempt {attempt + 1} did not succeed. (Title: {driver.title}, Msg: {err_txt or 'Invalid captcha/credentials'})")
             except Exception as e:
-                print(f"⚠️ Error during login: {e}")
+                print(f"⚠️ Error during login: {e} (Current URL: {driver.current_url})")
                 
         if not login_success:
             print(f"❌ Login failed for {bond_type} ({username}) after 5 attempts.")
