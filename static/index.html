@@ -228,17 +228,17 @@
                             </div>
                         </div>
 
-                        <!-- Card 3: Pending Queue -->
+                        <!-- Card 3: Pending Queue (Fresh Today) -->
                         <div class="executive-kpi-card">
                             <div class="kpi-eyebrow">
-                                <span>Pending Clearance Queue</span>
-                                <span class="mono-code">ACTIVE INDENTS</span>
+                                <span>Fresh Pending Today</span>
+                                <span class="mono-code" style="color: var(--status-pending);">FRESH DEMAND</span>
                             </div>
                             <div class="kpi-main-val" id="ov-pending-count" style="color: var(--status-pending);">0</div>
-                            <div class="kpi-subtext" id="ov-pending-sub">0 cs awaiting Transit Pass</div>
-                            <div style="margin-top: 0.75rem; display: flex; gap: 0.4rem; flex-wrap: wrap;">
+                            <div class="kpi-subtext" id="ov-pending-sub">0 cs fresh demand awaiting Pass</div>
+                            <div style="margin-top: 0.75rem; display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center;">
                                 <span class="badge-status pending" id="ov-aging-fresh">🟡 0 Fresh Today</span>
-                                <span class="badge-status warning" id="ov-aging-carried">🟠 0 Carried Over</span>
+                                <span class="badge-status warning" id="ov-aging-carried" onclick="switchView('pending')" style="cursor: pointer;" title="Click to inspect carried-over queue">🟠 0 Carried Over →</span>
                             </div>
                         </div>
 
@@ -283,7 +283,7 @@
                         <div class="mini-kpi-card">
                             <div class="mini-kpi-title"><span>🍾 Loose Bottles</span><span>Loose Units</span></div>
                             <div class="mini-kpi-value" id="kpi-dispatched-bottles">0 b</div>
-                            <div class="mini-kpi-meta" id="kpi-dispatched-bottles-meta">= 0.00 cs Eq</div>
+                            <div class="mini-kpi-meta">= 0.00 cs Eq</div>
                         </div>
                         <div class="mini-kpi-card">
                             <div class="mini-kpi-title"><span>🏢 Licensees</span><span>Loaded Today</span></div>
@@ -313,11 +313,60 @@
                         <!-- Top Brand SKUs -->
                         <div class="table-card">
                             <div class="table-toolbar">
-                        <span class="table-title">🍾 Top Brands Dispatched</span>
+                                <span class="table-title">🍾 Top Brands Dispatched</span>
                                 <button class="header-btn" onclick="switchView('brand')" style="height: 24px; font-size: 0.72rem;">All Brands →</button>
                             </div>
                             <div style="padding: 1rem;" id="ov-top-brands-list">
                                 <!-- Injected dynamically -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Warehouse & Godown Physical Dispatches Reconciliation Widget -->
+                    <div class="table-card" style="margin-top: 1.25rem; padding: 1.25rem 1.5rem; background: linear-gradient(135deg, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.8) 100%); border: 1px solid var(--border-subtle);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
+                            <div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <span style="font-size: 1.2rem;">🏭</span>
+                                    <span style="font-weight: 800; font-size: 1rem; color: var(--text-primary);">Godown Physical Loading vs Excise Dispatched Reconciliation</span>
+                                    <span class="mono-code" style="font-size: 0.68rem; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);">WAREHOUSE AUDIT</span>
+                                </div>
+                                <div style="font-size: 0.76rem; color: var(--text-muted); margin-top: 0.25rem;">
+                                    Compare physical cases dispatched from the godown against the Excise Portal billed volume to detect loading lag or gate variances.
+                                </div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                <div style="display: flex; align-items: center; gap: 0.4rem; background: var(--bg-surface-tint); padding: 0.35rem 0.65rem; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+                                    <label for="godown-cases-input" style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary);">Godown Dispatched (cs):</label>
+                                    <input type="number" id="godown-cases-input" placeholder="e.g. 1400" step="0.5" min="0" style="width: 110px; height: 28px; background: var(--bg-canvas); border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0 0.5rem; color: var(--text-primary); font-family: var(--font-mono); font-weight: 700; font-size: 0.85rem;" oninput="calculateGodownVariance()">
+                                    <button class="header-btn primary" onclick="saveGodownFigure()" style="height: 28px; font-size: 0.75rem; padding: 0 0.65rem;">💾 Save</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Variance Output Cards -->
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; background: var(--bg-canvas); padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+                            <div>
+                                <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Excise Portal Dispatches</div>
+                                <div id="recon-portal-cases" style="font-size: 1.15rem; font-weight: 800; font-family: var(--font-mono); color: var(--text-primary); margin-top: 0.2rem;">0 cs</div>
+                                <div style="font-size: 0.7rem; color: var(--text-muted);">Pass Issued official volume</div>
+                            </div>
+                            <div>
+                                <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Godown Physical Loading</div>
+                                <div id="recon-godown-cases" style="font-size: 1.15rem; font-weight: 800; font-family: var(--font-mono); color: #38bdf8; margin-top: 0.2rem;">-</div>
+                                <div style="font-size: 0.7rem; color: var(--text-muted);">Entered by warehouse supervisor</div>
+                            </div>
+                            <div>
+                                <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Variance / Loading Delta</div>
+                                <div id="recon-variance-val" style="font-size: 1.15rem; font-weight: 800; font-family: var(--font-mono); color: var(--brand-gold); margin-top: 0.2rem;">-</div>
+                                <div id="recon-variance-note" style="font-size: 0.7rem; color: var(--text-muted);">Awaiting godown figure</div>
+                            </div>
+                            <div>
+                                <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Reconciliation Status</div>
+                                <div id="recon-status-badge" style="margin-top: 0.35rem;">
+                                    <span class="badge-status info">ℹ️ Enter godown count</span>
+                                </div>
+                                <div id="recon-match-pct" style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.2rem;">-</div>
                             </div>
                         </div>
                     </div>
@@ -1410,6 +1459,14 @@
             let totalPendingBottleCsEq = 0;
             let totalPendingMRP = 0;
 
+            let totalFreshPendingCases = 0;
+            let totalFreshPendingBottles = 0;
+            let totalFreshPendingBottleCsEq = 0;
+
+            let totalCarriedPendingCases = 0;
+            let totalCarriedPendingBottles = 0;
+            let totalCarriedPendingBottleCsEq = 0;
+
             let beerCases = 0, beerBottleEq = 0, beerMRP = 0;
             let imflCases = 0, imflBottleEq = 0, imflMRP = 0;
             let csCases = 0, csBottleEq = 0, csMRP = 0;
@@ -1474,8 +1531,17 @@
                     totalPendingBottleCsEq += bottleCsEq;
                     totalPendingMRP += lineMRP;
 
-                    if (isCarriedOver) carriedPendingPermits.add(permitKey);
-                    else freshPendingPermits.add(permitKey);
+                    if (isCarriedOver) {
+                        carriedPendingPermits.add(permitKey);
+                        totalCarriedPendingCases += (item.Cases || 0);
+                        totalCarriedPendingBottles += (item.Bottles || 0);
+                        totalCarriedPendingBottleCsEq += bottleCsEq;
+                    } else {
+                        freshPendingPermits.add(permitKey);
+                        totalFreshPendingCases += (item.Cases || 0);
+                        totalFreshPendingBottles += (item.Bottles || 0);
+                        totalFreshPendingBottleCsEq += bottleCsEq;
+                    }
 
                     if (itemCat === "BEER") {
                         beerPendingPermits.add(permitKey);
@@ -1536,6 +1602,8 @@
 
             const totalDispatchedEqCs = totalDispatchedCases + totalDispatchedBottleCsEq;
             const totalPendingEqCs = totalPendingCases + totalPendingBottleCsEq;
+            const totalFreshPendingEqCs = totalFreshPendingCases + totalFreshPendingBottleCsEq;
+            const totalCarriedPendingEqCs = totalCarriedPendingCases + totalCarriedPendingBottleCsEq;
             const totalActiveIndents = uniqueDispatchedPermits.size + uniquePendingPermits.size;
             const clearanceRatePct = totalActiveIndents > 0 ? Math.round((uniqueDispatchedPermits.size / totalActiveIndents) * 100) : 100;
 
@@ -1565,11 +1633,15 @@
             document.getElementById('ov-clearance-rate').innerText = `${clearanceRatePct}% Dispatched`;
             document.getElementById('ov-active-indents-label').innerText = `${totalActiveIndents} Total Indents`;
 
-            document.getElementById('ov-pending-count').innerText = uniquePendingPermits.size;
-            document.getElementById('ov-pending-sub').innerText = `${totalPendingEqCs.toFixed(1)} cs awaiting Pass`;
-            document.getElementById('ov-aging-fresh').innerText = `🟡 ${freshPendingPermits.size} Fresh Today`;
-            document.getElementById('ov-aging-carried').innerText = `🟠 ${carriedPendingPermits.size} Carried Over`;
+            // Card 3: Fresh Pending (Focus on today's intended fresh demand)
+            document.getElementById('ov-pending-count').innerText = freshPendingPermits.size;
+            document.getElementById('ov-pending-sub').innerText = `${totalFreshPendingEqCs.toFixed(1)} cs fresh demand today`;
+            document.getElementById('ov-aging-fresh').innerText = `🟡 ${freshPendingPermits.size} Fresh Indents (${totalFreshPendingEqCs.toFixed(1)} cs)`;
+            document.getElementById('ov-aging-carried').innerText = `🟠 ${carriedPendingPermits.size} Carried Over (${totalCarriedPendingEqCs.toFixed(1)} cs) →`;
             document.getElementById('ov-dispatched-permits').innerText = uniqueDispatchedPermits.size;
+
+            // Update Godown Physical Reconciliation
+            updateGodownReconciliation(totalDispatchedEqCs);
 
             // 3-Segment Category Mix Bar
             const beerTotVol = beerCases + beerBottleEq;
@@ -1639,6 +1711,110 @@
             document.getElementById('audit-total-records').innerText = rawPermitsData.length.toLocaleString();
             document.getElementById('audit-errors-count').innerText = extractionWarnings;
             document.getElementById('audit-missing-vehicles').innerText = rawPermitsData.filter(i => !i["Vehicle Number"]).length;
+        }
+
+        // -------------------------------------------------------------
+        // Godown Physical Reconciliation Functions
+        // -------------------------------------------------------------
+        let currentPortalDispatchedCases = 0;
+
+        function getActiveDatasetDateKey() {
+            const selector = document.getElementById('backup-selector');
+            if (selector && selector.value) {
+                return selector.value.replace('.json', '');
+            }
+            return 'latest';
+        }
+
+        function updateGodownReconciliation(portalCases) {
+            currentPortalDispatchedCases = portalCases;
+            const portalCasesEl = document.getElementById('recon-portal-cases');
+            if (portalCasesEl) {
+                portalCasesEl.innerText = `${portalCases.toFixed(2)} cs`;
+            }
+
+            const dateKey = getActiveDatasetDateKey();
+            const savedGodownVal = localStorage.getItem('permtrack_godown_' + dateKey);
+            const inputEl = document.getElementById('godown-cases-input');
+
+            if (savedGodownVal !== null && inputEl) {
+                inputEl.value = savedGodownVal;
+            } else if (inputEl && !inputEl.value) {
+                inputEl.value = '';
+            }
+
+            calculateGodownVariance();
+        }
+
+        function calculateGodownVariance() {
+            const inputEl = document.getElementById('godown-cases-input');
+            const godownCasesEl = document.getElementById('recon-godown-cases');
+            const varianceValEl = document.getElementById('recon-variance-val');
+            const varianceNoteEl = document.getElementById('recon-variance-note');
+            const statusBadgeEl = document.getElementById('recon-status-badge');
+            const matchPctEl = document.getElementById('recon-match-pct');
+
+            if (!inputEl || !godownCasesEl || !varianceValEl) return;
+
+            const valStr = inputEl.value.trim();
+            if (!valStr || isNaN(parseFloat(valStr))) {
+                godownCasesEl.innerText = '-';
+                varianceValEl.innerText = '-';
+                varianceNoteEl.innerText = 'Enter physical godown dispatched count above';
+                statusBadgeEl.innerHTML = `<span class="badge-status info">ℹ️ Enter count</span>`;
+                matchPctEl.innerText = '-';
+                return;
+            }
+
+            const godownVal = parseFloat(valStr);
+            godownCasesEl.innerText = `${godownVal.toLocaleString()} cs`;
+
+            const diff = currentPortalDispatchedCases - godownVal;
+            const absDiff = Math.abs(diff);
+
+            let matchRate = 100;
+            if (currentPortalDispatchedCases > 0 || godownVal > 0) {
+                const maxVal = Math.max(currentPortalDispatchedCases, godownVal);
+                const minVal = Math.min(currentPortalDispatchedCases, godownVal);
+                matchRate = (minVal / maxVal) * 100;
+            }
+            matchPctEl.innerText = `${matchRate.toFixed(1)}% Reconciliation Rate`;
+
+            if (absDiff < 0.5) {
+                varianceValEl.innerText = `0.00 cs (100% Match)`;
+                varianceValEl.style.color = 'var(--status-success)';
+                varianceNoteEl.innerText = 'Perfect alignment between Excise Billed and Godown Dispatch';
+                statusBadgeEl.innerHTML = `<span class="badge-status success">🟢 Perfect Match</span>`;
+            } else if (diff > 0) {
+                varianceValEl.innerText = `+${diff.toFixed(2)} cs`;
+                varianceValEl.style.color = 'var(--brand-gold)';
+                varianceNoteEl.innerText = `Portal Ahead: ${Math.round(diff)} cs billed in Excise but pending physical truck exit`;
+                if (diff <= 150) {
+                    statusBadgeEl.innerHTML = `<span class="badge-status warning">🟡 In-Loading (${diff.toFixed(1)} cs)</span>`;
+                } else {
+                    statusBadgeEl.innerHTML = `<span class="badge-status danger">🟠 Gate Clearance Lag (+${diff.toFixed(0)} cs)</span>`;
+                }
+            } else {
+                varianceValEl.innerText = `${diff.toFixed(2)} cs`;
+                varianceValEl.style.color = '#38bdf8';
+                varianceNoteEl.innerText = `Godown Ahead: ${Math.round(absDiff)} cs loaded (includes prior day's pending passes)`;
+                statusBadgeEl.innerHTML = `<span class="badge-status info">🔵 Godown Ahead (${absDiff.toFixed(1)} cs)</span>`;
+            }
+        }
+
+        function saveGodownFigure() {
+            const inputEl = document.getElementById('godown-cases-input');
+            if (!inputEl) return;
+            const dateKey = getActiveDatasetDateKey();
+            const val = inputEl.value.trim();
+            if (val) {
+                localStorage.setItem('permtrack_godown_' + dateKey, val);
+                showToast(`💾 Saved Godown figure (${val} cs) for ${dateKey}`);
+            } else {
+                localStorage.removeItem('permtrack_godown_' + dateKey);
+                showToast(`Cleared Godown figure for ${dateKey}`);
+            }
+            calculateGodownVariance();
         }
 
         // -------------------------------------------------------------
