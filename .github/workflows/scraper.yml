@@ -40,6 +40,7 @@ jobs:
 
       - name: Run Permit Scraper
         env:
+          TZ: "Asia/Kolkata"
           IMFL_USERNAME: ${{ secrets.IMFL_USERNAME }}
           IMFL_PASSWORD: ${{ secrets.IMFL_PASSWORD }}
           CS_USERNAME: ${{ secrets.CS_USERNAME }}
@@ -49,8 +50,8 @@ jobs:
           USE_TOR_PROXY: "false"
           PYTHONUNBUFFERED: "1"
         run: |
-          TARGET_DATE="${{ github.event.client_payload.date || github.event.inputs.date || '' }}"
-          BOND_TYPE="${{ github.event.client_payload.bond || github.event.inputs.bond || 'BOTH' }}"
+          TARGET_DATE="${{ github.event.client_payload.date || github.event.client_payload.target_date || github.event.inputs.date || '' }}"
+          BOND_TYPE="${{ github.event.client_payload.bond || github.event.client_payload.bond_type || github.event.inputs.bond || 'BOTH' }}"
           
           CMD="python scripts/main_permits.py --headless"
           if [ -n "$TARGET_DATE" ]; then

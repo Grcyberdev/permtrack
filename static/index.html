@@ -780,7 +780,7 @@
                             
                             <div style="margin-bottom: 1rem;">
                                 <label style="display: block; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.35rem;" for="scraper-date-input">Target Scraping Date</label>
-                                <input type="text" id="scraper-date-input" class="table-search-input" style="width: 100%;" placeholder="DD-MM-YYYY (Blank = Today)">
+                                <input type="text" id="scraper-date-input" class="table-search-input" style="width: 100%;" placeholder="e.g. 02-09-2026 or 02-Sep-2026 (Blank = Today)">
                             </div>
 
                             <div style="margin-bottom: 1rem;">
@@ -3119,7 +3119,9 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
+                        date: dateInp,
                         target_date: dateInp,
+                        bond: bondSelect,
                         bond_type: bondSelect,
                         lookback_days: lookbackSelect,
                         headless: headlessToggle
@@ -3127,7 +3129,7 @@
                 });
 
                 const data = await res.json();
-                if (res.ok && data.status === 'started') {
+                if (res.ok && (data.status === 'started' || data.status === 'running' || data.started)) {
                     showToast("🚀 Scraper engine started!");
                     startScraperMonitor();
                 } else {

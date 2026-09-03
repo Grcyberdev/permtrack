@@ -9,7 +9,7 @@ import json
 import time
 import argparse
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait, Select
@@ -18,7 +18,13 @@ from selenium.webdriver.support import expected_conditions as EC
 # Add scripts directory to path to import helpers
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import automation_utils
-from reconciler import reconcile_permits, get_reconciliation_summary
+from reconciler import (
+    reconcile_permits,
+    get_reconciliation_summary,
+    parse_date_str,
+    get_unique_permit_key,
+    get_unique_indent_id
+)
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Permit & Dispatch Scraper")
@@ -1014,17 +1020,17 @@ def run_scraper_for_credentials(username, password, target_date, bond_type, head
 def main():
     args = parse_args()
     
+    IST = timezone(timedelta(hours=5, minutes=30))
     if args.date:
-        try:
-            target_date = datetime.strptime(args.date, "%d-%m-%Y")
-        except ValueError:
-            print("❌ Invalid date format. Use DD-MM-YYYY. Exiting.")
+        target_date = parse_date_str(args.date)
+        if not target_date:
+            print(f"❌ Invalid date format '{args.date}'. Supported formats: DD-MM-YYYY, DD-Mon-YYYY (e.g. 02-09-2026, 02-Sep-2026). Exiting.")
             sys.exit(1)
     else:
-        target_date = datetime.now()
+        target_date = datetime.now(IST)
         
     date_str = target_date.strftime("%d-%b-%Y")
-    print(f"📅 Scraper target date: {date_str} (Format: DD-MMM-YYYY) | Lookback: {args.lookback_days} days")
+    print(f"📅 Scraper target date: {date_str} (Format: DD-MMM-YYYY, TZ: IST) | Lookback: {args.lookback_days} days")
     
     config = automation_utils.load_config()
     imfl_user = config.get("IMFL_USERNAME")
@@ -1036,24 +1042,32 @@ def main():
     all_completed = []
     has_errors = False
     total_extraction_errors = 0
+    imfl_attempted = False
+    imfl_success = False
+    cs_attempted = False
+    cs_success = False
     
     if args.bond in ["IMFL", "BOTH"]:
+        imfl_attempted = True
         if imfl_user and imfl_pass:
             p, c, ok, errs = run_scraper_for_credentials(imfl_user, imfl_pass, target_date, "IMFL", args.headless, lookback_days=args.lookback_days)
             all_pending.extend(p)
             all_completed.extend(c)
             total_extraction_errors += errs
+            imfl_success = ok and errs == 0
             if not ok or errs > 0:
                 has_errors = True
         else:
             print("⚠️ Skipping IMFL: Credentials not configured.")
             
     if args.bond in ["CS", "BOTH"]:
+        cs_attempted = True
         if cs_user and cs_pass:
             p, c, ok, errs = run_scraper_for_credentials(cs_user, cs_pass, target_date, "CS", args.headless, lookback_days=args.lookback_days)
             all_pending.extend(p)
             all_completed.extend(c)
             total_extraction_errors += errs
+            cs_success = ok and errs == 0
             if not ok or errs > 0:
                 has_errors = True
         else:
@@ -1065,8 +1079,6 @@ def main():
     if total_extraction_errors > 0:
         print(f"   ⚠️ Modal Extraction Errors: {total_extraction_errors}")
     
-    raw_combined = all_pending + all_completed
-    
     backup_dir = automation_utils.get_data_dir()
     os.makedirs(backup_dir, exist_ok=True)
     
@@ -1074,10 +1086,56 @@ def main():
     latest_file = "backup_permits_latest.json"
     existing_target_path = os.path.join(backup_dir, timestamp_file)
     
+    # -------------------------------------------------------------
+    # Intelligent Same-Day Backup Merging & Protection
+    # -------------------------------------------------------------
+    existing_completed = []
+    if os.path.exists(existing_target_path):
+        try:
+            with open(existing_target_path, "r") as f:
+                existing_data = json.load(f)
+            for item in existing_data:
+                if str(item.get("Status", "")).upper() == "COMPLETED":
+                    existing_completed.append(item)
+            if existing_completed:
+                print(f"📦 Found existing backup for {date_str} with {len(existing_completed)} completed dispatch lines.")
+        except Exception as e_read:
+            print(f"⚠️ Could not read existing backup {existing_target_path}: {e_read}")
+            
+    # Protect against partial wipeouts:
+    # If IMFL failed or was not queried, preserve existing IMFL completed records!
+    # If CS failed or was not queried, preserve existing CS completed records!
+    # Also preserve any completed pass from earlier in the day if not returned in current run.
+    preserved_completed = []
+    current_completed_keys = {get_unique_permit_key(c) for c in all_completed}
+    
+    for ex_item in existing_completed:
+        ex_bond = str(ex_item.get("Bond Type", "")).upper()
+        ex_key = get_unique_permit_key(ex_item)
+        
+        should_preserve = False
+        if ex_bond == "IMFL" and (not imfl_attempted or not imfl_success):
+            should_preserve = True
+        elif ex_bond == "CS" and (not cs_attempted or not cs_success):
+            should_preserve = True
+        elif ex_key not in current_completed_keys:
+            # Preserve existing dispatch line so data never shrinks unexpectedly
+            should_preserve = True
+            
+        if should_preserve and ex_key not in current_completed_keys:
+            preserved_completed.append(ex_item)
+            current_completed_keys.add(ex_key)
+            
+    if preserved_completed:
+        print(f"🛡️ Preserved {len(preserved_completed)} completed dispatch lines from earlier backup to prevent data loss.")
+        all_completed.extend(preserved_completed)
+        
+    raw_combined = all_pending + all_completed
+    
     # Partial run guard: Prevent destroying good backup files on fatal error
     if has_errors and not args.allow_partial:
-        if os.path.exists(existing_target_path) and len(raw_combined) == 0:
-            print(f"\n🚨 Critical Warning: Current scrape failed with errors and produced 0 records.")
+        if os.path.exists(existing_target_path) and len(all_completed) == 0 and len(existing_completed) > 0:
+            print(f"\n🚨 Critical Warning: Current scrape failed with errors and produced 0 completed records.")
             print(f"   Preserving existing backup file: {existing_target_path} (use --allow-partial to overwrite).")
             sys.exit(1)
     

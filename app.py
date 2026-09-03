@@ -14,7 +14,7 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(PROJECT_ROOT, "scripts"))
 
 from pdf_report import generate_report_pdf
-from reconciler import reconcile_permits, get_reconciliation_summary
+from reconciler import reconcile_permits, get_reconciliation_summary, parse_date_str, get_unique_permit_key
 import automation_utils
 import auth
 
@@ -353,29 +353,59 @@ async def upload_results(request: Request):
         config_dir = automation_utils.get_data_dir()
         os.makedirs(config_dir, exist_ok=True)
         
-        from datetime import datetime
+        from datetime import datetime, timezone, timedelta
+        ist = timezone(timedelta(hours=5, minutes=30))
         parsed_date = None
         target_dt = None
-        for item in records:
-            d = item.get("Date")
-            if d:
-                try:
-                    dt = datetime.strptime(d, "%d-%b-%Y")
-                    parsed_date = dt.strftime("%Y%m%d")
-                    target_dt = dt
-                    break
-                except: pass
-        if not parsed_date:
-            target_dt = datetime.now()
+        
+        if date_str:
+            target_dt = parse_date_str(date_str)
+            if target_dt:
+                parsed_date = target_dt.strftime("%Y%m%d")
+                
+        if not target_dt:
+            for item in records:
+                d = item.get("Date")
+                if d:
+                    target_dt = parse_date_str(d)
+                    if target_dt:
+                        parsed_date = target_dt.strftime("%Y%m%d")
+                        break
+                        
+        if not target_dt:
+            target_dt = datetime.now(ist)
             parsed_date = target_dt.strftime("%Y%m%d")
-            
-        # Reconcile incoming records with 7-day backups
-        reconciled_records = reconcile_permits(records, target_dt, config_dir, lookback_days=7)
-        LATEST_WEBHOOK_DATA = reconciled_records
             
         canonical_filename = f"backup_permits_{parsed_date}_000000.json"
         latest_filename = "backup_permits_latest.json"
+        canonical_path = os.path.join(config_dir, canonical_filename)
         
+        # Server-side merge protection: Preserve previously completed dispatches
+        existing_completed = []
+        if os.path.exists(canonical_path):
+            try:
+                with open(canonical_path, "r") as ef:
+                    ex_data = json.load(ef)
+                for it in ex_data:
+                    if str(it.get("Status", "")).upper() == "COMPLETED":
+                        existing_completed.append(it)
+            except Exception: pass
+            
+        incoming_completed_keys = {get_unique_permit_key(it) for it in records if str(it.get("Status", "")).upper() == "COMPLETED"}
+        incoming_completed_bonds = {str(it.get("Bond Type", "")).upper() for it in records if str(it.get("Status", "")).upper() == "COMPLETED"}
+        
+        records_to_reconcile = list(records)
+        for ex in existing_completed:
+            ex_key = get_unique_permit_key(ex)
+            ex_bond = str(ex.get("Bond Type", "")).upper()
+            if ex_bond not in incoming_completed_bonds or ex_key not in incoming_completed_keys:
+                records_to_reconcile.append(ex)
+                incoming_completed_keys.add(ex_key)
+                
+        # Reconcile merged records with 7-day backups
+        reconciled_records = reconcile_permits(records_to_reconcile, target_dt, config_dir, lookback_days=7)
+        LATEST_WEBHOOK_DATA = reconciled_records
+            
         with open(os.path.join(config_dir, canonical_filename), "w") as f:
             json.dump(reconciled_records, f, indent=4)
         with open(os.path.join(config_dir, latest_filename), "w") as f:
@@ -592,10 +622,10 @@ async def start_scraper_endpoint(request: Request):
         return JSONResponse(status_code=401, content={"error": "Authentication required"})
     try:
         body = await request.json()
-        date_val = body.get("date", "").strip()
-        bond_val = body.get("bond", "BOTH")
-        lookback_val = body.get("lookback_days", 7)
-        headless_val = body.get("headless", True)
+        date_val = str(body.get("date") or body.get("target_date") or "").strip()
+        bond_val = str(body.get("bond") or body.get("bond_type") or "BOTH").strip()
+        lookback_val = int(body.get("lookback_days", 7))
+        headless_val = bool(body.get("headless", True))
         
         gh_token = os.environ.get("GITHUB_TOKEN")
         gh_repo = os.environ.get("GITHUB_REPO")
@@ -616,14 +646,16 @@ async def start_scraper_endpoint(request: Request):
                 "event_type": "run-scraper",
                 "client_payload": {
                     "date": date_val,
+                    "target_date": date_val,
                     "bond": bond_val,
+                    "bond_type": bond_val,
                     "lookback_days": lookback_val
                 }
             }
             res = requests.post(dispatch_url, headers=headers, json=payload, timeout=10)
             if res.status_code in [204, 200]:
                 JOB_MANAGER.add_log("🚀 GitHub Actions Cloud Scraper triggered successfully!\nWaiting for background execution and webhook sync...\n")
-                return JSONResponse(content={"status": "running", "mode": "cloud", "message": "Dispatched to GitHub Actions in cloud."})
+                return JSONResponse(content={"status": "running", "started": True, "mode": "cloud", "message": "Dispatched to GitHub Actions in cloud."})
             else:
                 JOB_MANAGER.mark_completed(success=False, error=f"GitHub API Error: {res.text}")
                 return JSONResponse(status_code=res.status_code, content={"error": res.text})
@@ -634,7 +666,7 @@ async def start_scraper_endpoint(request: Request):
             return JSONResponse(status_code=400, content={"error": job_or_err})
             
         asyncio.create_task(run_local_scraper_task(date_val, bond_val, headless_val, lookback_val))
-        return JSONResponse(content={"status": "running", "mode": "local", "message": "Started local background scraper task."})
+        return JSONResponse(content={"status": "running", "started": True, "mode": "local", "message": "Started local background scraper task."})
         
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
@@ -664,6 +696,7 @@ async def cron_trigger(request: Request, key: str = None):
     """
     Precision cron endpoint for cron-job.org.
     Validates secret key and triggers the scraper pipeline to run.
+    Uses IST to determine today's target date.
     """
     secret = (key or request.query_params.get("key") or request.headers.get("x-cron-secret") or "").strip()
     
@@ -682,6 +715,10 @@ async def cron_trigger(request: Request, key: str = None):
     gh_token = os.environ.get("GITHUB_TOKEN")
     gh_repo = os.environ.get("GITHUB_REPO") or "Grcyberdev/permtrack"
 
+    from datetime import datetime, timezone, timedelta
+    ist = timezone(timedelta(hours=5, minutes=30))
+    today_ist = datetime.now(ist).strftime("%d-%m-%Y")
+
     if gh_token:
         import requests
         dispatch_url = f"https://api.github.com/repos/{gh_repo}/dispatches"
@@ -692,22 +729,24 @@ async def cron_trigger(request: Request, key: str = None):
         payload = {
             "event_type": "run-scraper",
             "client_payload": {
-                "date": "",
+                "date": today_ist,
+                "target_date": today_ist,
                 "bond": "BOTH",
+                "bond_type": "BOTH",
                 "lookback_days": 7
             }
         }
         res = requests.post(dispatch_url, headers=headers, json=payload, timeout=10)
         if res.status_code in [204, 200]:
-            return JSONResponse(content={"status": "success", "message": "Dispatched cloud scraper to GitHub Actions", "target": gh_repo})
+            return JSONResponse(content={"status": "success", "message": f"Dispatched cloud scraper to GitHub Actions for date {today_ist}", "target": gh_repo})
         else:
             return JSONResponse(status_code=res.status_code, content={"error": res.text})
     else:
         # Local background runner fallback
-        ok, job_or_err = await JOB_MANAGER.start_job("", "BOTH", 7, mode="local")
+        ok, job_or_err = await JOB_MANAGER.start_job(today_ist, "BOTH", 7, mode="local")
         if ok:
-            asyncio.create_task(run_local_scraper_task("", "BOTH", True, 7))
-            return JSONResponse(content={"status": "success", "message": "Started local background scraper task"})
+            asyncio.create_task(run_local_scraper_task(today_ist, "BOTH", True, 7))
+            return JSONResponse(content={"status": "success", "message": f"Started local background scraper task for date {today_ist}"})
         return JSONResponse(status_code=400, content={"error": job_or_err})
 
 @app.websocket("/ws/run")

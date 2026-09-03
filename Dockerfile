@@ -7,6 +7,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install python dependencies
@@ -26,6 +27,7 @@ EXPOSE 8080
 ENV PORT=8080
 ENV PYTHONUNBUFFERED=1
 ENV DATA_DIR=/data
+ENV TZ=Asia/Kolkata
 
 RUN mkdir -p /data
 
