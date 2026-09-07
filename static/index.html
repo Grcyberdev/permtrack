@@ -158,8 +158,8 @@
 
                     <!-- User Profile & Sign Out -->
                     <div id="user-profile-container" class="user-profile-pill" style="display: none;">
-                        <div class="user-profile-avatar" id="user-avatar-initials">RG</div>
-                        <span class="user-profile-name" id="user-display-name">Admin</span>
+                        <div class="user-profile-avatar" id="user-avatar-initials">EX</div>
+                        <span class="user-profile-name" id="user-display-name">Executive</span>
                         <button class="btn-signout" onclick="handleAuthLogout()" title="Sign Out">🔒 Exit</button>
                     </div>
                 </div>
@@ -1045,7 +1045,7 @@
             <div class="auth-header">
                 <div style="font-size: 2.5rem; text-align: center; margin-bottom: 0.75rem;">🛡️</div>
                 <div style="font-size: 1.25rem; font-weight: 800; text-align: center; color: var(--text-primary); margin-bottom: 0.25rem;">PermTrack Executive Access</div>
-                <div style="font-size: 0.8rem; color: var(--text-muted); text-align: center; margin-bottom: 1.5rem;">Restricted Operational Intelligence Terminal.<br>Please sign in with your authorized credentials.</div>
+                <div style="font-size: 0.8rem; color: var(--text-muted); text-align: center; margin-bottom: 1.5rem;">Restricted Operational Intelligence Terminal.<br>Assam State Excise Revenue & Transit Pass Portal.</div>
             </div>
 
             <div id="auth-error-box" class="inline-error-banner" style="display: none; margin-bottom: 1.25rem; font-size: 0.8rem; padding: 0.65rem 0.85rem;">
@@ -1053,25 +1053,25 @@
             </div>
 
             <form id="auth-form" onsubmit="handleAuthLogin(event)">
-                <div style="margin-bottom: 1rem;">
+                <div style="margin-bottom: 1.15rem;">
                     <label style="display: block; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.35rem;" for="auth-username">USERNAME / IDENTIFIER</label>
-                    <input type="text" id="auth-username" class="table-search-input" style="width: 100%; height: 38px;" placeholder="e.g. admin or rajdeep" required autocomplete="username">
+                    <input type="text" id="auth-username" class="table-search-input" style="width: 100%; height: 40px; border-radius: 6px; font-size: 0.85rem;" placeholder="Enter authorized username or ID" required autocomplete="username">
                 </div>
 
-                <div style="margin-bottom: 1rem;">
+                <div style="margin-bottom: 1.15rem;">
                     <label style="display: block; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.35rem;" for="auth-password">SECURITY PASSCODE</label>
                     <div style="display: flex; gap: 0.35rem;">
-                        <input type="password" id="auth-password" class="table-search-input" style="width: 100%; height: 38px;" placeholder="Enter passcode" required autocomplete="current-password">
-                        <button type="button" class="header-btn" onclick="togglePasswordVisibility()" title="Show/Hide Password" style="height: 38px; padding: 0 0.65rem;">👁️</button>
+                        <input type="password" id="auth-password" class="table-search-input" style="width: 100%; height: 40px; border-radius: 6px; font-size: 0.85rem;" placeholder="Enter security passcode" required autocomplete="current-password">
+                        <button type="button" class="header-btn" onclick="togglePasswordVisibility()" title="Show/Hide Password" style="height: 40px; padding: 0 0.75rem; border-radius: 6px;">👁️</button>
                     </div>
                 </div>
 
                 <div style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
-                    <input type="checkbox" id="auth-remember" checked style="cursor: pointer;">
-                    <label for="auth-remember" style="font-size: 0.78rem; color: var(--text-secondary); cursor: pointer;">Remember this device (30 days)</label>
+                    <input type="checkbox" id="auth-remember" checked style="cursor: pointer; width: 16px; height: 16px;">
+                    <label for="auth-remember" style="font-size: 0.78rem; color: var(--text-secondary); cursor: pointer;">Remember this session (30 days)</label>
                 </div>
 
-                <button type="submit" id="auth-submit-btn" class="header-btn primary" style="width: 100%; justify-content: center; height: 42px; font-size: 0.9rem;">
+                <button type="submit" id="auth-submit-btn" class="header-btn primary" style="width: 100%; justify-content: center; height: 44px; font-size: 0.9rem; border-radius: 6px;">
                     <span>🔒 Unlock Terminal</span>
                 </button>
             </form>

@@ -1633,6 +1633,55 @@ html, body {
 }
 
 /* -------------------------------------------------------------
+   Security Access Layer / Executive Login Modal
+   ------------------------------------------------------------- */
+#auth-overlay {
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(circle at 50% 30%, rgba(30, 41, 59, 0.95), rgba(6, 9, 17, 0.98));
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    z-index: 100000;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 440px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-medium);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+    padding: 2.25rem 2rem;
+    position: relative;
+    animation: authCardIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes authCardIn {
+    from { opacity: 0; transform: scale(0.96) translateY(10px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.auth-header {
+    text-align: center;
+    margin-bottom: 1.5rem;
+}
+
+.auth-card .table-search-input {
+    background: var(--bg-canvas);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    transition: all 0.15s ease;
+}
+
+.auth-card .table-search-input:focus {
+    border-color: var(--brand-blue);
+    box-shadow: 0 0 0 3px var(--brand-blue-light);
+}
+
+/* -------------------------------------------------------------
    Responsive Breakpoints
    ------------------------------------------------------------- */
 @media (max-width: 1280px) {
