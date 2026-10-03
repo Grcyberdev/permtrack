@@ -208,9 +208,11 @@ async def get_today_permits(request: Request, filename: str = None, lookback_day
         except Exception:
             pass
 
-    response_headers = {}
-    if filename and filename.startswith("backup_permits_") and not filename.endswith("latest.json"):
-        response_headers["Cache-Control"] = "public, max-age=3600"
+    no_cache_headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0"
+    }
 
     return JSONResponse(content={
         "date": target_date,
@@ -220,7 +222,7 @@ async def get_today_permits(request: Request, filename: str = None, lookback_day
         "pending": pending,
         "completed": completed,
         "summary": summary_metrics
-    }, headers=response_headers)
+    }, headers=no_cache_headers)
 
 @app.get("/api/download-pdf")
 async def download_pdf_report(request: Request, filename: str = None):
@@ -375,7 +377,14 @@ async def get_backups(request: Request):
             "is_closed": is_closed
         })
         
-    return JSONResponse(content=results)
+    return JSONResponse(
+        content=results,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    )
 
 @app.get("/api/godown/monthly-summary")
 async def get_godown_monthly_summary(request: Request):

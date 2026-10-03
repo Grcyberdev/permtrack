@@ -11,7 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,600&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700;800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
 
     <!-- Stylesheet -->
-    <link rel="stylesheet" href="/static/css/style.css?v=20261003_1805">
+    <link rel="stylesheet" href="/static/css/style.css?v=20261003_1815">
 </head>
 <body>
 
@@ -181,8 +181,8 @@
                     </div>
 
                     <!-- Live Refresh Button -->
-                    <button class="header-btn" onclick="loadPermitsData()" title="Refresh Current Dataset" aria-label="Refresh Dataset">
-                        <span>🔄</span>
+                    <button class="header-btn" id="btn-dashboard-refresh" onclick="refreshDashboardLive()" title="Refresh Dashboard & Datasets" aria-label="Refresh Dataset">
+                        <span id="refresh-icon">🔄</span>
                         <span id="last-updated-text">Refresh</span>
                     </button>
 
@@ -1326,18 +1326,32 @@
         // -------------------------------------------------------------
         async function fetchWithAuth(url, options = {}) {
             const token = localStorage.getItem('permtrack_session_token');
-            const headers = { ...(options.headers || {}) };
+            const headers = { 
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                ...(options.headers || {}) 
+            };
             if (token) {
                 headers['Authorization'] = `Bearer ${token}`;
             }
+
+            // Cache buster parameter for GET requests to prevent stale browser disk/memory cache
+            let finalUrl = url;
+            const method = (options.method || 'GET').toUpperCase();
+            if (method === 'GET') {
+                const sep = finalUrl.includes('?') ? '&' : '?';
+                finalUrl = `${finalUrl}${sep}_t=${Date.now()}`;
+            }
+
             const opts = {
                 ...options,
+                cache: 'no-store',
                 headers,
                 credentials: 'same-origin'
             };
 
             try {
-                const res = await fetch(url, opts);
+                const res = await fetch(finalUrl, opts);
                 if (res.status === 401) {
                     showAuthOverlay();
                 }
@@ -2005,18 +2019,46 @@
                     });
                 }
 
-                // Default selection: First active (non-closed) date, or 0 if none
-                let defaultIdx = 0;
-                for (let i = 0; i < data.length; i++) {
-                    if (!data[i].is_closed) {
-                        defaultIdx = i;
-                        break;
+                // Selection: Preserve currently selected index if valid, otherwise first active date
+                let targetIdx = selectedBackupIndex;
+                if (targetIdx >= data.length || targetIdx < 0) {
+                    targetIdx = 0;
+                    for (let i = 0; i < data.length; i++) {
+                        if (!data[i].is_closed) {
+                            targetIdx = i;
+                            break;
+                        }
                     }
                 }
 
-                selectDateByIndex(defaultIdx);
+                selectDateByIndex(targetIdx);
             } catch (err) {
                 console.error("Failed to load backups:", err);
+            }
+        }
+
+        async function refreshDashboardLive() {
+            const lastUpText = document.getElementById('last-updated-text');
+            const icon = document.getElementById('refresh-icon');
+
+            if (icon) icon.classList.add('rotating');
+            if (lastUpText) lastUpText.innerText = 'Refreshing...';
+
+            try {
+                // Refresh available backups list to discover any new cloud scraper runs
+                await loadBackupsList();
+                // Refresh current permits dataset
+                await loadPermitsData();
+                if (currentView === 'godown') {
+                    await loadGodownMonthlySummary();
+                }
+                showToast('🔄 Live dashboard data refreshed');
+            } catch (err) {
+                console.error("Failed to refresh dashboard:", err);
+                showToast('⚠️ Refresh failed: ' + (err.message || 'Network error'));
+            } finally {
+                if (icon) icon.classList.remove('rotating');
+                if (lastUpText) lastUpText.innerText = 'Refresh';
             }
         }
 
