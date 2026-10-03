@@ -20,3 +20,5 @@ config/config.json
 config/.auth_secret
 config/auth_users.json
 
+# Local Cookies & Sessions
+cookies.txt

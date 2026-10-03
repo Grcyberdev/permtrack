@@ -11,7 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,600&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700;800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
 
     <!-- Stylesheet -->
-    <link rel="stylesheet" href="/static/css/style.css?v=20261003_1735">
+    <link rel="stylesheet" href="/static/css/style.css?v=20261003_1805">
 </head>
 <body>
 
@@ -130,11 +130,11 @@
                     <div class="date-selector-container" id="date-selector-container">
                         <!-- Date Trigger Button with Prev/Next Controls -->
                         <div class="date-selector-trigger" id="date-selector-trigger" onclick="toggleCalendarPicker(event)" title="Click to open calendar date selector">
-                            <button class="date-step-btn" id="btn-date-prev" onclick="stepDateSelection(-1, event)" title="Previous Available Date" aria-label="Previous Available Date">◀</button>
+                            <button class="date-step-btn" id="btn-date-prev" onclick="stepDateSelection('prev', event)" title="Previous Date (Earlier)" aria-label="Previous Available Date">◀</button>
                             <span class="date-trigger-icon">📅</span>
                             <span class="date-trigger-label" id="date-trigger-label">Loading Dates...</span>
                             <span id="dataset-badge" class="dataset-state-badge">Latest</span>
-                            <button class="date-step-btn" id="btn-date-next" onclick="stepDateSelection(1, event)" title="Next Available Date" aria-label="Next Available Date">▶</button>
+                            <button class="date-step-btn" id="btn-date-next" onclick="stepDateSelection('next', event)" title="Next Date (Later)" aria-label="Next Available Date">▶</button>
                         </div>
 
                         <!-- Standard Calendar Popover -->
@@ -287,17 +287,17 @@
                             </div>
                         </div>
 
-                        <!-- Card 3: Fresh Pending Today -->
-                        <div class="executive-kpi-card">
+                        <!-- Card 3: Active Pending Queue -->
+                        <div class="executive-kpi-card" onclick="switchView('pending')" style="cursor: pointer;" title="Click to view Active Pending Queue">
                             <div class="kpi-eyebrow">
-                                <span>Fresh Pending Today</span>
-                                <span class="mono-code" style="color: var(--status-pending);">FRESH DEMAND</span>
+                                <span>Active Pending Queue</span>
+                                <span class="mono-code" style="color: var(--status-pending);" id="ov-pending-eyebrow-badge">PENDING BACKLOG</span>
                             </div>
                             <div class="kpi-main-val" id="ov-pending-count" style="color: var(--status-pending);">0</div>
-                            <div class="kpi-subtext" id="ov-pending-sub">0 cs fresh demand awaiting Pass</div>
+                            <div class="kpi-subtext" id="ov-pending-sub">0 cs backlog awaiting Pass</div>
                             <div style="margin-top: 0.75rem; display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center;">
                                 <span class="badge-status pending" id="ov-aging-fresh">🟡 0 Fresh Today</span>
-                                <span class="badge-status warning" id="ov-aging-carried" onclick="switchView('pending')" style="cursor: pointer;" title="Click to inspect carried-over queue">🟠 0 Carried Over →</span>
+                                <span class="badge-status warning" id="ov-aging-carried">🟠 0 Carried Over →</span>
                             </div>
                         </div>
 
@@ -1889,6 +1889,9 @@
             selectedBackupIndex = idx;
             const b = availableBackupsList[idx];
 
+            // Sync calendar view month/year to selected date
+            syncCalendarViewToSelected();
+
             // Update Trigger display
             const labelEl = document.getElementById('date-trigger-label');
             const badgeEl = document.getElementById('dataset-badge');
@@ -1920,18 +1923,23 @@
             loadPermitsData();
         }
 
-        function stepDateSelection(delta, event) {
+        function stepDateSelection(direction, event) {
             if (event) {
                 event.stopPropagation();
             }
-            // Step to next non-closed date in direction
-            let targetIdx = selectedBackupIndex + delta;
+            // availableBackupsList is sorted descending:
+            // index 0 = latest/newest date (today/future)
+            // index N = older date (past)
+            // 'prev' (◀ left arrow) = older date in past -> step +1 (higher index)
+            // 'next' (▶ right arrow) = newer date -> step -1 (lower index towards index 0)
+            const step = (direction === 'prev' || direction === -1 || direction === 'older') ? 1 : -1;
+            let targetIdx = selectedBackupIndex + step;
             while (targetIdx >= 0 && targetIdx < availableBackupsList.length) {
                 if (!availableBackupsList[targetIdx].is_closed) {
                     selectDateByIndex(targetIdx);
                     return;
                 }
-                targetIdx += delta;
+                targetIdx += step;
             }
         }
 
@@ -1939,11 +1947,13 @@
             const prevBtn = document.getElementById('btn-date-prev');
             const nextBtn = document.getElementById('btn-date-next');
 
+            // Older dates in past exist at higher indices (i > selectedBackupIndex)
             let hasOlder = false;
             for (let i = selectedBackupIndex + 1; i < availableBackupsList.length; i++) {
                 if (!availableBackupsList[i].is_closed) { hasOlder = true; break; }
             }
 
+            // Newer dates exist at lower indices (i < selectedBackupIndex)
             let hasNewer = false;
             for (let i = selectedBackupIndex - 1; i >= 0; i--) {
                 if (!availableBackupsList[i].is_closed) { hasNewer = true; break; }
@@ -2424,14 +2434,29 @@
                 if (ovClearRate) ovClearRate.innerText = `${clearanceRatePct}% Dispatched`;
                 if (ovActIndents) ovActIndents.innerText = `${totalActiveIndents} Total Indents`;
 
-                // Card 3: Fresh Pending
+                // Card 3: Active Pending Queue
                 const ovPendCount = document.getElementById('ov-pending-count');
                 const ovPendSub = document.getElementById('ov-pending-sub');
                 const ovAgingFresh = document.getElementById('ov-aging-fresh');
                 const ovAgingCarried = document.getElementById('ov-aging-carried');
-                if (ovPendCount) ovPendCount.innerText = freshPendingPermits.size;
-                if (ovPendSub) ovPendSub.innerText = `${totalFreshPendingEqCs.toFixed(1)} cs fresh demand today`;
-                if (ovAgingFresh) ovAgingFresh.innerText = `🟡 ${freshPendingPermits.size} Fresh Today (${totalFreshPendingEqCs.toFixed(1)} cs)`;
+                const totalPendingIndents = uniquePendingPermits.size;
+
+                if (ovPendCount) {
+                    ovPendCount.innerText = totalPendingIndents;
+                    if (totalPendingIndents === 0) {
+                        ovPendCount.style.color = 'var(--status-success)';
+                    } else {
+                        ovPendCount.style.color = 'var(--status-pending)';
+                    }
+                }
+                if (ovPendSub) {
+                    if (totalPendingIndents === 0) {
+                        ovPendSub.innerText = 'All indents cleared • 0 backlog';
+                    } else {
+                        ovPendSub.innerText = `${totalPendingEqCs.toFixed(1)} cs total backlog awaiting Pass`;
+                    }
+                }
+                if (ovAgingFresh) ovAgingFresh.innerText = `🟡 ${freshPendingPermits.size} Fresh (${totalFreshPendingEqCs.toFixed(1)} cs)`;
                 if (ovAgingCarried) ovAgingCarried.innerText = `🟠 ${carriedPendingPermits.size} Carried Over (${totalCarriedPendingEqCs.toFixed(1)} cs) →`;
 
                 // Card 4: Dispatched Passes
@@ -3227,8 +3252,44 @@
 
             const query = (document.getElementById('pending-search-input')?.value || '').toLowerCase().trim();
 
-            const pendingItems = rawPermitsData.filter(i => {
-                if (i.Status !== "PENDING") return false;
+            // 1. Calculate overall pending backlog across all pending items in current dataset
+            const allPendingRaw = rawPermitsData.filter(i => i.Status === "PENDING");
+            const allPendingGroupsMap = {};
+            let overallFresh = 0, overallCarried = 0, overallVol = 0, maxBacklogAge = 0;
+
+            allPendingRaw.forEach(item => {
+                const key = item["Indent Number"] || `${item["Retailer Name"]}_${item.Date}`;
+                const bPerCs = getBottlesPerCase(item.Size);
+                const bottleCsEq = (item.Bottles || 0) / bPerCs;
+                const lineEqCs = (item.Cases || 0) + bottleCsEq;
+                const aging = item.aging_days || 0;
+                if (aging > maxBacklogAge) maxBacklogAge = aging;
+
+                if (!allPendingGroupsMap[key]) {
+                    allPendingGroupsMap[key] = { isCarried: Boolean(item.is_carried_over) };
+                    if (item.is_carried_over) overallCarried++;
+                    else overallFresh++;
+                }
+                overallVol += lineEqCs;
+            });
+
+            const totalOverallPendingIndents = Object.keys(allPendingGroupsMap).length;
+
+            const pqTot = document.getElementById('pq-total-count');
+            const pqFresh = document.getElementById('pq-fresh-count');
+            const pqCarried = document.getElementById('pq-carried-count');
+            const pqOldest = document.getElementById('pq-oldest-age');
+            const pqVol = document.getElementById('pq-total-volume');
+            const pqTableCnt = document.getElementById('pending-table-count');
+
+            if (pqTot) pqTot.innerText = totalOverallPendingIndents;
+            if (pqFresh) pqFresh.innerText = overallFresh;
+            if (pqCarried) pqCarried.innerText = overallCarried;
+            if (pqOldest) pqOldest.innerText = `Oldest: ${maxBacklogAge} days`;
+            if (pqVol) pqVol.innerText = `${overallVol.toFixed(1)} cs`;
+
+            // 2. Filter pending items for the table by active subfilter and search query
+            const pendingItems = allPendingRaw.filter(i => {
                 if (activePendingSubFilter === 'FRESH' && i.is_carried_over) return false;
                 if (activePendingSubFilter === 'CARRIED' && !i.is_carried_over) return false;
 
@@ -3240,17 +3301,13 @@
                 return true;
             });
 
-            // Group pending items by indent
+            // Group filtered pending items by indent for table rows
             const pendingGroups = {};
-            let freshCnt = 0, carriedCnt = 0, totalPendingVol = 0, maxAge = 0;
-
             pendingItems.forEach(item => {
                 const key = item["Indent Number"] || `${item["Retailer Name"]}_${item.Date}`;
                 const bPerCs = getBottlesPerCase(item.Size);
                 const bottleCsEq = (item.Bottles || 0) / bPerCs;
                 const lineEqCs = (item.Cases || 0) + bottleCsEq;
-                const aging = item.aging_days || 0;
-                if (aging > maxAge) maxAge = aging;
 
                 if (!pendingGroups[key]) {
                     pendingGroups[key] = { key, info: item, lines: [], totalCases: 0, totalBottles: 0, totalEqCases: 0, totalMRP: 0 };
@@ -3260,26 +3317,9 @@
                 pendingGroups[key].totalBottles += (item.Bottles || 0);
                 pendingGroups[key].totalEqCases += lineEqCs;
                 pendingGroups[key].totalMRP += (item["Total MRP"] || 0);
-
-                totalPendingVol += lineEqCs;
-                if (item.is_carried_over) carriedCnt++;
-                else freshCnt++;
             });
 
             currentPendingGroups = Object.values(pendingGroups);
-
-            const pqTot = document.getElementById('pq-total-count');
-            const pqFresh = document.getElementById('pq-fresh-count');
-            const pqCarried = document.getElementById('pq-carried-count');
-            const pqOldest = document.getElementById('pq-oldest-age');
-            const pqVol = document.getElementById('pq-total-volume');
-            const pqTableCnt = document.getElementById('pending-table-count');
-
-            if (pqTot) pqTot.innerText = currentPendingGroups.length;
-            if (pqFresh) pqFresh.innerText = currentPendingGroups.filter(g => !g.info.is_carried_over).length;
-            if (pqCarried) pqCarried.innerText = currentPendingGroups.filter(g => g.info.is_carried_over).length;
-            if (pqOldest) pqOldest.innerText = `Oldest backlog: ${maxAge} days`;
-            if (pqVol) pqVol.innerText = `${totalPendingVol.toFixed(1)} cs`;
             if (pqTableCnt) pqTableCnt.innerText = `${currentPendingGroups.length} Indents`;
 
             if (currentPendingGroups.length === 0) {
