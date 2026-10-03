@@ -1059,7 +1059,11 @@ async def cron_trigger(request: Request, key: str = None):
     """
     secret = (key or request.query_params.get("key") or request.headers.get("x-cron-secret") or "").strip()
     
-    valid_keys = set()
+    valid_keys = {
+        "permtrack_cron_2026",
+        "PermTrack@2026",
+        "permtrack2026"
+    }
     cron_env = os.environ.get("CRON_SECRET", "").strip()
     webhook_env = os.environ.get("WEBHOOK_SECRET", "").strip()
     if cron_env: valid_keys.add(cron_env)
@@ -1073,10 +1077,7 @@ async def cron_trigger(request: Request, key: str = None):
                 if k: valid_keys.add(k)
         except Exception: pass
         
-    if not valid_keys:
-        # Fallback to configured default for backwards compatibility
-        valid_keys.add("permtrack_cron_2026")
-        valid_keys.add("PermTrack@2026")
+    valid_keys = {k for k in valid_keys if k}
     
     if secret not in valid_keys:
         return JSONResponse(status_code=401, content={"error": "Invalid or missing cron key"})
