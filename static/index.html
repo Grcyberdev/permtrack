@@ -129,25 +129,42 @@
                 <div class="header-center">
                     <div class="date-selector-container" id="date-selector-container">
                         <!-- Date Trigger Button with Prev/Next Controls -->
-                        <div class="date-selector-trigger" id="date-selector-trigger" onclick="toggleDatePickerPopover(event)">
+                        <div class="date-selector-trigger" id="date-selector-trigger" onclick="toggleCalendarPicker(event)" title="Click to open calendar date selector">
                             <button class="date-step-btn" id="btn-date-prev" onclick="stepDateSelection(-1, event)" title="Previous Available Date" aria-label="Previous Available Date">◀</button>
-                            <span style="font-size: 0.85rem;">📅</span>
+                            <span class="date-trigger-icon">📅</span>
                             <span class="date-trigger-label" id="date-trigger-label">Loading Dates...</span>
                             <span id="dataset-badge" class="dataset-state-badge">Latest</span>
                             <button class="date-step-btn" id="btn-date-next" onclick="stepDateSelection(1, event)" title="Next Available Date" aria-label="Next Available Date">▶</button>
                         </div>
 
-                        <!-- Date Picker Dropdown Popover -->
-                        <div class="date-picker-popover" id="date-picker-popover">
-                            <div class="date-picker-header">
-                                <span class="date-picker-title">Select Dataset</span>
-                                <label class="date-picker-filter-toggle" title="Hide dates where bond was closed (no loading occurred)">
-                                    <input type="checkbox" id="hide-closed-days-toggle" onchange="toggleHideClosedDates(this.checked)">
-                                    <span>Hide Closed Days</span>
-                                </label>
+                        <!-- Standard Calendar Popover -->
+                        <div class="calendar-popover" id="calendar-popover" role="dialog" aria-label="Calendar Date Picker">
+                            <div class="cal-nav-bar">
+                                <button type="button" class="cal-nav-btn" onclick="stepCalendarMonth(-1, event)" title="Previous Month" aria-label="Previous Month">◀</button>
+                                <span class="cal-month-title" id="cal-month-title">August 2026</span>
+                                <button type="button" class="cal-nav-btn" onclick="stepCalendarMonth(1, event)" title="Next Month" aria-label="Next Month">▶</button>
                             </div>
-                            <div class="date-picker-scroll-area" id="date-picker-scroll-area">
-                                <!-- Grouped dates injected here dynamically -->
+
+                            <div class="cal-weekdays">
+                                <span>Mo</span>
+                                <span>Tu</span>
+                                <span>We</span>
+                                <span>Th</span>
+                                <span>Fr</span>
+                                <span>Sa</span>
+                                <span>Su</span>
+                            </div>
+
+                            <div class="cal-grid" id="cal-grid">
+                                <!-- Calendar days rendered dynamically -->
+                            </div>
+
+                            <div class="cal-footer">
+                                <div class="cal-legend">
+                                    <span class="cal-legend-dot loaded"></span><span>Loaded</span>
+                                    <span class="cal-legend-dot closed"></span><span>Closed</span>
+                                </div>
+                                <button type="button" class="cal-today-btn" onclick="goToLatestDate(event)">Latest Date</button>
                             </div>
                         </div>
 
@@ -1704,101 +1721,167 @@
         }
 
         // -------------------------------------------------------------
-        // Data Fetching & Processing Engine (Modern Date Selector)
+        // Data Fetching & Processing Engine (Standard Calendar Date Selector)
         // -------------------------------------------------------------
         let availableBackupsList = [];
         let selectedBackupIndex = 0;
-        let hideClosedDatesPreference = false;
+        let backupDateMap = {}; // 'YYYY-MM-DD' -> { backup, index }
+        let calCurrentYear = 2026;
+        let calCurrentMonth = 7; // 0-indexed (7 = August)
 
-        function toggleDatePickerPopover(event) {
-            // Prevent event from bubbling if clicking inside buttons
+        function toggleCalendarPicker(event) {
             if (event && event.target && event.target.closest('.date-step-btn')) return;
-            const popover = document.getElementById('date-picker-popover');
+            const popover = document.getElementById('calendar-popover');
             if (!popover) return;
-            popover.classList.toggle('open');
+            const isOpen = popover.classList.contains('open');
+            if (!isOpen) {
+                // Sync calendar view month to currently selected date before opening
+                syncCalendarViewToSelected();
+                renderCalendarGrid();
+                popover.classList.add('open');
+            } else {
+                popover.classList.remove('open');
+            }
         }
 
-        function closeDatePickerPopover() {
-            document.getElementById('date-picker-popover')?.classList.remove('open');
+        function closeCalendarPicker() {
+            document.getElementById('calendar-popover')?.classList.remove('open');
         }
 
-        // Close popover when clicking outside
+        // Close calendar when clicking outside
         window.addEventListener('click', (e) => {
             const container = document.getElementById('date-selector-container');
             if (container && !container.contains(e.target)) {
-                closeDatePickerPopover();
+                closeCalendarPicker();
             }
         });
 
-        function toggleHideClosedDates(checked) {
-            hideClosedDatesPreference = checked;
-            try {
-                localStorage.setItem('permtrack_hide_closed_dates', checked ? 'true' : 'false');
-            } catch (e) {}
-            renderDatePickerList();
+        function syncCalendarViewToSelected() {
+            const current = availableBackupsList[selectedBackupIndex];
+            if (current && current.date_key && current.date_key.length === 8) {
+                const y = parseInt(current.date_key.substring(0, 4), 10);
+                const m = parseInt(current.date_key.substring(4, 6), 10) - 1;
+                calCurrentYear = y;
+                calCurrentMonth = m;
+            }
         }
 
-        function renderDatePickerList() {
-            const scrollArea = document.getElementById('date-picker-scroll-area');
-            if (!scrollArea) return;
-            scrollArea.innerHTML = '';
+        function stepCalendarMonth(delta, event) {
+            if (event) event.stopPropagation();
+            calCurrentMonth += delta;
+            if (calCurrentMonth < 0) {
+                calCurrentMonth = 11;
+                calCurrentYear -= 1;
+            } else if (calCurrentMonth > 11) {
+                calCurrentMonth = 0;
+                calCurrentYear += 1;
+            }
+            renderCalendarGrid();
+        }
 
-            if (availableBackupsList.length === 0) {
-                scrollArea.innerHTML = `<div style="padding: 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.8rem;">No backup datasets found.</div>`;
-                return;
+        function goToLatestDate(event) {
+            if (event) event.stopPropagation();
+            // Find latest active date
+            for (let i = 0; i < availableBackupsList.length; i++) {
+                if (!availableBackupsList[i].is_closed) {
+                    selectDateByIndex(i);
+                    return;
+                }
+            }
+            if (availableBackupsList.length > 0) {
+                selectDateByIndex(0);
+            }
+        }
+
+        const MONTH_NAMES = [
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        ];
+
+        function renderCalendarGrid() {
+            const gridEl = document.getElementById('cal-grid');
+            const titleEl = document.getElementById('cal-month-title');
+            if (!gridEl || !titleEl) return;
+
+            titleEl.textContent = `${MONTH_NAMES[calCurrentMonth]} ${calCurrentYear}`;
+            gridEl.innerHTML = '';
+
+            // First day of month (1 = Mon, ... 0 = Sun in JS getDay())
+            const firstDayObj = new Date(calCurrentYear, calCurrentMonth, 1);
+            let startDay = firstDayObj.getDay(); // 0 is Sunday
+            // Adjust to Monday = 0, Sunday = 6
+            startDay = (startDay === 0) ? 6 : startDay - 1;
+
+            const daysInMonth = new Date(calCurrentYear, calCurrentMonth + 1, 0).getDate();
+            const daysInPrevMonth = new Date(calCurrentYear, calCurrentMonth, 0).getDate();
+
+            // Previous month padding days
+            for (let p = startDay - 1; p >= 0; p--) {
+                const cell = document.createElement('div');
+                cell.className = 'cal-day other-month';
+                cell.textContent = daysInPrevMonth - p;
+                gridEl.appendChild(cell);
             }
 
-            // Group by month_year
-            const groups = {};
-            availableBackupsList.forEach((b, idx) => {
-                const groupKey = b.month_year || 'Historical Datasets';
-                if (!groups[groupKey]) groups[groupKey] = [];
-                groups[groupKey].push({ ...b, originalIndex: idx });
-            });
+            // Current month days
+            const currentSelected = availableBackupsList[selectedBackupIndex];
+            const currentSelectedKey = currentSelected ? currentSelected.date_key : '';
 
-            Object.keys(groups).forEach(monthLabel => {
-                const items = groups[monthLabel];
-                // Filter out closed items if preference enabled
-                const visibleItems = hideClosedDatesPreference ? items.filter(it => !it.is_closed) : items;
-                if (visibleItems.length === 0) return;
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dayStr = String(d).padStart(2, '0');
+                const monthStr = String(calCurrentMonth + 1).padStart(2, '0');
+                const dateKey = `${calCurrentYear}${monthStr}${dayStr}`;
+                const isoDateStr = `${calCurrentYear}-${monthStr}-${dayStr}`;
 
-                const groupDiv = document.createElement('div');
-                groupDiv.className = 'date-month-group';
+                const cell = document.createElement('div');
+                cell.className = 'cal-day';
+                cell.textContent = d;
 
-                const labelDiv = document.createElement('div');
-                labelDiv.className = 'date-month-label';
-                labelDiv.innerText = monthLabel;
-                groupDiv.appendChild(labelDiv);
+                const backupInfo = backupDateMap[dateKey] || backupDateMap[isoDateStr];
 
-                visibleItems.forEach(item => {
-                    const row = document.createElement('div');
-                    const isSelected = item.originalIndex === selectedBackupIndex;
-                    row.className = `date-item-row ${isSelected ? 'selected' : ''} ${item.is_closed ? 'closed' : ''}`;
-                    
-                    if (item.is_closed) {
-                        row.title = 'Bond Closed / No Loading Dispatched on this date';
-                    } else {
-                        row.onclick = () => selectDateByIndex(item.originalIndex);
+                if (backupInfo) {
+                    const item = backupInfo.backup;
+                    const isSelected = (dateKey === currentSelectedKey);
+
+                    if (isSelected) {
+                        cell.classList.add('selected');
                     }
 
-                    const rightBadge = item.is_closed
-                        ? `<span class="date-closed-badge">Closed</span>`
-                        : `<span class="date-item-stat">${(item.dispatched_count || 0).toLocaleString()} loaded</span>`;
+                    if (item.is_closed) {
+                        cell.classList.add('closed');
+                        cell.title = `${item.formatted_date || isoDateStr}: Bond Closed (0 dispatches)`;
+                    } else {
+                        cell.classList.add('has-data');
+                        const count = item.dispatched_count || 0;
+                        cell.title = `${item.formatted_date || isoDateStr}: ${count.toLocaleString()} cases loaded`;
+                        cell.onclick = (e) => {
+                            e.stopPropagation();
+                            selectDateByIndex(backupInfo.index);
+                        };
+                    }
 
-                    row.innerHTML = `
-                        <div class="date-item-left">
-                            <span class="date-item-day-badge">${escapeHtml(item.day_of_week || '')}</span>
-                            <span class="date-item-date">${escapeHtml(item.formatted_date || item.display)}</span>
-                        </div>
-                        <div class="date-item-right">
-                            ${rightBadge}
-                        </div>
-                    `;
-                    groupDiv.appendChild(row);
-                });
+                    // Dot indicator
+                    const dot = document.createElement('span');
+                    dot.className = `cal-day-dot ${item.is_closed ? 'closed' : 'loaded'}`;
+                    cell.appendChild(dot);
+                } else {
+                    // No dataset available for this day
+                    cell.classList.add('no-data');
+                    cell.title = 'No backup dataset available';
+                }
 
-                scrollArea.appendChild(groupDiv);
-            });
+                gridEl.appendChild(cell);
+            }
+
+            // Fill remaining grid slots for 6 rows (42 total slots) if needed
+            const totalCells = startDay + daysInMonth;
+            const remaining = (totalCells % 7 === 0) ? 0 : 7 - (totalCells % 7);
+            for (let n = 1; n <= remaining; n++) {
+                const cell = document.createElement('div');
+                cell.className = 'cal-day other-month';
+                cell.textContent = n;
+                gridEl.appendChild(cell);
+            }
         }
 
         function selectDateByIndex(idx) {
@@ -1833,8 +1916,7 @@
             // Update Stepper buttons state
             updateStepperButtonsState();
 
-            closeDatePickerPopover();
-            renderDatePickerList();
+            closeCalendarPicker();
             loadPermitsData();
         }
 
@@ -1857,7 +1939,6 @@
             const prevBtn = document.getElementById('btn-date-prev');
             const nextBtn = document.getElementById('btn-date-next');
 
-            // Find if there's any active date before or after
             let hasOlder = false;
             for (let i = selectedBackupIndex + 1; i < availableBackupsList.length; i++) {
                 if (!availableBackupsList[i].is_closed) { hasOlder = true; break; }
@@ -1890,6 +1971,17 @@
                 if (!Array.isArray(data) || data.length === 0) return;
 
                 availableBackupsList = data;
+                backupDateMap = {};
+                data.forEach((b, idx) => {
+                    if (b.date_key) {
+                        backupDateMap[b.date_key] = { backup: b, index: idx };
+                        // Also store YYYY-MM-DD
+                        if (b.date_key.length === 8) {
+                            const iso = `${b.date_key.substring(0,4)}-${b.date_key.substring(4,6)}-${b.date_key.substring(6,8)}`;
+                            backupDateMap[iso] = { backup: b, index: idx };
+                        }
+                    }
+                });
 
                 // Sync hidden select options for backwards compatibility
                 const selector = document.getElementById('backup-selector');
