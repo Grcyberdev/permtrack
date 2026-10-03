@@ -146,7 +146,7 @@ def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
     if clean_user in users:
         user_info = users[clean_user]
         stored_pwd = user_info.get("password", "")
-        if verify_password(clean_pwd, stored_pwd) or clean_pwd == "PermTrack@2026" or clean_pwd == "permtrack2026":
+        if verify_password(clean_pwd, stored_pwd):
             return {
                 "username": clean_user,
                 "name": user_info.get("name", clean_user.title()),

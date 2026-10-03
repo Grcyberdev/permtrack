@@ -136,7 +136,7 @@ def get_bottles_per_case(size_val):
     """
     Standard bottle-to-case pack size converter matching Assam excise rules.
     650ml / 750ml / 1000ml -> 12 b/cs
-    375ml / 500ml -> 24 b/cs
+    330ml / 375ml / 500ml -> 24 b/cs
     180ml / 200ml -> 48 b/cs
     <180ml (60ml / 90ml) -> 96 b/cs
     """
@@ -150,7 +150,7 @@ def get_bottles_per_case(size_val):
         s = int(digits[0])
         if s >= 600:
             return 12
-        if s >= 350:
+        if s >= 250:
             return 24
         if s >= 180:
             return 48

@@ -608,6 +608,231 @@ html, body {
     border-color: var(--status-info-border);
 }
 
+/* Modern Date Selector Wrapper & Popover */
+.date-selector-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.date-selector-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: var(--bg-surface-tint);
+    border: 1px solid var(--border-subtle);
+    padding: 0.35rem 0.65rem;
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-xs);
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.15s ease;
+}
+
+.date-selector-trigger:hover {
+    border-color: var(--border-medium);
+    background: var(--bg-surface);
+}
+
+.date-trigger-label {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+
+.date-step-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    padding: 0.15rem 0.3rem;
+    cursor: pointer;
+    border-radius: var(--radius-xs);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.12s;
+}
+
+.date-step-btn:hover:not(:disabled) {
+    background: var(--bg-canvas);
+    color: var(--text-primary);
+}
+
+.date-step-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.date-picker-popover {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: 340px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-medium);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    z-index: 1000;
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+    animation: fadeInDown 0.15s ease-out;
+}
+
+.date-picker-popover.open {
+    display: flex;
+}
+
+.date-picker-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.65rem 0.85rem;
+    background: var(--bg-surface-tint);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.date-picker-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+}
+
+.date-picker-filter-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+}
+
+.date-picker-filter-toggle input {
+    cursor: pointer;
+    accent-color: var(--brand-gold);
+}
+
+.date-picker-scroll-area {
+    max-height: 380px;
+    overflow-y: auto;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+
+.date-month-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.date-month-label {
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    padding: 0.25rem 0.4rem 0.1rem;
+}
+
+.date-item-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.45rem 0.6rem;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+    border: 1px solid transparent;
+}
+
+.date-item-row:hover:not(.closed) {
+    background: var(--bg-surface-tint);
+    border-color: var(--border-subtle);
+}
+
+.date-item-row.selected {
+    background: rgba(217, 119, 6, 0.12);
+    border-color: var(--brand-gold);
+}
+
+.date-item-row.selected .date-item-date {
+    color: var(--brand-gold);
+    font-weight: 800;
+}
+
+.date-item-left {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.date-item-day-badge {
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 0.1rem 0.35rem;
+    border-radius: 3px;
+    background: var(--bg-canvas);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    min-width: 32px;
+    text-align: center;
+}
+
+.date-item-date {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+}
+
+.date-item-right {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.date-item-stat {
+    font-size: 0.72rem;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+}
+
+.date-item-row.closed {
+    opacity: 0.48;
+    background: transparent;
+    cursor: not-allowed;
+}
+
+.date-item-row.closed:hover {
+    background: rgba(0, 0, 0, 0.02);
+}
+
+.date-item-row.closed .date-item-date {
+    color: var(--text-muted);
+    text-decoration: line-through;
+}
+
+.date-closed-badge {
+    font-size: 0.62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 0.1rem 0.35rem;
+    border-radius: 3px;
+    background: rgba(148, 163, 184, 0.15);
+    color: var(--text-muted);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
 .header-right {
     display: flex;
     align-items: center;
@@ -1226,6 +1451,21 @@ html, body {
     border: 1px solid var(--cat-cs-border);
 }
 
+.cat-badge.mixed {
+    background: rgba(217, 119, 6, 0.12);
+    color: #d97706;
+    border: 1px solid rgba(217, 119, 6, 0.35);
+}
+
+.cat-badge-split {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.65rem;
+    font-family: var(--font-mono);
+    font-weight: 700;
+}
+
 .mono-code {
     font-family: var(--font-mono);
     font-size: 0.78rem;
@@ -1720,10 +1960,54 @@ html, body {
         grid-template-columns: 1fr;
     }
     .global-header {
-        padding: 0 1rem;
+        height: auto;
+        min-height: var(--header-height);
+        padding: 0.5rem 1rem;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+    .header-left {
+        order: 1;
+    }
+    .header-left .breadcrumb-sep,
+    .header-left .breadcrumb-active {
+        display: none;
+    }
+    .header-right {
+        order: 2;
+        gap: 0.35rem;
+    }
+    .cmd-search-trigger {
+        padding: 0.25rem 0.5rem;
+    }
+    .cmd-search-trigger span:first-child {
+        display: none;
+    }
+    .header-btn span:not(:first-child) {
+        display: none;
+    }
+    .user-profile-name {
+        display: none;
     }
     .header-center {
-        display: none;
+        display: flex;
+        order: 3;
+        width: 100%;
+        justify-content: center;
+        padding-top: 0.25rem;
+        border-top: 1px dashed var(--border-subtle);
+    }
+    .date-selector-container {
+        width: 100%;
+    }
+    .date-selector-trigger {
+        width: 100%;
+        justify-content: space-between;
+    }
+    .date-picker-popover {
+        width: calc(100vw - 2rem);
+        left: 0;
+        transform: none;
     }
     .table-toolbar {
         flex-direction: column;

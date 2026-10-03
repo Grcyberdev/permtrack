@@ -209,8 +209,11 @@ def reconcile_permits(
                 line_key = get_unique_permit_key(item)
                 indent_id = get_unique_indent_id(item)
                 
-                # Check if it was already fulfilled today in completed dispatches
-                if line_key in current_completed_keys or indent_id in current_completed_indents:
+                product_name = normalize_key(item.get("Product Name"))
+                # If specific SKU product line is identified, match on line_key.
+                # If unexpanded indent row without product, fallback to indent_id matching.
+                is_fulfilled = (line_key in current_completed_keys) if product_name else (indent_id in current_completed_indents or line_key in current_completed_keys)
+                if is_fulfilled:
                     # Successfully fulfilled today!
                     if line_key in historical_pending_pool:
                         del historical_pending_pool[line_key]
