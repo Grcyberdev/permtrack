@@ -304,13 +304,19 @@ async def get_backups(request: Request):
         if not date_key.isdigit() or len(date_key) != 8 or date_key < "20260101":
             continue
             
-        mtime = os.path.getmtime(filepath)
-        if date_key not in by_date or mtime > by_date[date_key]["mtime"]:
+        try:
+            mtime = os.path.getmtime(filepath)
+        except Exception:
+            mtime = 0
+
+        ts_val = ts
+        if date_key not in by_date or ts_val > by_date[date_key].get("ts", "") or (ts_val == by_date[date_key].get("ts", "") and mtime > by_date[date_key]["mtime"]):
             by_date[date_key] = {
                 "filepath": filepath,
                 "filename": basename,
                 "mtime": mtime,
-                "date_key": date_key
+                "date_key": date_key,
+                "ts": ts_val
             }
             
     sorted_dates = sorted(by_date.keys(), reverse=True)
@@ -416,18 +422,17 @@ async def get_godown_monthly_summary(request: Request):
         date_key = ts.split("_")[0]
         if not date_key.isdigit() or len(date_key) != 8 or date_key < "20260101":
             continue
-        mtime = os.path.getmtime(filepath)
-        if date_key not in by_date or mtime > by_date[date_key]["mtime"]:
-            by_date[date_key] = {"filepath": filepath, "filename": basename, "mtime": mtime}
+        try:
+            mtime = os.path.getmtime(filepath)
+        except Exception:
+            mtime = 0
+
+        ts_val = ts
+        if date_key not in by_date or ts_val > by_date[date_key].get("ts", "") or (ts_val == by_date[date_key].get("ts", "") and mtime > by_date[date_key]["mtime"]):
+            by_date[date_key] = {"filepath": filepath, "filename": basename, "mtime": mtime, "ts": ts_val}
 
     def get_b_per_cs(size_val):
-        try:
-            s = int(str(size_val).replace("ml", "").strip())
-            if s >= 250:
-                return 24
-            return 48
-        except:
-            return 24
+        return automation_utils.get_bottles_per_case(size_val)
 
     def get_cat(item):
         b = (item.get("Bond Type") or "").upper()
@@ -500,34 +505,42 @@ async def get_godown_monthly_summary(request: Request):
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 bdata = json.load(f)
+                records = []
                 if isinstance(bdata, list):
-                    for rec in bdata:
-                        if rec.get("Status") == "PENDING":
-                            continue
-                        permits_count += 1
-                        c = float(rec.get("Cases") or 0)
-                        b = int(rec.get("Bottles") or 0)
-                        eq = b / get_b_per_cs(rec.get("Size"))
-                        tot_eq = c + eq
-                        mrp_val = float(rec.get("Total MRP") or 0)
-                        cat = get_cat(rec)
-                        brand_name = rec.get("Product Name") or "Unknown Brand"
-                        party_name = rec.get("Retailer Name") or "Unknown Licensee"
+                    records = bdata
+                elif isinstance(bdata, dict):
+                    records = (bdata.get("completed") or []) + (bdata.get("pending") or [])
 
-                        dispatched_cases += c
-                        dispatched_bottles += b
-                        dispatched_cs_eq += eq
-                        day_mrp += mrp_val
+                for rec in records:
+                    status = str(rec.get("Status") or "").strip().upper()
+                    if status == "PENDING":
+                        continue
+                    permits_count += 1
+                    c = float(rec.get("Cases") or 0)
+                    b = int(rec.get("Bottles") or 0)
+                    pack_size = rec.get("Size") or rec.get("Pack Size")
+                    b_per_cs = automation_utils.get_bottles_per_case(pack_size)
+                    eq = (b / b_per_cs) if b_per_cs > 0 else 0.0
+                    tot_eq = c + eq
+                    mrp_val = float(rec.get("Total MRP") or 0)
+                    cat = get_cat(rec)
+                    brand_name = rec.get("Product Name") or "Unknown Brand"
+                    party_name = rec.get("Retailer Name") or "Unknown Licensee"
 
-                        if cat == "BEER":
-                            day_beer_eq += tot_eq
-                        elif cat == "CS":
-                            day_cs_eq += tot_eq
-                        else:
-                            day_imfl_eq += tot_eq
+                    dispatched_cases += c
+                    dispatched_bottles += b
+                    dispatched_cs_eq += eq
+                    day_mrp += mrp_val
 
-                        m_dict["brand_totals"][brand_name] = m_dict["brand_totals"].get(brand_name, 0.0) + tot_eq
-                        m_dict["party_totals"][party_name] = m_dict["party_totals"].get(party_name, 0.0) + tot_eq
+                    if cat == "BEER":
+                        day_beer_eq += tot_eq
+                    elif cat == "CS":
+                        day_cs_eq += tot_eq
+                    else:
+                        day_imfl_eq += tot_eq
+
+                    m_dict["brand_totals"][brand_name] = m_dict["brand_totals"].get(brand_name, 0.0) + tot_eq
+                    m_dict["party_totals"][party_name] = m_dict["party_totals"].get(party_name, 0.0) + tot_eq
         except Exception:
             pass
 
