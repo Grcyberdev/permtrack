@@ -612,8 +612,14 @@ async def get_godown_monthly_summary(request: Request):
 
         result_months.append(mdata)
 
+    no_cache_headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0"
+    }
+
     # Return in reverse chronological order for recent months first
-    return JSONResponse(content={"months": list(reversed(result_months))})
+    return JSONResponse(content={"months": list(reversed(result_months))}, headers=no_cache_headers)
 
 GODOWN_RECON_FILE = "godown_reconciliation.json"
 
@@ -636,12 +642,18 @@ async def get_godown_reconciliation(request: Request, date_key: str = None):
         except Exception:
             pass
             
+    no_cache_headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0"
+    }
+
     if date_key:
         clean_key = date_key.replace(".json", "").strip()
         item = recon_data.get(clean_key, {})
-        return JSONResponse(content={"date_key": clean_key, "data": item})
+        return JSONResponse(content={"date_key": clean_key, "data": item}, headers=no_cache_headers)
         
-    return JSONResponse(content=recon_data)
+    return JSONResponse(content=recon_data, headers=no_cache_headers)
 
 @app.post("/api/godown/reconciliation")
 async def save_godown_reconciliation(request: Request):

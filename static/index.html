@@ -11,7 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,600&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700;800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
 
     <!-- Stylesheet -->
-    <link rel="stylesheet" href="/static/css/style.css?v=20261003_1815">
+    <link rel="stylesheet" href="/static/css/style.css?v=20261005_1245">
 </head>
 <body>
 
@@ -381,51 +381,33 @@
                         </div>
                     </div>
 
-                    <!-- Warehouse & Godown Physical Dispatches Reconciliation Widget -->
-                    <div class="reconciliation-card">
-                        <div class="reconciliation-header">
-                            <div>
-                                <div class="reconciliation-title-group">
-                                    <span style="font-size: 1.2rem;">🏭</span>
-                                    <span style="font-weight: 800; font-size: 1rem; color: var(--text-primary);">Godown Physical Loading vs Excise Dispatched Reconciliation</span>
-                                    <span class="mono-code" style="font-size: 0.68rem; background: var(--status-info-bg); color: var(--status-info); border: 1px solid var(--status-info-border);">WAREHOUSE AUDIT</span>
+                    <!-- Overview Secondary Intelligence Row: Cleared Transit Dispatches & Pack Size Distribution -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1.25rem; margin-top: 1.25rem;">
+                        <!-- Cleared Transit Dispatches Stream -->
+                        <div class="table-card">
+                            <div class="table-toolbar">
+                                <div class="table-title-area">
+                                    <span class="table-title">🚚 Cleared Transit Dispatches</span>
+                                    <span class="table-count-badge" id="ov-recent-disp-count">0 Passes</span>
                                 </div>
-                                <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.25rem;">
-                                    Compare physical cases dispatched from the godown against the Excise Portal billed volume to detect loading lag or gate variances.
-                                </div>
+                                <button class="header-btn" onclick="switchView('permits')" style="height: 26px; font-size: 0.72rem;">Full Registry →</button>
                             </div>
-                            <div>
-                                <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--bg-surface-tint); padding: 0.35rem 0.65rem; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
-                                    <label for="godown-cases-input" style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary);">Godown Dispatched (cs):</label>
-                                    <input type="number" id="godown-cases-input" placeholder="e.g. 1400" step="0.5" min="0" style="width: 110px; height: 30px; background: var(--bg-canvas); border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0 0.5rem; color: var(--text-primary); font-family: var(--font-mono); font-weight: 700; font-size: 0.85rem;" oninput="calculateGodownVariance()">
-                                    <button class="header-btn primary" onclick="saveGodownFigure()" style="height: 30px; font-size: 0.75rem; padding: 0 0.75rem;">💾 Save</button>
-                                </div>
+                            <div style="padding: 1.25rem;" id="ov-recent-dispatches-list">
+                                <!-- Injected dynamically -->
                             </div>
                         </div>
 
-                        <!-- Variance Output Cards -->
-                        <div class="reconciliation-grid">
-                            <div>
-                                <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Excise Portal Dispatches</div>
-                                <div id="recon-portal-cases" style="font-size: 1.25rem; font-weight: 800; font-family: var(--font-mono); color: var(--text-primary); margin-top: 0.2rem;">0 cs</div>
-                                <div style="font-size: 0.72rem; color: var(--text-muted);">Pass Issued official volume</div>
-                            </div>
-                            <div>
-                                <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Godown Physical Loading</div>
-                                <div id="recon-godown-cases" style="font-size: 1.25rem; font-weight: 800; font-family: var(--font-mono); color: #0284c7; margin-top: 0.2rem;">-</div>
-                                <div style="font-size: 0.72rem; color: var(--text-muted);">Entered by warehouse supervisor</div>
-                            </div>
-                            <div>
-                                <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Variance / Loading Delta</div>
-                                <div id="recon-variance-val" style="font-size: 1.25rem; font-weight: 800; font-family: var(--font-mono); color: var(--brand-gold); margin-top: 0.2rem;">-</div>
-                                <div id="recon-variance-note" style="font-size: 0.72rem; color: var(--text-muted);">Awaiting godown figure</div>
-                            </div>
-                            <div>
-                                <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Reconciliation Status</div>
-                                <div id="recon-status-badge" style="margin-top: 0.35rem;">
-                                    <span class="badge-status info">ℹ️ Enter count</span>
+                        <!-- Pack Size & Format Velocity -->
+                        <div class="table-card">
+                            <div class="table-toolbar">
+                                <div class="table-title-area">
+                                    <span class="table-title">📦 Pack Size & Format Distribution</span>
+                                    <span class="table-count-badge" id="ov-pack-total-vol">0 cs</span>
                                 </div>
-                                <div id="recon-match-pct" style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem;">-</div>
+                                <button class="header-btn" onclick="switchView('brand')" style="height: 26px; font-size: 0.72rem;">SKU Analytics →</button>
+                            </div>
+                            <div style="padding: 1.25rem;" id="ov-pack-distribution-list">
+                                <!-- Injected dynamically -->
                             </div>
                         </div>
                     </div>
@@ -613,39 +595,61 @@
                         </div>
                     </div>
 
-                    <!-- Monthly KPI Summary Cards -->
-                    <div class="summary-kpi-band" id="godown-summary-band" style="margin-bottom: 1.25rem;">
-                        <div class="kpi-card">
-                            <div class="kpi-card-header">
-                                <span class="kpi-card-label">Active Month</span>
-                                <span class="kpi-card-icon">📅</span>
+                    <!-- Monthly Executive KPI Summary Band -->
+                    <div class="godown-kpi-grid" id="godown-summary-band">
+                        <!-- Card 1: Audit Period & Coverage -->
+                        <div class="executive-kpi-card">
+                            <div class="kpi-eyebrow">
+                                <span>AUDIT PERIOD & COVERAGE</span>
+                                <span class="mono-code" id="kpi-godown-audit-badge">ACTIVE MONTH</span>
                             </div>
                             <div class="kpi-main-val" id="kpi-godown-month-name">--</div>
-                            <div class="kpi-sub-text" id="kpi-godown-month-days">0 Recorded Days</div>
+                            <div class="kpi-subtext" id="kpi-godown-month-days">0 Recorded Days</div>
+                            <div style="margin-top: 0.75rem;">
+                                <div style="height: 5px; background: var(--bg-surface-tint); border-radius: 3px; overflow: hidden;">
+                                    <div id="kpi-godown-coverage-bar" style="width: 0%; height: 100%; background: var(--brand-gold); transition: width 0.4s ease;"></div>
+                                </div>
+                                <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem;" id="kpi-godown-coverage-text">0% Days Entered</div>
+                            </div>
                         </div>
-                        <div class="kpi-card">
-                            <div class="kpi-card-header">
-                                <span class="kpi-card-label">Total Godown Sale</span>
-                                <span class="kpi-card-icon">🏬</span>
+
+                        <!-- Card 2: Godown Physical Sales -->
+                        <div class="executive-kpi-card">
+                            <div class="kpi-eyebrow">
+                                <span>WAREHOUSE PHYSICAL REGISTER</span>
+                                <span class="mono-code" style="color: var(--brand-gold);">GODOWN BOOK</span>
                             </div>
                             <div class="kpi-main-val" id="kpi-godown-month-total" style="color: var(--brand-gold);">--</div>
-                            <div class="kpi-sub-text">Physical Godown Register</div>
-                        </div>
-                        <div class="kpi-card">
-                            <div class="kpi-card-header">
-                                <span class="kpi-card-label">PermTrack Sale</span>
-                                <span class="kpi-card-icon">📜</span>
+                            <div class="kpi-subtext">Cumulative physical cases from godown dispatches</div>
+                            <div style="margin-top: 0.75rem;">
+                                <span class="badge-status warning" id="kpi-godown-entered-badge" style="font-size: 0.72rem;">0 Days Entered</span>
                             </div>
-                            <div class="kpi-main-val" id="kpi-permtrack-month-total" style="color: var(--text-primary);">--</div>
-                            <div class="kpi-sub-text">Excise Passes (Cases + Eq)</div>
                         </div>
-                        <div class="kpi-card">
-                            <div class="kpi-card-header">
-                                <span class="kpi-card-label">Net Discrepancy</span>
-                                <span class="kpi-card-icon">⚖️</span>
+
+                        <!-- Card 3: PermTrack Excise Billed -->
+                        <div class="executive-kpi-card">
+                            <div class="kpi-eyebrow">
+                                <span>EXCISE BILLED DISPATCHES</span>
+                                <span class="mono-code">PERMTRACK OFFICIAL</span>
+                            </div>
+                            <div class="kpi-main-val" id="kpi-permtrack-month-total">--</div>
+                            <div class="kpi-subtext">Official transit passes issued (Physical cs + Eq)</div>
+                            <div style="margin-top: 0.75rem;">
+                                <span class="badge-status info" id="kpi-permtrack-days-badge" style="font-size: 0.72rem;">Excise Passes Billed</span>
+                            </div>
+                        </div>
+
+                        <!-- Card 4: Net Variance Delta -->
+                        <div class="executive-kpi-card">
+                            <div class="kpi-eyebrow">
+                                <span>NET VARIANCE DELTA</span>
+                                <span class="mono-code" id="kpi-godown-variance-eyebrow">RECON HEALTH</span>
                             </div>
                             <div class="kpi-main-val" id="kpi-godown-month-diff">--</div>
-                            <div class="kpi-sub-text" id="kpi-godown-month-diff-status">Balanced</div>
+                            <div class="kpi-subtext" id="kpi-godown-month-diff-status">Awaiting warehouse entries</div>
+                            <div style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                                <span class="badge-status success" id="kpi-godown-match-pill" style="font-size: 0.72rem;">100% Match Rate</span>
+                            </div>
                         </div>
                     </div>
 
@@ -656,8 +660,14 @@
                                 <span class="table-title" id="godown-table-title">Daily Sales Register & Reconciliation</span>
                                 <span class="table-count-badge" id="godown-table-count">0 Days</span>
                             </div>
-                            <div style="font-size: 0.78rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.5rem;">
-                                <span>💡 Click any Godown cell to edit and press Enter to save.</span>
+                            <div class="table-controls">
+                                <div class="filter-chip-group">
+                                    <span class="filter-chip active" id="chip-recon-all" onclick="setGodownReconFilter('ALL')">All Days</span>
+                                    <span class="filter-chip" id="chip-recon-discrepancies" onclick="setGodownReconFilter('DISCREPANCY')">⚠️ Discrepancies</span>
+                                    <span class="filter-chip" id="chip-recon-pending" onclick="setGodownReconFilter('PENDING')">📝 Pending Count</span>
+                                    <span class="filter-chip" id="chip-recon-matched" onclick="setGodownReconFilter('MATCHED')">✅ Balanced</span>
+                                </div>
+                                <input type="text" id="godown-search-input" class="table-search-input" placeholder="Filter date or day..." oninput="renderGodownActiveMonth()" aria-label="Search reconciliation table">
                             </div>
                         </div>
 
@@ -665,15 +675,15 @@
                             <table class="enterprise-table godown-recon-table">
                                 <thead>
                                     <tr>
-                                        <th style="min-width: 120px;">Date</th>
-                                        <th style="min-width: 100px;">Day</th>
-                                        <th style="text-align: right; min-width: 140px;">Godown Sale (Cases) ✏️</th>
-                                        <th style="text-align: right; min-width: 140px;">PermTrack Sale (Cases)</th>
-                                        <th style="text-align: right; min-width: 120px;">Daily Diff</th>
-                                        <th style="text-align: right; min-width: 140px; background: rgba(0,0,0,0.02);">Cum. Godown</th>
-                                        <th style="text-align: right; min-width: 140px; background: rgba(0,0,0,0.02);">Cum. PermTrack</th>
-                                        <th style="text-align: right; min-width: 120px; background: rgba(0,0,0,0.02);">Cum. Diff</th>
-                                        <th style="text-align: center; min-width: 100px;">Status</th>
+                                        <th style="min-width: 110px;">Date</th>
+                                        <th style="min-width: 70px;">Day</th>
+                                        <th style="text-align: right; min-width: 150px;">Godown Register (cs) ✏️</th>
+                                        <th style="text-align: right; min-width: 140px;">Excise Billed (cs)</th>
+                                        <th style="text-align: right; min-width: 130px;">Daily Variance</th>
+                                        <th style="text-align: right; min-width: 130px; background: rgba(0,0,0,0.015);">Cum. Godown</th>
+                                        <th style="text-align: right; min-width: 130px; background: rgba(0,0,0,0.015);">Cum. Excise</th>
+                                        <th style="text-align: right; min-width: 130px; background: rgba(0,0,0,0.015);">Cum. Variance</th>
+                                        <th style="text-align: center; min-width: 110px;">Audit Status</th>
                                         <th style="text-align: center; min-width: 80px;">Action</th>
                                     </tr>
                                 </thead>
@@ -2505,9 +2515,6 @@
                 const ovDispPermits = document.getElementById('ov-dispatched-permits');
                 if (ovDispPermits) ovDispPermits.innerText = uniqueDispatchedPermits.size;
 
-                // Update Godown Physical Reconciliation
-                updateGodownReconciliation(totalDispatchedEqCs);
-
                 // 3-Segment Category Mix Bar
                 const beerTotVol = beerCases + beerBottleEq;
                 const imflTotVol = imflCases + imflBottleEq;
@@ -2561,7 +2568,7 @@
                 if (kpiTotalBrands) kpiTotalBrands.innerText = Object.keys(brandSummary).length;
 
                 // Overview Highlights
-                renderOverviewHighlights(partySummary, brandSummary, totalDispatchedEqCs);
+                renderOverviewHighlights(partySummary, brandSummary, totalDispatchedEqCs, groupedByPermit);
 
                 // 3. Render Permits Registry Table
                 renderPermitsTable(groupedByPermit);
@@ -2734,6 +2741,25 @@
         // -------------------------------------------------------------
         let godownMonthlyData = [];
         let activeGodownMonthIndex = 0;
+        let activeGodownReconFilter = 'ALL';
+
+        function setGodownReconFilter(filter) {
+            activeGodownReconFilter = filter;
+            const filterMap = {
+                'ALL': 'chip-recon-all',
+                'DISCREPANCY': 'chip-recon-discrepancies',
+                'PENDING': 'chip-recon-pending',
+                'MATCHED': 'chip-recon-matched'
+            };
+            Object.entries(filterMap).forEach(([k, id]) => {
+                const el = document.getElementById(id);
+                if (el) {
+                    if (k === filter) el.classList.add('active');
+                    else el.classList.remove('active');
+                }
+            });
+            renderGodownActiveMonth();
+        }
 
         async function loadGodownMonthlySummary() {
             const tbody = document.getElementById('godown-recon-tbody');
@@ -2786,55 +2812,153 @@
             if (godownMonthlyData.length === 0 || !godownMonthlyData[activeGodownMonthIndex]) return;
             const monthObj = godownMonthlyData[activeGodownMonthIndex];
 
-            // Update Header KPI Cards
+            // Calculate operational & reconciliation metrics
+            const totalDays = monthObj.days.length;
+            let enteredDaysCount = 0;
+            let discrepancyCount = 0;
+            let matchedCount = 0;
+            let pendingCount = 0;
+
+            monthObj.days.forEach(day => {
+                const hasEntered = day.godown_cases !== null && day.godown_cases !== undefined;
+                if (hasEntered) {
+                    enteredDaysCount++;
+                    if (day.difference !== null && Math.abs(day.difference) >= 0.5) {
+                        discrepancyCount++;
+                    } else if (day.difference !== null && Math.abs(day.difference) < 0.5) {
+                        matchedCount++;
+                    }
+                } else if (!day.is_closed) {
+                    pendingCount++;
+                }
+            });
+
+            const coveragePct = totalDays > 0 ? Math.round((enteredDaysCount / totalDays) * 100) : 0;
+
+            // Update Card 1: Audit Period & Coverage
             const kpiMonthName = document.getElementById('kpi-godown-month-name');
             const kpiMonthDays = document.getElementById('kpi-godown-month-days');
-            const kpiGodownTotal = document.getElementById('kpi-godown-month-total');
-            const kpiPermTrackTotal = document.getElementById('kpi-permtrack-month-total');
-            const kpiMonthDiff = document.getElementById('kpi-godown-month-diff');
-            const kpiMonthDiffStatus = document.getElementById('kpi-godown-month-diff-status');
-            const countBadge = document.getElementById('godown-table-count');
-            const tableTitle = document.getElementById('godown-table-title');
+            const kpiCoverageBar = document.getElementById('kpi-godown-coverage-bar');
+            const kpiCoverageText = document.getElementById('kpi-godown-coverage-text');
+            const kpiAuditBadge = document.getElementById('kpi-godown-audit-badge');
 
             if (kpiMonthName) kpiMonthName.innerText = monthObj.month_key;
-            if (kpiMonthDays) kpiMonthDays.innerText = `${monthObj.days.length} Recorded Days`;
-            if (countBadge) countBadge.innerText = `${monthObj.days.length} Days`;
-            if (tableTitle) tableTitle.innerText = `${monthObj.month_key} Sales Register & Reconciliation`;
+            if (kpiMonthDays) kpiMonthDays.innerText = `${totalDays} Recorded Operating Days`;
+            if (kpiCoverageBar) kpiCoverageBar.style.width = `${coveragePct}%`;
+            if (kpiCoverageText) kpiCoverageText.innerText = `${coveragePct}% Reconciled (${enteredDaysCount}/${totalDays} Days)`;
+            if (kpiAuditBadge) kpiAuditBadge.innerText = coveragePct === 100 ? '✅ 100% AUDITED' : `${coveragePct}% AUDITED`;
 
+            // Card 2: Warehouse Physical Register
             const totPermtrack = monthObj.totals.permtrack_cases || 0;
             const totGodown = monthObj.totals.godown_cases;
             const hasGodown = monthObj.totals.has_godown_entries;
             const totDiff = monthObj.totals.difference;
 
-            if (kpiPermTrackTotal) {
-                kpiPermTrackTotal.innerText = `${totPermtrack.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} cs`;
-            }
+            const kpiGodownTotal = document.getElementById('kpi-godown-month-total');
+            const kpiGodownEnteredBadge = document.getElementById('kpi-godown-entered-badge');
 
             if (kpiGodownTotal) {
                 kpiGodownTotal.innerText = hasGodown && totGodown !== null
                     ? `${totGodown.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} cs`
                     : 'Awaiting Input';
             }
+            if (kpiGodownEnteredBadge) {
+                kpiGodownEnteredBadge.innerText = `${enteredDaysCount} of ${totalDays} Days Entered`;
+                kpiGodownEnteredBadge.className = enteredDaysCount === totalDays ? 'badge-status success' : (enteredDaysCount > 0 ? 'badge-status warning' : 'badge-status info');
+            }
+
+            // Card 3: PermTrack Excise Billed
+            const kpiPermTrackTotal = document.getElementById('kpi-permtrack-month-total');
+            const kpiPermtrackDaysBadge = document.getElementById('kpi-permtrack-days-badge');
+            if (kpiPermTrackTotal) {
+                kpiPermTrackTotal.innerText = `${totPermtrack.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} cs`;
+            }
+            if (kpiPermtrackDaysBadge) {
+                kpiPermtrackDaysBadge.innerText = `${totalDays} Days Excise Billed`;
+            }
+
+            // Card 4: Net Variance Delta & Match Health
+            const kpiMonthDiff = document.getElementById('kpi-godown-month-diff');
+            const kpiMonthDiffStatus = document.getElementById('kpi-godown-month-diff-status');
+            const kpiMatchPill = document.getElementById('kpi-godown-match-pill');
+            const kpiVarianceEyebrow = document.getElementById('kpi-godown-variance-eyebrow');
+
+            let matchRate = 100;
+            if (hasGodown && totGodown !== null && totPermtrack > 0) {
+                const minVal = Math.min(totPermtrack, totGodown);
+                const maxVal = Math.max(totPermtrack, totGodown);
+                matchRate = maxVal > 0 ? (minVal / maxVal) * 100 : 100;
+            }
 
             if (kpiMonthDiff && kpiMonthDiffStatus) {
                 if (!hasGodown || totDiff === null) {
                     kpiMonthDiff.innerText = '--';
                     kpiMonthDiff.style.color = 'var(--text-muted)';
-                    kpiMonthDiffStatus.innerText = 'Pending godown figures';
+                    kpiMonthDiffStatus.innerText = 'Awaiting physical warehouse registers';
+                    if (kpiMatchPill) {
+                        kpiMatchPill.innerText = 'Pending Data';
+                        kpiMatchPill.className = 'badge-status info';
+                    }
+                    if (kpiVarianceEyebrow) kpiVarianceEyebrow.innerText = 'RECON HEALTH';
                 } else if (Math.abs(totDiff) < 0.5) {
                     kpiMonthDiff.innerText = '0.00 cs (100% Match)';
                     kpiMonthDiff.style.color = 'var(--status-success)';
-                    kpiMonthDiffStatus.innerText = '🟢 Fully Reconciled';
+                    kpiMonthDiffStatus.innerText = '🟢 Perfect alignment between Excise & Godown';
+                    if (kpiMatchPill) {
+                        kpiMatchPill.innerText = '100% Matched';
+                        kpiMatchPill.className = 'badge-status success';
+                    }
+                    if (kpiVarianceEyebrow) kpiVarianceEyebrow.innerText = 'BALANCED';
                 } else if (totDiff > 0) {
                     kpiMonthDiff.innerText = `+${totDiff.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} cs`;
                     kpiMonthDiff.style.color = '#0284c7';
-                    kpiMonthDiffStatus.innerText = '🔵 Godown register ahead of excise billed';
+                    kpiMonthDiffStatus.innerText = `🔵 Godown register +${totDiff.toFixed(1)} cs ahead of excise billed`;
+                    if (kpiMatchPill) {
+                        kpiMatchPill.innerText = `${matchRate.toFixed(1)}% Match`;
+                        kpiMatchPill.className = 'badge-status info';
+                    }
+                    if (kpiVarianceEyebrow) kpiVarianceEyebrow.innerText = 'GODOWN LEAD';
                 } else {
                     kpiMonthDiff.innerText = `${totDiff.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} cs`;
                     kpiMonthDiff.style.color = 'var(--brand-gold)';
-                    kpiMonthDiffStatus.innerText = '🟡 PermTrack ahead of physical dispatch';
+                    kpiMonthDiffStatus.innerText = `🟡 Portal +${Math.abs(totDiff).toFixed(1)} cs ahead of godown dispatch`;
+                    if (kpiMatchPill) {
+                        kpiMatchPill.innerText = `${matchRate.toFixed(1)}% Match`;
+                        kpiMatchPill.className = 'badge-status warning';
+                    }
+                    if (kpiVarianceEyebrow) kpiVarianceEyebrow.innerText = 'PORTAL LEAD';
                 }
             }
+
+            // Filter Days based on active filter and search text
+            const searchInput = document.getElementById('godown-search-input');
+            const searchQuery = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
+            const filteredDays = monthObj.days.filter(day => {
+                if (searchQuery) {
+                    const dStr = (day.date_str || '').toLowerCase();
+                    const dDay = (day.day || '').toLowerCase();
+                    const dKey = (day.date_key || '').toLowerCase();
+                    if (!dStr.includes(searchQuery) && !dDay.includes(searchQuery) && !dKey.includes(searchQuery)) {
+                        return false;
+                    }
+                }
+
+                const hasEntered = day.godown_cases !== null && day.godown_cases !== undefined;
+                const isBalanced = hasEntered && day.difference !== null && Math.abs(day.difference) < 0.5;
+                const isDiscrepancy = hasEntered && day.difference !== null && Math.abs(day.difference) >= 0.5;
+
+                if (activeGodownReconFilter === 'DISCREPANCY') return isDiscrepancy;
+                if (activeGodownReconFilter === 'PENDING') return !hasEntered && !day.is_closed;
+                if (activeGodownReconFilter === 'MATCHED') return isBalanced;
+                return true;
+            });
+
+            // Update Table Header Title & Count Badge
+            const countBadge = document.getElementById('godown-table-count');
+            const tableTitle = document.getElementById('godown-table-title');
+            if (countBadge) countBadge.innerText = `${filteredDays.length} / ${totalDays} Days`;
+            if (tableTitle) tableTitle.innerText = `${monthObj.month_key} Sales Register & Reconciliation`;
 
             // Render Daily Rows
             const tbody = document.getElementById('godown-recon-tbody');
@@ -2842,116 +2966,123 @@
             if (!tbody) return;
             tbody.innerHTML = '';
 
-            monthObj.days.forEach(day => {
-                const tr = document.createElement('tr');
-                if (day.is_closed) {
-                    tr.style.opacity = '0.55';
-                    tr.style.background = 'rgba(0, 0, 0, 0.01)';
-                }
-
-                const godownDisplay = day.godown_cases !== null && day.godown_cases !== undefined
-                    ? Number(day.godown_cases).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                    : '';
-
-                const permtrackDisplay = Number(day.permtrack_cases).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-                // Daily Diff
-                let diffDisplay = '-';
-                let diffColor = 'var(--text-muted)';
-                if (day.difference !== null && day.difference !== undefined) {
-                    const dVal = day.difference;
-                    if (Math.abs(dVal) < 0.01) {
-                        diffDisplay = '0.00';
-                        diffColor = 'var(--status-success)';
-                    } else if (dVal > 0) {
-                        diffDisplay = `+${dVal.toFixed(2)}`;
-                        diffColor = '#0284c7';
-                    } else {
-                        diffDisplay = dVal.toFixed(2);
-                        diffColor = 'var(--brand-gold)';
-                    }
-                }
-
-                // Cumulative
-                const cumGDisplay = day.cumulative_godown !== null && day.cumulative_godown !== undefined
-                    ? Number(day.cumulative_godown).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                    : '-';
-                const cumPDisplay = Number(day.cumulative_permtrack).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-                let cumDiffDisplay = '-';
-                let cumDiffColor = 'var(--text-muted)';
-                if (day.cumulative_difference !== null && day.cumulative_difference !== undefined) {
-                    const cdVal = day.cumulative_difference;
-                    if (Math.abs(cdVal) < 0.01) {
-                        cumDiffDisplay = '0.00';
-                        cumDiffColor = 'var(--status-success)';
-                    } else if (cdVal > 0) {
-                        cumDiffDisplay = `+${cdVal.toFixed(2)}`;
-                        cumDiffColor = '#0284c7';
-                    } else {
-                        cumDiffDisplay = cdVal.toFixed(2);
-                        cumDiffColor = 'var(--brand-gold)';
-                    }
-                }
-
-                // Status Pill
-                let statusBadge = '';
-                if (day.is_closed) {
-                    statusBadge = `<span class="badge-status" style="background: rgba(148, 163, 184, 0.15); color: var(--text-muted); border: 1px solid rgba(148, 163, 184, 0.3);">Closed</span>`;
-                } else if (day.godown_cases === null || day.godown_cases === undefined) {
-                    statusBadge = `<span class="badge-status info">Pending Entry</span>`;
-                } else if (day.difference !== null && Math.abs(day.difference) < 0.5) {
-                    statusBadge = `<span class="badge-status success">🟢 Matched</span>`;
-                } else if (day.difference > 0) {
-                    statusBadge = `<span class="badge-status info">🔵 Godown +${day.difference.toFixed(1)}</span>`;
-                } else {
-                    statusBadge = `<span class="badge-status warning">🟡 Portal +${Math.abs(day.difference).toFixed(1)}</span>`;
-                }
-
-                tr.innerHTML = `
-                    <td style="font-weight: 700; font-family: var(--font-mono); color: var(--text-primary);">
-                        ${escapeHtml(day.date_str)}
-                    </td>
-                    <td style="color: var(--text-secondary); font-size: 0.8rem;">
-                        ${escapeHtml(day.day)}
-                    </td>
-                    <td style="text-align: right; padding: 0.35rem 0.6rem;">
-                        <input type="number" step="0.25"
-                            class="table-search-input"
-                            style="text-align: right; font-family: var(--font-mono); font-weight: 700; width: 130px; height: 30px; padding: 0 0.5rem; background: var(--bg-surface-tint); border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); color: var(--brand-gold);"
-                            value="${day.godown_cases !== null && day.godown_cases !== undefined ? day.godown_cases : ''}"
-                            placeholder="e.g. 6455.25"
-                            title="Enter physical godown total sale and press Enter to save"
-                            onchange="saveGodownDailyEntry('${day.date_key}', this.value)"
-                            onkeydown="if(event.key === 'Enter') { this.blur(); }"
-                        />
-                    </td>
-                    <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; color: var(--text-primary);">
-                        ${permtrackDisplay}
-                    </td>
-                    <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; color: ${diffColor};">
-                        ${diffDisplay}
-                    </td>
-                    <td style="text-align: right; font-family: var(--font-mono); font-weight: 600; color: var(--text-primary); background: rgba(0,0,0,0.01);">
-                        ${cumGDisplay}
-                    </td>
-                    <td style="text-align: right; font-family: var(--font-mono); font-weight: 600; color: var(--text-primary); background: rgba(0,0,0,0.01);">
-                        ${cumPDisplay}
-                    </td>
-                    <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; color: ${cumDiffColor}; background: rgba(0,0,0,0.01);">
-                        ${cumDiffDisplay}
-                    </td>
-                    <td style="text-align: center;">
-                        ${statusBadge}
-                    </td>
-                    <td style="text-align: center;">
-                        <button class="header-btn" style="height: 26px; padding: 0 0.5rem; font-size: 0.72rem;" onclick="jumpToDateDataset('${day.filename}')" title="Inspect Detailed Permits for ${day.date_str}">
-                            View →
-                        </button>
-                    </td>
+            if (filteredDays.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="10" style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+                            <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">🔍</div>
+                            <div style="font-weight: 600; color: var(--text-primary);">No matching reconciliation records found</div>
+                            <div style="font-size: 0.78rem; margin-top: 0.25rem;">Try adjusting the filter chips or search keyword above.</div>
+                        </td>
+                    </tr>
                 `;
-                tbody.appendChild(tr);
-            });
+            } else {
+                filteredDays.forEach(day => {
+                    const tr = document.createElement('tr');
+                    if (day.is_closed) {
+                        tr.style.opacity = '0.6';
+                        tr.style.background = 'rgba(0, 0, 0, 0.015)';
+                    }
+
+                    const permtrackDisplay = Number(day.permtrack_cases).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+                    // Daily Variance Pill
+                    let varianceCellHtml = '<span style="color: var(--text-muted); font-size: 0.8rem; font-family: var(--font-mono);">-</span>';
+                    if (day.difference !== null && day.difference !== undefined) {
+                        const dVal = day.difference;
+                        if (Math.abs(dVal) < 0.5) {
+                            varianceCellHtml = `<span class="variance-pill balanced">✓ Balanced</span>`;
+                        } else if (dVal > 0) {
+                            varianceCellHtml = `<span class="variance-pill godown-lead">▲ +${dVal.toFixed(2)} cs</span>`;
+                        } else {
+                            varianceCellHtml = `<span class="variance-pill portal-lead">▼ ${dVal.toFixed(2)} cs</span>`;
+                        }
+                    }
+
+                    // Cumulative Columns
+                    const cumGDisplay = day.cumulative_godown !== null && day.cumulative_godown !== undefined
+                        ? Number(day.cumulative_godown).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                        : '-';
+                    const cumPDisplay = Number(day.cumulative_permtrack).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+                    let cumDiffDisplay = '-';
+                    let cumDiffColor = 'var(--text-muted)';
+                    if (day.cumulative_difference !== null && day.cumulative_difference !== undefined) {
+                        const cdVal = day.cumulative_difference;
+                        if (Math.abs(cdVal) < 0.5) {
+                            cumDiffDisplay = '0.00';
+                            cumDiffColor = 'var(--status-success)';
+                        } else if (cdVal > 0) {
+                            cumDiffDisplay = `+${cdVal.toFixed(2)}`;
+                            cumDiffColor = '#0284c7';
+                        } else {
+                            cumDiffDisplay = cdVal.toFixed(2);
+                            cumDiffColor = 'var(--brand-gold)';
+                        }
+                    }
+
+                    // Audit Status Badge
+                    let auditBadgeHtml = '';
+                    if (day.is_closed) {
+                        auditBadgeHtml = `<span class="recon-audit-badge closed">Closed</span>`;
+                    } else if (day.godown_cases === null || day.godown_cases === undefined) {
+                        auditBadgeHtml = `<span class="recon-audit-badge pending">📝 Pending</span>`;
+                    } else if (day.difference !== null && Math.abs(day.difference) < 0.5) {
+                        auditBadgeHtml = `<span class="recon-audit-badge matched">✅ Reconciled</span>`;
+                    } else if (day.difference > 0) {
+                        auditBadgeHtml = `<span class="recon-audit-badge godown-lead">🔵 Godown Lead</span>`;
+                    } else {
+                        auditBadgeHtml = `<span class="recon-audit-badge portal-lead">🟡 Portal Lead</span>`;
+                    }
+
+                    tr.innerHTML = `
+                        <td style="font-weight: 700; font-family: var(--font-mono); color: var(--text-primary);">
+                            ${escapeHtml(day.date_str)}
+                        </td>
+                        <td style="color: var(--text-secondary); font-size: 0.8rem; font-weight: 500;">
+                            ${escapeHtml(day.day)}
+                        </td>
+                        <td style="text-align: right; padding: 0.4rem 0.6rem;">
+                            <div class="recon-input-cell">
+                                <input type="number" step="0.25"
+                                    class="recon-input-field"
+                                    id="recon-input-${day.date_key}"
+                                    value="${day.godown_cases !== null && day.godown_cases !== undefined ? day.godown_cases : ''}"
+                                    placeholder="0.00"
+                                    title="Enter physical godown dispatched cases and press Enter to save"
+                                    onchange="saveGodownDailyEntry('${day.date_key}', this.value, this)"
+                                    onkeydown="if(event.key === 'Enter') { this.blur(); }"
+                                />
+                                <span class="recon-saved-check" id="recon-check-${day.date_key}">✓</span>
+                            </div>
+                        </td>
+                        <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; color: var(--text-primary);">
+                            ${permtrackDisplay}
+                        </td>
+                        <td style="text-align: right;">
+                            ${varianceCellHtml}
+                        </td>
+                        <td style="text-align: right; font-family: var(--font-mono); font-weight: 600; color: var(--text-primary); background: rgba(0,0,0,0.01);">
+                            ${cumGDisplay}
+                        </td>
+                        <td style="text-align: right; font-family: var(--font-mono); font-weight: 600; color: var(--text-primary); background: rgba(0,0,0,0.01);">
+                            ${cumPDisplay}
+                        </td>
+                        <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; color: ${cumDiffColor}; background: rgba(0,0,0,0.01);">
+                            ${cumDiffDisplay}
+                        </td>
+                        <td style="text-align: center;">
+                            ${auditBadgeHtml}
+                        </td>
+                        <td style="text-align: center;">
+                            <button class="header-btn" style="height: 26px; padding: 0 0.5rem; font-size: 0.72rem;" onclick="jumpToDateDataset('${day.filename}')" title="Inspect Detailed Permits for ${day.date_str}">
+                                View →
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
 
             // Footer Totals Row
             if (tfoot) {
@@ -2983,7 +3114,7 @@
             }
         }
 
-        async function saveGodownDailyEntry(dateKey, valStr) {
+        async function saveGodownDailyEntry(dateKey, valStr, inputEl) {
             const trimmed = (valStr || '').trim();
             const casesVal = trimmed ? parseFloat(trimmed) : null;
 
@@ -3010,6 +3141,18 @@
                         localStorage.removeItem('permtrack_godown_' + dateKey);
                         showToast(`Cleared Godown Sale for ${dateKey}`);
                     }
+
+                    // Visual feedback: show checkmark and border highlight
+                    const checkEl = document.getElementById('recon-check-' + dateKey);
+                    if (checkEl) {
+                        checkEl.classList.add('show');
+                        setTimeout(() => checkEl.classList.remove('show'), 2000);
+                    }
+                    if (inputEl) {
+                        inputEl.style.borderColor = 'var(--status-success)';
+                        setTimeout(() => { if (inputEl) inputEl.style.borderColor = ''; }, 1500);
+                    }
+
                     // Silently reload monthly summary to recalculate cumulative figures and discrepancies
                     await loadGodownMonthlySummary();
                 } else {
@@ -3036,73 +3179,192 @@
         // -------------------------------------------------------------
         // Overview Highlights Rendering
         // -------------------------------------------------------------
-        function renderOverviewHighlights(partySummary, brandSummary, totalVol) {
+        function renderOverviewHighlights(partySummary, brandSummary, totalVol, groupedByPermit) {
             const retailersDiv = document.getElementById('ov-top-retailers-list');
             const brandsDiv = document.getElementById('ov-top-brands-list');
-            if (!retailersDiv || !brandsDiv) return;
+            const dispatchesDiv = document.getElementById('ov-recent-dispatches-list');
+            const dispCountBadge = document.getElementById('ov-recent-disp-count');
+            const packDiv = document.getElementById('ov-pack-distribution-list');
+            const packVolBadge = document.getElementById('ov-pack-total-vol');
 
-            retailersDiv.innerHTML = '';
-            brandsDiv.innerHTML = '';
-
-            const partyKeys = Object.keys(partySummary);
-            if (partyKeys.length === 0) {
-                retailersDiv.innerHTML = `
-                    <div class="empty-state-box" style="padding: 1.5rem 0;">
-                        <span class="empty-state-icon">🏢</span>
-                        <div class="empty-state-title" style="font-size: 0.9rem;">No Dispatched Licensees</div>
-                        <div class="empty-state-desc">No permits have been dispatched yet for this dataset.</div>
-                    </div>
-                `;
-            } else {
-                const sortedParties = partyKeys.sort((a, b) => (partySummary[b].cases + partySummary[b].csEq) - (partySummary[a].cases + partySummary[a].csEq)).slice(0, 4);
-                sortedParties.forEach((p, idx) => {
-                    const vol = partySummary[p].cases + partySummary[p].csEq;
-                    const volStr = vol % 1 === 0 ? vol.toLocaleString() : vol.toFixed(1);
-                    const pct = totalVol > 0 ? Math.round((vol / totalVol) * 100) : 0;
-                    const rowDiv = document.createElement('div');
-                    rowDiv.style.cssText = 'margin-bottom: 0.85rem; cursor: pointer;';
-                    rowDiv.onclick = () => openPartyDrawer(p);
-                    rowDiv.innerHTML = `
-                        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600;">
-                            <span>#${idx + 1} ${escapeHtml(p)}</span>
-                            <span class="mono-code">${volStr} cs (${pct}%)</span>
-                        </div>
-                        <div style="height: 5px; background: var(--bg-surface-tint); border-radius: 3px; margin-top: 0.35rem; overflow: hidden;">
-                            <div style="width: ${pct}%; height: 100%; background: var(--brand-navy);"></div>
+            if (retailersDiv) {
+                retailersDiv.innerHTML = '';
+                const partyKeys = Object.keys(partySummary || {});
+                if (partyKeys.length === 0) {
+                    retailersDiv.innerHTML = `
+                        <div class="empty-state-box" style="padding: 1.5rem 0;">
+                            <span class="empty-state-icon">🏢</span>
+                            <div class="empty-state-title" style="font-size: 0.9rem;">No Dispatched Licensees</div>
+                            <div class="empty-state-desc">No permits have been dispatched yet for this dataset.</div>
                         </div>
                     `;
-                    retailersDiv.appendChild(rowDiv);
-                });
+                } else {
+                    const sortedParties = partyKeys.sort((a, b) => (partySummary[b].cases + partySummary[b].csEq) - (partySummary[a].cases + partySummary[a].csEq)).slice(0, 4);
+                    sortedParties.forEach((p, idx) => {
+                        const vol = partySummary[p].cases + partySummary[p].csEq;
+                        const volStr = vol % 1 === 0 ? vol.toLocaleString() : vol.toFixed(1);
+                        const pct = totalVol > 0 ? Math.round((vol / totalVol) * 100) : 0;
+                        const rowDiv = document.createElement('div');
+                        rowDiv.style.cssText = 'margin-bottom: 0.85rem; cursor: pointer;';
+                        rowDiv.onclick = () => openPartyDrawer(p);
+                        rowDiv.innerHTML = `
+                            <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600;">
+                                <span>#${idx + 1} ${escapeHtml(p)}</span>
+                                <span class="mono-code">${volStr} cs (${pct}%)</span>
+                            </div>
+                            <div style="height: 5px; background: var(--bg-surface-tint); border-radius: 3px; margin-top: 0.35rem; overflow: hidden;">
+                                <div style="width: ${pct}%; height: 100%; background: var(--brand-navy);"></div>
+                            </div>
+                        `;
+                        retailersDiv.appendChild(rowDiv);
+                    });
+                }
             }
 
-            const brandValues = Object.values(brandSummary);
-            if (brandValues.length === 0) {
-                brandsDiv.innerHTML = `
-                    <div class="empty-state-box" style="padding: 1.5rem 0;">
-                        <span class="empty-state-icon">🍾</span>
-                        <div class="empty-state-title" style="font-size: 0.9rem;">No Dispatched Brands</div>
-                        <div class="empty-state-desc">No brand SKUs have been dispatched yet for this dataset.</div>
-                    </div>
-                `;
-            } else {
-                const sortedBrands = brandValues.sort((a, b) => (b.cases + b.csEq) - (a.cases + a.csEq)).slice(0, 4);
-                sortedBrands.forEach((b, idx) => {
-                    const vol = b.cases + b.csEq;
-                    const volStr = vol % 1 === 0 ? vol.toLocaleString() : vol.toFixed(1);
-                    const pct = totalVol > 0 ? Math.round((vol / totalVol) * 100) : 0;
-                    const rowDiv = document.createElement('div');
-                    rowDiv.style.cssText = 'margin-bottom: 0.85rem;';
-                    rowDiv.innerHTML = `
-                        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600;">
-                            <span>#${idx + 1} ${escapeHtml(b.name)} (${escapeHtml(b.size)} ML)</span>
-                            <span class="mono-code" style="color: var(--brand-gold);">${volStr} cs</span>
-                        </div>
-                        <div style="height: 5px; background: var(--bg-surface-tint); border-radius: 3px; margin-top: 0.35rem; overflow: hidden;">
-                            <div style="width: ${pct}%; height: 100%; background: var(--brand-gold);"></div>
+            if (brandsDiv) {
+                brandsDiv.innerHTML = '';
+                const brandValues = Object.values(brandSummary || {});
+                if (brandValues.length === 0) {
+                    brandsDiv.innerHTML = `
+                        <div class="empty-state-box" style="padding: 1.5rem 0;">
+                            <span class="empty-state-icon">🍾</span>
+                            <div class="empty-state-title" style="font-size: 0.9rem;">No Dispatched Brands</div>
+                            <div class="empty-state-desc">No brand SKUs have been dispatched yet for this dataset.</div>
                         </div>
                     `;
-                    brandsDiv.appendChild(rowDiv);
+                } else {
+                    const sortedBrands = brandValues.sort((a, b) => (b.cases + b.csEq) - (a.cases + a.csEq)).slice(0, 4);
+                    sortedBrands.forEach((b, idx) => {
+                        const vol = b.cases + b.csEq;
+                        const volStr = vol % 1 === 0 ? vol.toLocaleString() : vol.toFixed(1);
+                        const pct = totalVol > 0 ? Math.round((vol / totalVol) * 100) : 0;
+                        const rowDiv = document.createElement('div');
+                        rowDiv.style.cssText = 'margin-bottom: 0.85rem;';
+                        rowDiv.innerHTML = `
+                            <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600;">
+                                <span>#${idx + 1} ${escapeHtml(b.name)} (${escapeHtml(b.size)} ML)</span>
+                                <span class="mono-code" style="color: var(--brand-gold);">${volStr} cs</span>
+                            </div>
+                            <div style="height: 5px; background: var(--bg-surface-tint); border-radius: 3px; margin-top: 0.35rem; overflow: hidden;">
+                                <div style="width: ${pct}%; height: 100%; background: var(--brand-gold);"></div>
+                            </div>
+                        `;
+                        brandsDiv.appendChild(rowDiv);
+                    });
+                }
+            }
+
+            // 3. Render Cleared Transit Dispatches Stream
+            if (dispatchesDiv) {
+                dispatchesDiv.innerHTML = '';
+                const completedGroups = groupedByPermit ? Object.values(groupedByPermit).filter(g => g.info.Status !== 'PENDING') : [];
+                if (dispCountBadge) dispCountBadge.innerText = `${completedGroups.length} Passes`;
+
+                if (completedGroups.length === 0) {
+                    dispatchesDiv.innerHTML = `
+                        <div class="empty-state-box" style="padding: 1.5rem 0;">
+                            <span class="empty-state-icon">⏳</span>
+                            <div class="empty-state-title" style="font-size: 0.9rem;">No Cleared Passes Yet</div>
+                            <div class="empty-state-desc">Active indents are currently in pending queue awaiting pass issuance.</div>
+                        </div>
+                    `;
+                } else {
+                    const topDispatches = completedGroups.sort((a, b) => b.totalEqCases - a.totalEqCases).slice(0, 4);
+                    topDispatches.forEach(d => {
+                        const retailer = d.info["Retailer Name"] || "Unknown Retailer";
+                        const tpNum = d.info["Transit Pass"] || d.info["Permit Number"] || d.key;
+                        const bondType = (d.info["Bond Type"] || "IMFL").toUpperCase();
+                        const casesStr = d.totalEqCases % 1 === 0 ? d.totalEqCases.toLocaleString() : d.totalEqCases.toFixed(1);
+
+                        let bondBadgeClass = 'imfl';
+                        if (bondType === 'BEER') bondBadgeClass = 'beer';
+                        else if (bondType === 'CS') bondBadgeClass = 'cs';
+
+                        const itemDiv = document.createElement('div');
+                        itemDiv.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0; border-bottom: 1px solid var(--border-subtle); cursor: pointer; transition: background 0.15s ease;';
+                        itemDiv.onclick = () => {
+                            switchView('permits');
+                            const searchEl = document.getElementById('permits-search-input');
+                            if (searchEl) { searchEl.value = tpNum; renderPermitsTable(); }
+                        };
+                        itemDiv.innerHTML = `
+                            <div style="min-width: 0; padding-right: 0.75rem;">
+                                <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.25rem;">
+                                    <span class="mono-code" style="font-size: 0.72rem; font-weight: 700;">${escapeHtml(tpNum)}</span>
+                                    <span class="cat-badge ${bondBadgeClass}" style="font-size: 0.65rem; padding: 0.1rem 0.35rem;">${bondType}</span>
+                                </div>
+                                <div style="font-size: 0.8rem; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                    ${escapeHtml(retailer)}
+                                </div>
+                            </div>
+                            <div style="text-align: right; white-space: nowrap;">
+                                <div style="font-family: var(--font-mono); font-weight: 800; font-size: 0.88rem; color: var(--text-primary);">${casesStr} cs</div>
+                                <div style="font-size: 0.7rem; color: var(--status-success); font-weight: 700;">✓ Pass Issued</div>
+                            </div>
+                        `;
+                        dispatchesDiv.appendChild(itemDiv);
+                    });
+                }
+            }
+
+            // 4. Render Pack Size & Format Velocity
+            if (packDiv) {
+                packDiv.innerHTML = '';
+                const packAgg = {};
+                let totalPackVol = 0;
+
+                filteredPermitsData.forEach(item => {
+                    if (item.Status === 'PENDING') return;
+                    const bPerCs = getBottlesPerCase(item.Size);
+                    const bottleCsEq = (item.Bottles || 0) / bPerCs;
+                    const lineEq = (item.Cases || 0) + bottleCsEq;
+                    if (lineEq <= 0) return;
+
+                    let sizeLabel = item.Size ? `${item.Size} ML` : "Other Size";
+                    const sizeNum = parseInt(item.Size, 10);
+                    if (sizeNum === 750) sizeLabel = "750 ML (Quarts)";
+                    else if (sizeNum === 375) sizeLabel = "375 ML (Pints)";
+                    else if (sizeNum === 180) sizeLabel = "180 ML (Nips / Quarters)";
+                    else if (sizeNum === 650) sizeLabel = "650 ML (Beer Large)";
+                    else if (sizeNum === 500) sizeLabel = "500 ML (Beer Cans)";
+                    else if (sizeNum === 330) sizeLabel = "330 ML (Beer Pints)";
+                    else if (sizeNum === 600) sizeLabel = "600 ML (Country Spirit)";
+                    else if (sizeNum === 300) sizeLabel = "300 ML (Country Spirit)";
+
+                    packAgg[sizeLabel] = (packAgg[sizeLabel] || 0) + lineEq;
+                    totalPackVol += lineEq;
                 });
+
+                if (packVolBadge) packVolBadge.innerText = `${totalPackVol.toFixed(1)} cs`;
+
+                const sortedPacks = Object.keys(packAgg).sort((a, b) => packAgg[b] - packAgg[a]).slice(0, 4);
+                if (sortedPacks.length === 0) {
+                    packDiv.innerHTML = `
+                        <div class="empty-state-box" style="padding: 1.5rem 0;">
+                            <span class="empty-state-icon">📦</span>
+                            <div class="empty-state-title" style="font-size: 0.9rem;">No Dispatched Packs</div>
+                            <div class="empty-state-desc">Pack format analytics will appear once dispatches are issued.</div>
+                        </div>
+                    `;
+                } else {
+                    sortedPacks.forEach((pName, idx) => {
+                        const pVol = packAgg[pName];
+                        const pVolStr = pVol % 1 === 0 ? pVol.toLocaleString() : pVol.toFixed(1);
+                        const pct = totalPackVol > 0 ? Math.round((pVol / totalPackVol) * 100) : 0;
+                        const row = document.createElement('div');
+                        row.style.cssText = 'margin-bottom: 0.85rem;';
+                        row.innerHTML = `
+                            <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600;">
+                                <span>${escapeHtml(pName)}</span>
+                                <span class="mono-code" style="color: var(--brand-navy);">${pVolStr} cs (${pct}%)</span>
+                            </div>
+                            <div style="height: 5px; background: var(--bg-surface-tint); border-radius: 3px; margin-top: 0.35rem; overflow: hidden;">
+                                <div style="width: ${pct}%; height: 100%; background: linear-gradient(90deg, var(--brand-gold), var(--brand-navy));"></div>
+                            </div>
+                        `;
+                        packDiv.appendChild(row);
+                    });
+                }
             }
         }
 

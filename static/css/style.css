@@ -1256,40 +1256,132 @@ html, body {
 }
 
 /* -------------------------------------------------------------
-   Warehouse Physical Reconciliation Widget
+   Godown Reconciliation Modern Suite Styles
    ------------------------------------------------------------- */
-.reconciliation-card {
-    background: var(--bg-surface);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
-    padding: 1.25rem 1.5rem;
-    margin-top: 1.25rem;
-    box-shadow: var(--shadow-xs);
-}
-
-.reconciliation-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 1rem;
-    margin-bottom: 1rem;
-}
-
-.reconciliation-title-group {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.reconciliation-grid {
+.godown-kpi-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.recon-input-cell {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    width: 100%;
+    max-width: 140px;
+}
+
+.recon-input-field {
+    width: 100%;
+    height: 32px;
+    padding: 0 1.6rem 0 0.6rem;
+    text-align: right;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 0.88rem;
+    color: var(--brand-gold);
     background: var(--bg-surface-tint);
-    padding: 1rem 1.25rem;
-    border-radius: var(--radius-sm);
     border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-xs);
+    transition: all 0.2s ease;
+}
+
+.recon-input-field:hover {
+    border-color: var(--brand-gold);
+}
+
+.recon-input-field:focus {
+    outline: none;
+    border-color: var(--brand-gold);
+    box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.15);
+    background: var(--bg-canvas);
+}
+
+.recon-saved-check {
+    position: absolute;
+    right: 0.45rem;
+    font-size: 0.75rem;
+    color: var(--status-success);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+
+.recon-saved-check.show {
+    opacity: 1;
+}
+
+.variance-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.65rem;
+    border-radius: 9999px;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.variance-pill.balanced {
+    background: var(--status-success-bg);
+    color: var(--status-success);
+    border: 1px solid var(--status-success-border);
+}
+
+.variance-pill.godown-lead {
+    background: #e0f2fe;
+    color: #0369a1;
+    border: 1px solid #bae6fd;
+}
+
+.variance-pill.portal-lead {
+    background: #fef3c7;
+    color: #b45309;
+    border: 1px solid #fde68a;
+}
+
+.recon-audit-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: var(--radius-xs);
+    font-size: 0.72rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.recon-audit-badge.matched {
+    background: var(--status-success-bg);
+    color: var(--status-success);
+    border: 1px solid var(--status-success-border);
+}
+
+.recon-audit-badge.pending {
+    background: #f1f5f9;
+    color: #64748b;
+    border: 1px solid #cbd5e1;
+}
+
+.recon-audit-badge.godown-lead {
+    background: #e0f2fe;
+    color: #0369a1;
+    border: 1px solid #bae6fd;
+}
+
+.recon-audit-badge.portal-lead {
+    background: #fef3c7;
+    color: #b45309;
+    border: 1px solid #fde68a;
+}
+
+.recon-audit-badge.closed {
+    background: rgba(148, 163, 184, 0.15);
+    color: var(--text-muted);
+    border: 1px solid rgba(148, 163, 184, 0.3);
 }
 
 /* -------------------------------------------------------------
