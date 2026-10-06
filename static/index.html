@@ -11,7 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,600&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700;800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
 
     <!-- Stylesheet -->
-    <link rel="stylesheet" href="/static/css/style.css?v=20261006_1220">
+    <link rel="stylesheet" href="/static/css/style.css?v=20261006_1800">
 </head>
 <body>
 
@@ -833,15 +833,16 @@
                 <div id="view-analytics" class="workspace-view">
                     <div class="workspace-header">
                         <div>
-                            <div class="workspace-header-title">📈 Visual Operational Analytics & Distribution Mix</div>
-                            <div class="workspace-header-desc">Comparative distribution mix, top rankings, backlog aging, and multi-month historical trends.</div>
+                            <div class="workspace-header-title">📈 Visual Operational Analytics & Distribution Intelligence</div>
+                            <div class="workspace-header-desc">Deep monthly operational intelligence, packaging mix, day-of-week rhythms, licensee concentration, and macro MoM trends.</div>
                         </div>
                         <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
                             <!-- Analytics Period Switcher -->
                             <div class="filter-chip-group" role="radiogroup" aria-label="Analytics Period Scope">
                                 <span style="font-size: 0.75rem; color: var(--text-muted); margin-right: 0.25rem; display: flex; align-items: center; padding-left: 0.35rem;">Scope:</span>
-                                <span class="filter-chip active" id="scope-daily" onclick="setAnalyticsScope('DAILY')">📅 Daily Dataset</span>
-                                <span class="filter-chip" id="scope-monthly" onclick="setAnalyticsScope('MONTHLY')">📊 Monthly Trends</span>
+                                <span class="filter-chip active" id="scope-month-deep" onclick="setAnalyticsScope('MONTH_DEEP')">📅 Monthly Intelligence</span>
+                                <span class="filter-chip" id="scope-macro-trends" onclick="setAnalyticsScope('MACRO_TRENDS')">📊 Historical Trends (MoM)</span>
+                                <span class="filter-chip" id="scope-daily" onclick="setAnalyticsScope('DAILY')">⚡ Daily Dataset</span>
                             </div>
 
                             <!-- Metric Unit Switcher -->
@@ -854,49 +855,26 @@
                         </div>
                     </div>
 
-                    <!-- 1. Daily Analytics Section -->
-                    <div id="analytics-daily-section" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 1.25rem;">
-                        <!-- Top Retailers Ranked -->
-                        <div class="table-card">
-                            <div class="table-toolbar">
-                                <span class="table-title">🏆 Top 10 Retailers by Volume</span>
+                    <!-- Month Selector Bar (Displayed in Monthly Intelligence scope) -->
+                    <div id="analytics-month-selector-bar" style="margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; background: var(--bg-surface); padding: 0.85rem 1.25rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); box-shadow: var(--shadow-xs);">
+                        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                            <span style="font-size: 0.78rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Target Month:</span>
+                            <div class="filter-chip-group" id="analytics-month-chips" role="radiogroup">
+                                <!-- Dynamically injected month chips (e.g. October 2026, September 2026, etc.) -->
                             </div>
-                            <div style="padding: 1.25rem;" id="analytics-top-retailers-ranked"></div>
                         </div>
-
-                        <!-- Top Brands Ranked -->
-                        <div class="table-card">
-                            <div class="table-toolbar" style="flex-wrap: wrap; gap: 0.5rem;">
-                                <span class="table-title">🍾 Top 10 Brand SKUs</span>
-                                <div class="filter-chip-group">
-                                    <span class="filter-chip active" id="analytics-cat-all" onclick="setAnalyticsCategoryFilter('ALL')">All</span>
-                                    <span class="filter-chip" id="analytics-cat-beer" onclick="setAnalyticsCategoryFilter('BEER')">🍺 Beer</span>
-                                    <span class="filter-chip" id="analytics-cat-imfl" onclick="setAnalyticsCategoryFilter('IMFL')">🍷 IMFL</span>
-                                    <span class="filter-chip" id="analytics-cat-cs" onclick="setAnalyticsCategoryFilter('CS')">🍶 CS</span>
-                                </div>
-                            </div>
-                            <div style="padding: 1.25rem;" id="analytics-top-brands-ranked"></div>
-                        </div>
-
-                        <!-- Beer vs Spirits vs CS -->
-                        <div class="table-card">
-                            <div class="table-toolbar">
-                                <span class="table-title">📊 Category Mix Breakdown (Beer vs IMFL vs CS)</span>
-                            </div>
-                            <div style="padding: 1.25rem;" id="analytics-category-mix"></div>
-                        </div>
-
-                        <!-- Backlog Aging Distribution -->
-                        <div class="table-card">
-                            <div class="table-toolbar">
-                                <span class="table-title">⏳ Backlog Aging Distribution</span>
-                            </div>
-                            <div style="padding: 1.25rem;" id="analytics-aging-mix"></div>
+                        <div id="analytics-month-quick-summary" style="font-size: 0.82rem; font-family: var(--font-mono); font-weight: 700; color: var(--brand-gold);">
+                            <!-- Summary injected dynamically -->
                         </div>
                     </div>
 
-                    <!-- 2. Monthly Macro Trends Section (Loaded dynamically) -->
-                    <div id="analytics-monthly-section" style="display: none; flex-direction: column; gap: 1.25rem;">
+                    <!-- 1. MONTHLY INTELLIGENCE & DEEP-DIVE (Primary Comprehensive Workspace) -->
+                    <div id="analytics-month-deep-section" style="display: flex; flex-direction: column; gap: 1.5rem;">
+                        <!-- Injected dynamically by renderMonthlyDeepAnalytics() -->
+                    </div>
+
+                    <!-- 2. MULTI-MONTH MACRO TRENDS WORKSPACE -->
+                    <div id="analytics-macro-trends-section" style="display: none; flex-direction: column; gap: 1.25rem;">
                         <!-- Month-over-Month Comparative Volume Bar Chart -->
                         <div class="table-card">
                             <div class="table-toolbar">
@@ -929,10 +907,20 @@
                                 </div>
                             </div>
 
+                            <!-- Physical Variance Health Tracking -->
+                            <div class="table-card">
+                                <div class="table-toolbar">
+                                    <span class="table-title">⚖️ Warehouse Physical Variance & Audit Compliance MoM</span>
+                                </div>
+                                <div style="padding: 1.25rem;" id="analytics-monthly-variance-trend">
+                                    <!-- Injected dynamically -->
+                                </div>
+                            </div>
+
                             <!-- Top Consistent Brand Leaders Across Months -->
                             <div class="table-card">
                                 <div class="table-toolbar">
-                                    <span class="table-title">🍾 Top Brand Drivers (Monthly Aggregated)</span>
+                                    <span class="table-title">🍾 Historical Brand Leaders Across Recorded Months</span>
                                 </div>
                                 <div style="padding: 1.25rem;" id="analytics-monthly-top-brands">
                                     <!-- Top brands across months -->
@@ -942,12 +930,53 @@
                             <!-- Top Licensees Across Months -->
                             <div class="table-card">
                                 <div class="table-toolbar">
-                                    <span class="table-title">🏢 Top Licensee Outlets (Monthly Aggregated)</span>
+                                    <span class="table-title">🏢 Historical Leading Licensee Outlets</span>
                                 </div>
                                 <div style="padding: 1.25rem;" id="analytics-monthly-top-parties">
                                     <!-- Top parties across months -->
                                 </div>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. DAILY ANALYTICS SECTION -->
+                    <div id="analytics-daily-section" style="display: none; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 1.25rem;">
+                        <!-- Top Retailers Ranked -->
+                        <div class="table-card">
+                            <div class="table-toolbar">
+                                <span class="table-title">🏆 Top 10 Retailers by Volume (Selected Day)</span>
+                            </div>
+                            <div style="padding: 1.25rem;" id="analytics-top-retailers-ranked"></div>
+                        </div>
+
+                        <!-- Top Brands Ranked -->
+                        <div class="table-card">
+                            <div class="table-toolbar" style="flex-wrap: wrap; gap: 0.5rem;">
+                                <span class="table-title">🍾 Top 10 Brand SKUs (Selected Day)</span>
+                                <div class="filter-chip-group">
+                                    <span class="filter-chip active" id="analytics-cat-all" onclick="setAnalyticsCategoryFilter('ALL')">All</span>
+                                    <span class="filter-chip" id="analytics-cat-beer" onclick="setAnalyticsCategoryFilter('BEER')">🍺 Beer</span>
+                                    <span class="filter-chip" id="analytics-cat-imfl" onclick="setAnalyticsCategoryFilter('IMFL')">🍷 IMFL</span>
+                                    <span class="filter-chip" id="analytics-cat-cs" onclick="setAnalyticsCategoryFilter('CS')">🍶 CS</span>
+                                </div>
+                            </div>
+                            <div style="padding: 1.25rem;" id="analytics-top-brands-ranked"></div>
+                        </div>
+
+                        <!-- Beer vs Spirits vs CS -->
+                        <div class="table-card">
+                            <div class="table-toolbar">
+                                <span class="table-title">📊 Category Mix Breakdown (Beer vs IMFL vs CS)</span>
+                            </div>
+                            <div style="padding: 1.25rem;" id="analytics-category-mix"></div>
+                        </div>
+
+                        <!-- Backlog Aging Distribution -->
+                        <div class="table-card">
+                            <div class="table-toolbar">
+                                <span class="table-title">⏳ Backlog Aging Distribution</span>
+                            </div>
+                            <div style="padding: 1.25rem;" id="analytics-aging-mix"></div>
                         </div>
                     </div>
                 </div>
@@ -1319,6 +1348,8 @@
         let activeBrandSizeFilter = 'ALL';
         let activeAnalyticsCategoryFilter = 'ALL'; // 'ALL', 'BEER', 'IMFL', 'CS'
         let activeAnalyticsMetric = 'EQ_CASES'; // 'EQ_CASES', 'BOTTLES', 'MRP'
+        let activeAnalyticsScope = 'MONTH_DEEP'; // 'MONTH_DEEP', 'MACRO_TRENDS', 'DAILY'
+        let activeAnalyticsMonthIndex = 0;
         let activeDrawerData = null;
         let scraperPollingInterval = null;
         let scraperElapsedTimer = null;
@@ -1527,6 +1558,8 @@
             
             if (viewName === 'godown') {
                 loadGodownMonthlySummary();
+            } else if (viewName === 'analytics') {
+                loadAnalyticsView();
             }
             
             // Close mobile sidebar on navigate
@@ -2181,24 +2214,36 @@
             renderBrandTable();
         }
 
-        let activeAnalyticsScope = 'DAILY'; // 'DAILY' or 'MONTHLY'
-
         function setAnalyticsScope(scope) {
             activeAnalyticsScope = scope;
+            document.getElementById('scope-month-deep')?.classList.toggle('active', scope === 'MONTH_DEEP');
+            document.getElementById('scope-macro-trends')?.classList.toggle('active', scope === 'MACRO_TRENDS');
             document.getElementById('scope-daily')?.classList.toggle('active', scope === 'DAILY');
-            document.getElementById('scope-monthly')?.classList.toggle('active', scope === 'MONTHLY');
 
+            const deepSec = document.getElementById('analytics-month-deep-section');
+            const macroSec = document.getElementById('analytics-macro-trends-section');
             const dailySec = document.getElementById('analytics-daily-section');
-            const monthlySec = document.getElementById('analytics-monthly-section');
+            const monthBar = document.getElementById('analytics-month-selector-bar');
 
-            if (scope === 'DAILY') {
-                if (dailySec) dailySec.style.display = 'grid';
-                if (monthlySec) monthlySec.style.display = 'none';
-                renderVisualAnalytics();
-            } else {
+            if (monthBar) {
+                monthBar.style.display = (scope === 'MONTH_DEEP') ? 'flex' : 'none';
+            }
+
+            if (scope === 'MONTH_DEEP') {
+                if (deepSec) deepSec.style.display = 'flex';
+                if (macroSec) macroSec.style.display = 'none';
                 if (dailySec) dailySec.style.display = 'none';
-                if (monthlySec) monthlySec.style.display = 'flex';
-                renderMonthlyAnalyticsTrends();
+                renderMonthlyDeepAnalytics();
+            } else if (scope === 'MACRO_TRENDS') {
+                if (deepSec) deepSec.style.display = 'none';
+                if (macroSec) macroSec.style.display = 'flex';
+                if (dailySec) dailySec.style.display = 'none';
+                renderMonthlyMacroTrends();
+            } else {
+                if (deepSec) deepSec.style.display = 'none';
+                if (macroSec) macroSec.style.display = 'none';
+                if (dailySec) dailySec.style.display = 'grid';
+                renderVisualAnalytics();
             }
         }
 
@@ -2208,7 +2253,12 @@
             document.getElementById('analytics-cat-beer')?.classList.toggle('active', cat === 'BEER');
             document.getElementById('analytics-cat-imfl')?.classList.toggle('active', cat === 'IMFL');
             document.getElementById('analytics-cat-cs')?.classList.toggle('active', cat === 'CS');
-            renderVisualAnalytics();
+
+            if (activeAnalyticsScope === 'MONTH_DEEP') {
+                renderMonthlyDeepBrandTable();
+            } else {
+                renderVisualAnalytics();
+            }
         }
 
         function setAnalyticsMetric(metric) {
@@ -2216,10 +2266,13 @@
             document.getElementById('metric-eq-cs')?.classList.toggle('active', metric === 'EQ_CASES');
             document.getElementById('metric-bottles')?.classList.toggle('active', metric === 'BOTTLES');
             document.getElementById('metric-mrp')?.classList.toggle('active', metric === 'MRP');
-            if (activeAnalyticsScope === 'DAILY') {
-                renderVisualAnalytics();
+
+            if (activeAnalyticsScope === 'MONTH_DEEP') {
+                renderMonthlyDeepAnalytics();
+            } else if (activeAnalyticsScope === 'MACRO_TRENDS') {
+                renderMonthlyMacroTrends();
             } else {
-                renderMonthlyAnalyticsTrends();
+                renderVisualAnalytics();
             }
         }
 
@@ -4297,9 +4350,675 @@
         }
 
         // -------------------------------------------------------------
-        // Monthly Macro Trends Rendering Engine
+        // Enterprise Visual Analytics & Monthly Deep-Dive Engine
         // -------------------------------------------------------------
-        async function renderMonthlyAnalyticsTrends() {
+        async function loadAnalyticsView() {
+            if (godownMonthlyData.length === 0) {
+                try {
+                    const res = await fetchWithAuth('/api/godown/monthly-summary');
+                    if (res && res.ok) {
+                        const data = await res.json();
+                        godownMonthlyData = data.months || [];
+                    }
+                } catch (e) {
+                    console.error("Failed to load monthly summary for analytics:", e);
+                }
+            }
+
+            renderAnalyticsMonthChips();
+
+            if (activeAnalyticsScope === 'MONTH_DEEP') {
+                renderMonthlyDeepAnalytics();
+            } else if (activeAnalyticsScope === 'MACRO_TRENDS') {
+                renderMonthlyMacroTrends();
+            } else {
+                renderVisualAnalytics();
+            }
+        }
+
+        function renderAnalyticsMonthChips() {
+            const chipGroup = document.getElementById('analytics-month-chips');
+            if (!chipGroup) return;
+            chipGroup.innerHTML = '';
+
+            if (godownMonthlyData.length === 0) {
+                chipGroup.innerHTML = `<span class="filter-chip active">No Datasets</span>`;
+                return;
+            }
+
+            godownMonthlyData.forEach((m, idx) => {
+                const chip = document.createElement('span');
+                chip.className = `filter-chip ${idx === activeAnalyticsMonthIndex ? 'active' : ''}`;
+                chip.innerText = m.month_key;
+                chip.onclick = () => {
+                    activeAnalyticsMonthIndex = idx;
+                    renderAnalyticsMonthChips();
+                    renderMonthlyDeepAnalytics();
+                };
+                chipGroup.appendChild(chip);
+            });
+        }
+
+        function renderMonthlyDeepAnalytics() {
+            const deepSec = document.getElementById('analytics-month-deep-section');
+            if (!deepSec) return;
+
+            if (godownMonthlyData.length === 0 || !godownMonthlyData[activeAnalyticsMonthIndex]) {
+                deepSec.innerHTML = `<div class="empty-state-box" style="padding: 3rem 0;"><span class="empty-state-icon">📊</span><div class="empty-state-title">No Historical Monthly Datasets Available</div></div>`;
+                return;
+            }
+
+            const monthObj = godownMonthlyData[activeAnalyticsMonthIndex];
+            const prevMonthObj = godownMonthlyData[activeAnalyticsMonthIndex + 1] || null;
+
+            const totCs = monthObj.totals.permtrack_cases || 0;
+            const fullCs = monthObj.totals.cases_only || 0;
+            const totBottles = monthObj.totals.bottles_only || 0;
+            const totMrp = monthObj.totals.total_mrp || 0;
+            const beerCs = monthObj.totals.beer_eq || 0;
+            const imflCs = monthObj.totals.imfl_eq || 0;
+            const csCs = monthObj.totals.cs_eq || 0;
+            const beerMrp = monthObj.totals.beer_mrp || 0;
+            const imflMrp = monthObj.totals.imfl_mrp || 0;
+            const csMrp = monthObj.totals.cs_mrp || 0;
+            const totalPermits = monthObj.totals.total_permits || 0;
+
+            const operatingDays = monthObj.totals.operating_days || monthObj.days.filter(d => !d.is_closed).length;
+            const closedDays = monthObj.totals.closed_days || monthObj.days.filter(d => d.is_closed).length;
+            const dailyAvgCs = monthObj.totals.daily_avg_cases || (operatingDays > 0 ? totCs / operatingDays : 0);
+            const dailyAvgMrp = monthObj.totals.daily_avg_mrp || (operatingDays > 0 ? totMrp / operatingDays : 0);
+            const avgCasePrice = monthObj.totals.avg_case_price || (totCs > 0 ? Math.round(totMrp / totCs) : 0);
+
+            const peakDay = monthObj.totals.peak_day;
+            const lowestDay = monthObj.totals.lowest_day;
+            const godownCases = monthObj.totals.godown_cases;
+            const variance = monthObj.totals.difference;
+            const reconciledDays = monthObj.totals.reconciled_days || 0;
+            const coveragePct = monthObj.totals.coverage_pct || (operatingDays > 0 ? Math.round((reconciledDays / operatingDays) * 100) : 0);
+
+            // Quick summary banner
+            const quickSummaryEl = document.getElementById('analytics-month-quick-summary');
+            if (quickSummaryEl) {
+                quickSummaryEl.innerText = `${monthObj.month_key}: ${totCs.toLocaleString('en-IN', { maximumFractionDigits: 1 })} cs • ${formatIndianCurrency(totMrp)} • ${operatingDays} Operating Days`;
+            }
+
+            // MoM Volume & Revenue Growth Delta vs Previous Month
+            let volumeGrowthHtml = '';
+            let mrpGrowthHtml = '';
+            if (prevMonthObj && prevMonthObj.totals.permtrack_cases > 0) {
+                const prevCs = prevMonthObj.totals.permtrack_cases;
+                const vGrowth = ((totCs - prevCs) / prevCs) * 100;
+                const isVPos = vGrowth >= 0;
+                volumeGrowthHtml = `<span class="badge-status ${isVPos ? 'success' : 'warning'}" style="font-size: 0.72rem;">${isVPos ? '▲ +' : '▼ '}${vGrowth.toFixed(1)}% vs ${prevMonthObj.month_key}</span>`;
+
+                const prevMrp = prevMonthObj.totals.total_mrp;
+                if (prevMrp > 0) {
+                    const mGrowth = ((totMrp - prevMrp) / prevMrp) * 100;
+                    const isMPos = mGrowth >= 0;
+                    mrpGrowthHtml = `<span class="badge-status ${isMPos ? 'success' : 'warning'}" style="font-size: 0.72rem;">${isMPos ? '▲ +' : '▼ '}${mGrowth.toFixed(1)}% vs ${prevMonthObj.month_key}</span>`;
+                }
+            } else {
+                volumeGrowthHtml = `<span class="badge-status info" style="font-size: 0.72rem;">Base Period</span>`;
+                mrpGrowthHtml = `<span class="badge-status info" style="font-size: 0.72rem;">Base Period</span>`;
+            }
+
+            let html = '';
+
+            // =========================================================
+            // ROW 1: 4-HERO EXECUTIVE SCORECARD
+            // =========================================================
+            html += `
+                <div class="executive-kpi-grid">
+                    <!-- Card 1: Net Dispatched Volume -->
+                    <div class="executive-kpi-card hero-primary">
+                        <div class="kpi-eyebrow">
+                            <span>Total Billed Volume</span>
+                            ${volumeGrowthHtml}
+                        </div>
+                        <div class="kpi-metric-group">
+                            <div class="kpi-primary-val">${totCs.toLocaleString('en-IN', { maximumFractionDigits: 1 })} cs</div>
+                            <div class="kpi-subtext" style="color: var(--text-muted); font-size: 0.75rem; margin-top: 0.25rem;">
+                                ${totBottles.toLocaleString('en-IN')} loose bottles • ${fullCs.toLocaleString('en-IN')} full cs
+                            </div>
+                        </div>
+                        <div class="kpi-footer-strip">
+                            <span style="font-size: 0.72rem; color: var(--text-muted);">Total Permits:</span>
+                            <span class="mono-code" style="font-size: 0.76rem; font-weight: 700;">${totalPermits.toLocaleString()} Passes</span>
+                        </div>
+                    </div>
+
+                    <!-- Card 2: Gross Turnover & Case Realization -->
+                    <div class="executive-kpi-card hero-gold">
+                        <div class="kpi-eyebrow">
+                            <span>Gross MRP Turnover</span>
+                            ${mrpGrowthHtml}
+                        </div>
+                        <div class="kpi-metric-group">
+                            <div class="kpi-primary-val" style="color: var(--brand-gold);">${formatIndianCurrency(totMrp)}</div>
+                            <div class="kpi-subtext" style="color: var(--text-muted); font-size: 0.75rem; margin-top: 0.25rem;">
+                                Avg Realization: <strong style="color: var(--text-primary);">₹${avgCasePrice.toLocaleString('en-IN')}/cs</strong>
+                            </div>
+                        </div>
+                        <div class="kpi-footer-strip">
+                            <span style="font-size: 0.72rem; color: var(--text-muted);">Beer: ${formatIndianCurrency(beerMrp)}</span>
+                            <span style="font-size: 0.72rem; color: var(--text-muted);">IMFL: ${formatIndianCurrency(imflMrp)}</span>
+                        </div>
+                    </div>
+
+                    <!-- Card 3: Daily Dispatch Velocity -->
+                    <div class="executive-kpi-card">
+                        <div class="kpi-eyebrow">
+                            <span>Daily Dispatch Velocity</span>
+                            <span class="badge-status info" style="font-size: 0.72rem;">${operatingDays} Active Days</span>
+                        </div>
+                        <div class="kpi-metric-group">
+                            <div class="kpi-primary-val">${dailyAvgCs.toLocaleString('en-IN', { maximumFractionDigits: 1 })} cs/day</div>
+                            <div class="kpi-subtext" style="color: var(--text-muted); font-size: 0.75rem; margin-top: 0.25rem;">
+                                Turnover Run-Rate: <strong style="color: var(--text-primary);">${formatIndianCurrency(dailyAvgMrp)}/day</strong>
+                            </div>
+                        </div>
+                        <div class="kpi-footer-strip">
+                            <span style="font-size: 0.72rem; color: var(--brand-gold); font-weight: 600;">
+                                ${peakDay ? `⚡ Peak: ${peakDay.date_str} (${peakDay.cases.toLocaleString('en-IN', { maximumFractionDigits: 0 })} cs)` : `${closedDays} Closed Days`}
+                            </span>
+                            <span style="font-size: 0.72rem; color: var(--text-muted);">${closedDays} Days Excluded</span>
+                        </div>
+                    </div>
+
+                    <!-- Card 4: Godown Physical Variance & Audit Compliance -->
+                    <div class="executive-kpi-card">
+                        <div class="kpi-eyebrow">
+                            <span>Physical Stock Delta</span>
+                            <span class="badge-status ${coveragePct === 100 ? 'success' : (coveragePct > 0 ? 'warning' : 'info')}" style="font-size: 0.72rem;">
+                                ${coveragePct}% Audited
+                            </span>
+                        </div>
+                        <div class="kpi-metric-group">
+                            <div class="kpi-primary-val" style="color: ${variance === null ? 'var(--text-muted)' : (Math.abs(variance) < 1 ? 'var(--status-success)' : 'var(--status-danger)')};">
+                                ${variance !== null ? `${variance >= 0 ? '+' : ''}${variance.toLocaleString('en-IN', { maximumFractionDigits: 1 })} cs` : 'Awaiting Input'}
+                            </div>
+                            <div class="kpi-subtext" style="color: var(--text-muted); font-size: 0.75rem; margin-top: 0.25rem;">
+                                ${godownCases !== null ? `Godown: ${godownCases.toLocaleString('en-IN', { maximumFractionDigits: 1 })} cs` : 'No physical register entered'}
+                            </div>
+                        </div>
+                        <div class="kpi-footer-strip">
+                            <span style="font-size: 0.72rem; color: var(--text-muted);">Entered Operating Days:</span>
+                            <span class="mono-code" style="font-size: 0.76rem; font-weight: 700;">${reconciledDays} / ${operatingDays} Days</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // =========================================================
+            // ROW 2: FULL-WIDTH DAILY DISPATCH TIMELINE & BENCHMARK CHART
+            // =========================================================
+            const daysList = monthObj.days || [];
+            let maxDayCs = 1;
+            daysList.forEach(d => {
+                if (d.permtrack_cases > maxDayCs) maxDayCs = d.permtrack_cases;
+            });
+
+            // Benchmark line percentage height
+            const benchmarkPct = Math.min(100, Math.round((dailyAvgCs / maxDayCs) * 100));
+
+            html += `
+                <div class="analytics-timeline-container">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+                        <div>
+                            <div style="font-size: 0.95rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
+                                <span>📈 ${monthObj.month_key} Daily Dispatch Trajectory & Volume Timeline</span>
+                            </div>
+                            <div style="font-size: 0.74rem; color: var(--text-muted); margin-top: 0.2rem;">
+                                Stacked breakdown by Beer, IMFL, and Country Spirit across calendar days with benchmark velocity.
+                            </div>
+                        </div>
+                        <!-- Legend -->
+                        <div style="display: flex; gap: 0.85rem; align-items: center; font-size: 0.73rem; flex-wrap: wrap;">
+                            <span style="display: inline-flex; align-items: center; gap: 0.35rem;"><span style="width: 10px; height: 10px; border-radius: 2px; background: #f59e0b;"></span> 🍺 Beer</span>
+                            <span style="display: inline-flex; align-items: center; gap: 0.35rem;"><span style="width: 10px; height: 10px; border-radius: 2px; background: #8b5cf6;"></span> 🍷 IMFL</span>
+                            <span style="display: inline-flex; align-items: center; gap: 0.35rem;"><span style="width: 10px; height: 10px; border-radius: 2px; background: #06b6d4;"></span> 🍶 CS</span>
+                            <span style="display: inline-flex; align-items: center; gap: 0.35rem;"><span style="width: 10px; height: 10px; border-radius: 2px; background: repeating-linear-gradient(45deg, #cbd5e1, #cbd5e1 2px, #f1f5f9 2px, #f1f5f9 4px);"></span> 💤 Closed</span>
+                            <span style="display: inline-flex; align-items: center; gap: 0.35rem;"><span style="width: 12px; height: 1.5px; border-top: 1.5px dashed var(--brand-gold);"></span> Daily Avg Benchmark</span>
+                        </div>
+                    </div>
+
+                    <!-- Timeline Bars Chart -->
+                    <div class="analytics-timeline-bars">
+                        <!-- Benchmark Guide Line -->
+                        <div class="timeline-benchmark-line" style="bottom: ${benchmarkPct}%;">
+                            <span class="timeline-benchmark-label">Avg: ${dailyAvgCs.toFixed(0)} cs</span>
+                        </div>
+            `;
+
+            daysList.forEach(d => {
+                const dayCs = d.permtrack_cases || 0;
+                const isClosed = d.is_closed;
+                const isPeak = peakDay && d.date_str === peakDay.date_str;
+                const barHeightPct = isClosed ? 8 : Math.max(5, Math.round((dayCs / maxDayCs) * 100));
+
+                const bBeer = d.beer_eq || 0;
+                const bImfl = d.imfl_eq || 0;
+                const bCs = d.cs_eq || 0;
+                const dTot = bBeer + bImfl + bCs || 1;
+
+                const beerHeightPct = isClosed ? 0 : Math.round((bBeer / dTot) * 100);
+                const imflHeightPct = isClosed ? 0 : Math.round((bImfl / dTot) * 100);
+                const csHeightPct = isClosed ? 0 : Math.max(0, 100 - beerHeightPct - imflHeightPct);
+
+                // Day number and weekday abbrev (e.g. 01 Mo)
+                const dayNum = d.date_key ? d.date_key.substring(6, 8) : '';
+                const dowAbbrev = d.day ? d.day.substring(0, 2) : '';
+
+                // Tooltip text
+                let reconStatusText = 'Awaiting Physical Entry';
+                if (d.godown_cases !== null) {
+                    reconStatusText = d.difference !== null && Math.abs(d.difference) < 0.5 
+                        ? '✅ Balanced with Physical Register' 
+                        : `⚠️ Variance: ${d.difference > 0 ? '+' : ''}${d.difference.toFixed(2)} cs`;
+                }
+
+                html += `
+                    <div class="timeline-day-col ${isPeak ? 'peak' : ''} ${isClosed ? 'closed' : ''}">
+                        <!-- Tooltip Popup -->
+                        <div class="timeline-tooltip">
+                            <div style="font-weight: 700; color: #fff; margin-bottom: 0.25rem;">${d.date_str} (${d.day || ''})</div>
+                            ${isClosed ? `<div style="color: #cbd5e1;">💤 Bond Closed (Dry Day / Sunday)</div>` : `
+                                <div>Dispatched: <strong style="color: var(--brand-gold);">${dayCs.toLocaleString()} cs</strong></div>
+                                <div style="font-size: 0.68rem; color: #cbd5e1; margin-top: 0.15rem;">
+                                    🍺 ${bBeer.toFixed(1)} cs • 🍷 ${bImfl.toFixed(1)} cs • 🍶 ${bCs.toFixed(1)} cs
+                                </div>
+                                <div style="font-size: 0.68rem; color: #cbd5e1;">Turnover: ${formatIndianCurrency(d.mrp || 0)}</div>
+                                <div style="font-size: 0.68rem; color: #cbd5e1;">Permits: ${(d.permits_count || 0).toLocaleString()} Passes</div>
+                                <div style="margin-top: 0.25rem; font-size: 0.68rem; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 0.2rem;">${reconStatusText}</div>
+                            `}
+                        </div>
+
+                        <!-- Bar Element -->
+                        <div class="timeline-day-bar" style="height: ${barHeightPct}%;">
+                            ${isClosed ? '' : `
+                                <div class="timeline-seg-beer" style="height: ${beerHeightPct}%;"></div>
+                                <div class="timeline-seg-imfl" style="height: ${imflHeightPct}%;"></div>
+                                <div class="timeline-seg-cs" style="height: ${csHeightPct}%;"></div>
+                            `}
+                        </div>
+
+                        <!-- Day Label -->
+                        <div class="timeline-day-label">
+                            <div>${dayNum}</div>
+                            <div class="timeline-day-dow">${dowAbbrev}</div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += `
+                    </div>
+                </div>
+            `;
+
+            // =========================================================
+            // ROW 3: DAY-OF-WEEK HEATMAP & CATEGORY SEGMENT INTELLIGENCE
+            // =========================================================
+            const dowData = monthObj.day_of_week || {};
+            let maxDowCs = 1;
+            let peakDowName = '';
+            let peakDowAvg = 0;
+            ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].forEach(dw => {
+                const info = dowData[dw] || {};
+                const avgCs = info.avg_cases || 0;
+                if (avgCs > maxDowCs) maxDowCs = avgCs;
+                if (avgCs > peakDowAvg) {
+                    peakDowAvg = avgCs;
+                    peakDowName = dw;
+                }
+            });
+
+            // Category Totals & Shares
+            const totCatCases = beerCs + imflCs + csCs || 1;
+            const beerCasePct = Math.round((beerCs / totCatCases) * 100);
+            const imflCasePct = Math.round((imflCs / totCatCases) * 100);
+            const csCasePct = Math.max(0, 100 - beerCasePct - imflCasePct);
+
+            const totCatMrp = beerMrp + imflMrp + csMrp || 1;
+            const beerMrpPct = Math.round((beerMrp / totCatMrp) * 100);
+            const imflMrpPct = Math.round((imflMrp / totCatMrp) * 100);
+            const csMrpPct = Math.max(0, 100 - beerMrpPct - imflMrpPct);
+
+            const beerRealization = beerCs > 0 ? Math.round(beerMrp / beerCs) : 0;
+            const imflRealization = imflCs > 0 ? Math.round(imflMrp / imflCs) : 0;
+            const csRealization = csCs > 0 ? Math.round(csMrp / csCs) : 0;
+
+            html += `
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 1.25rem;">
+                    <!-- Card A: Day-of-Week Operational Heatmap -->
+                    <div class="table-card">
+                        <div class="table-toolbar">
+                            <div>
+                                <span class="table-title">⚡ Operational Rhythm: Day-of-Week Dispatch Pattern</span>
+                                <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.15rem;">
+                                    Identifies peak warehouse dispatch pressure and transport congestion.
+                                </div>
+                            </div>
+                        </div>
+                        <div style="padding: 1.25rem; display: flex; flex-direction: column; gap: 0.75rem;">
+            `;
+
+            ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].forEach(dw => {
+                const info = dowData[dw] || { cases: 0, mrp: 0, permits: 0, active_days: 0, closed_days: 0, avg_cases: 0, share_pct: 0 };
+                const avgCs = info.avg_cases || 0;
+                const barWidthPct = Math.min(100, Math.round((avgCs / (maxDowCs || 1)) * 100));
+                const isPeakDw = dw === peakDowName && peakDowAvg > 0;
+
+                html += `
+                    <div class="dow-row">
+                        <div class="dow-name" style="${isPeakDw ? 'color: var(--brand-gold); font-weight: 800;' : ''}">
+                            ${dw} ${isPeakDw ? '👑' : ''}
+                        </div>
+                        <div class="dow-bar-track">
+                            <div class="dow-bar-fill" style="width: ${barWidthPct}%; ${isPeakDw ? 'background: linear-gradient(90deg, #d97706, #f59e0b);' : ''}"></div>
+                        </div>
+                        <div class="dow-stats">
+                            <div>${avgCs.toLocaleString('en-IN', { maximumFractionDigits: 1 })} cs/day</div>
+                            <div style="font-size: 0.68rem; color: var(--text-muted); font-weight: 400;">
+                                ${info.active_days} days • ${info.permits} passes
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += `
+                            <div style="margin-top: 0.5rem; padding: 0.6rem 0.75rem; background: var(--bg-surface-tint); border-radius: var(--radius-sm); font-size: 0.74rem; color: var(--text-secondary);">
+                                💡 <strong>Operational Insight:</strong> Peak dispatch load occurs on <strong>${peakDowName || 'Weekdays'}</strong>, averaging <strong>${peakDowAvg.toFixed(1)} cs/day</strong>.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Card B: Category & Segment Intelligence -->
+                    <div class="table-card">
+                        <div class="table-toolbar">
+                            <div>
+                                <span class="table-title">📊 Category & Segment Intelligence (Beer vs IMFL vs CS)</span>
+                                <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.15rem;">
+                                    Comparative volume, turnover share, and per-case revenue realization.
+                                </div>
+                            </div>
+                        </div>
+                        <div style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+                            <!-- Stacked Category Share Bar -->
+                            <div>
+                                <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 700; margin-bottom: 0.4rem;">
+                                    <span>Volume Composition Share</span>
+                                    <span class="mono-code" style="color: var(--text-muted); font-size: 0.75rem;">Total: ${totCs.toLocaleString('en-IN', { maximumFractionDigits: 0 })} cs</span>
+                                </div>
+                                <div style="height: 14px; background: var(--bg-surface-tint); border-radius: 7px; overflow: hidden; display: flex; border: 1px solid var(--border-subtle);">
+                                    <div style="width: ${beerCasePct}%; height: 100%; background: #f59e0b;" title="Beer: ${beerCasePct}%"></div>
+                                    <div style="width: ${imflCasePct}%; height: 100%; background: #8b5cf6;" title="IMFL: ${imflCasePct}%"></div>
+                                    <div style="width: ${csCasePct}%; height: 100%; background: #06b6d4;" title="CS: ${csCasePct}%"></div>
+                                </div>
+                            </div>
+
+                            <!-- Detailed Matrix Table -->
+                            <div style="overflow-x: auto;">
+                                <table class="cat-matrix-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Category</th>
+                                            <th style="text-align: right;">Volume (cs)</th>
+                                            <th style="text-align: right;">Vol Share</th>
+                                            <th style="text-align: right;">Turnover (₹)</th>
+                                            <th style="text-align: right;">Realization</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td>
+                                                <div style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600;">
+                                                    <span style="color: #f59e0b;">🍺</span>
+                                                    <span>Beer</span>
+                                                </div>
+                                            </td>
+                                            <td style="text-align: right; font-family: var(--font-mono);">${beerCs.toLocaleString('en-IN', { maximumFractionDigits: 1 })} cs</td>
+                                            <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; color: #f59e0b;">${beerCasePct}%</td>
+                                            <td style="text-align: right; font-family: var(--font-mono);">${formatIndianCurrency(beerMrp)}</td>
+                                            <td style="text-align: right; font-family: var(--font-mono); font-weight: 700;">₹${beerRealization.toLocaleString('en-IN')}/cs</td>
+                                        </tr>
+                                        <tr>
+                                            <td>
+                                                <div style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600;">
+                                                    <span style="color: #8b5cf6;">🍷</span>
+                                                    <span>IMFL Spirits</span>
+                                                </div>
+                                            </td>
+                                            <td style="text-align: right; font-family: var(--font-mono);">${imflCs.toLocaleString('en-IN', { maximumFractionDigits: 1 })} cs</td>
+                                            <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; color: #8b5cf6;">${imflCasePct}%</td>
+                                            <td style="text-align: right; font-family: var(--font-mono);">${formatIndianCurrency(imflMrp)}</td>
+                                            <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; color: var(--brand-gold);">₹${imflRealization.toLocaleString('en-IN')}/cs</td>
+                                        </tr>
+                                        <tr>
+                                            <td>
+                                                <div style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600;">
+                                                    <span style="color: #06b6d4;">🍶</span>
+                                                    <span>Country Spirit</span>
+                                                </div>
+                                            </td>
+                                            <td style="text-align: right; font-family: var(--font-mono);">${csCs.toLocaleString('en-IN', { maximumFractionDigits: 1 })} cs</td>
+                                            <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; color: #06b6d4;">${csCasePct}%</td>
+                                            <td style="text-align: right; font-family: var(--font-mono);">${formatIndianCurrency(csMrp)}</td>
+                                            <td style="text-align: right; font-family: var(--font-mono); font-weight: 700;">₹${csRealization.toLocaleString('en-IN')}/cs</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // =========================================================
+            // ROW 4: PACKAGING FORMATS & LICENSEE CONCENTRATION
+            // =========================================================
+            const packSizes = monthObj.pack_sizes || [];
+            const conc = monthObj.retailer_concentration || { total_retailers: 0, top5_share_pct: 0, top10_share_pct: 0 };
+            const topParties = (monthObj.top_parties || []).slice(0, 10);
+
+            html += `
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 1.25rem;">
+                    <!-- Card A: SKU Pack Size & Bottle Formats -->
+                    <div class="table-card">
+                        <div class="table-toolbar">
+                            <div>
+                                <span class="table-title">📦 SKU Packaging Format & Bottle Size Distribution</span>
+                                <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.15rem;">
+                                    Case and bottle volume split across Quarts, Pints, Cans, and Nips.
+                                </div>
+                            </div>
+                        </div>
+                        <div style="padding: 1.25rem; display: flex; flex-direction: column; gap: 0.75rem;">
+            `;
+
+            if (packSizes.length === 0) {
+                html += `<div class="empty-state-box"><span class="empty-state-icon">📦</span><div class="empty-state-title">No Pack Size Data</div></div>`;
+            } else {
+                const maxPackCs = packSizes[0].cases || 1;
+                packSizes.slice(0, 6).forEach((ps, idx) => {
+                    const pct = Math.round((ps.cases / maxPackCs) * 100);
+                    html += `
+                        <div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600; margin-bottom: 0.3rem;">
+                                <span style="display: flex; align-items: center; gap: 0.4rem;">
+                                    <span class="mono-code" style="font-weight: 700; color: var(--text-primary);">${ps.size}</span>
+                                    <span style="font-size: 0.72rem; color: var(--text-muted);">(${ps.share_pct}%)</span>
+                                </span>
+                                <span class="mono-code" style="color: var(--brand-gold);">${ps.cases.toLocaleString('en-IN', { maximumFractionDigits: 1 })} cs</span>
+                            </div>
+                            <div style="height: 7px; background: var(--bg-surface-tint); border-radius: 4px; overflow: hidden;">
+                                <div style="width: ${pct}%; height: 100%; background: linear-gradient(90deg, #1e3a8a, var(--brand-gold));"></div>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+
+            html += `
+                        </div>
+                    </div>
+
+                    <!-- Card B: Licensee Pareto & Concentration Analytics -->
+                    <div class="table-card">
+                        <div class="table-toolbar">
+                            <div>
+                                <span class="table-title">🏢 Licensee Pareto & Wholesale Concentration</span>
+                                <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.15rem;">
+                                    Distribution share among top licensees and leading retailers.
+                                </div>
+                            </div>
+                            <span class="table-count-badge">${conc.total_retailers} Licensees</span>
+                        </div>
+                        <div style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+                            <!-- Concentration Gauge Box -->
+                            <div class="concentration-gauge">
+                                <div class="concentration-gauge-header">
+                                    <span>Top 10 Licensees Volume Share</span>
+                                    <span class="mono-code" style="color: var(--brand-gold); font-size: 0.95rem;">${conc.top10_share_pct}%</span>
+                                </div>
+                                <div class="concentration-progress-track">
+                                    <div style="width: ${conc.top5_share_pct}%; background: var(--brand-navy);" title="Top 5: ${conc.top5_share_pct}%"></div>
+                                    <div style="width: ${Math.max(0, conc.top10_share_pct - conc.top5_share_pct)}%; background: var(--brand-blue);" title="Top 6-10: ${(conc.top10_share_pct - conc.top5_share_pct).toFixed(1)}%"></div>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-muted);">
+                                    <span>Top 5 Retailers: <strong>${conc.top5_share_pct}%</strong></span>
+                                    <span>Remaining ${Math.max(0, conc.total_retailers - 10)} Retailers: <strong>${(100 - conc.top10_share_pct).toFixed(1)}%</strong></span>
+                                </div>
+                            </div>
+
+                            <!-- Top 5 Licensee Leaderboard -->
+                            <div style="display: flex; flex-direction: column; gap: 0.55rem;">
+            `;
+
+            topParties.slice(0, 5).forEach((p, idx) => {
+                const maxParty = topParties[0].cases || 1;
+                const pPct = Math.round((p.cases / maxParty) * 100);
+                html += `
+                    <div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.78rem; font-weight: 600; margin-bottom: 0.2rem;">
+                            <span style="max-width: 65%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                #${idx + 1} ${escapeHtml(p.name)}
+                            </span>
+                            <span class="mono-code">${p.cases.toLocaleString('en-IN', { maximumFractionDigits: 1 })} cs</span>
+                        </div>
+                        <div style="height: 5px; background: var(--bg-surface-tint); border-radius: 3px; overflow: hidden;">
+                            <div style="width: ${pPct}%; height: 100%; background: var(--brand-navy);"></div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += `
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // =========================================================
+            // ROW 5: INTERACTIVE BRAND SKU DOMINANCE & LEADERBOARD
+            // =========================================================
+            html += `
+                <div class="table-card">
+                    <div class="table-toolbar" style="flex-wrap: wrap; gap: 0.75rem;">
+                        <div>
+                            <span class="table-title">🍾 Top Brand SKU Performance & Dominance Leaderboard</span>
+                            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.15rem;">
+                                Volume ranking, segment share, and estimated revenue turnover for ${monthObj.month_key}.
+                            </div>
+                        </div>
+                        <div class="filter-chip-group">
+                            <span class="filter-chip ${activeAnalyticsCategoryFilter === 'ALL' ? 'active' : ''}" id="deep-cat-all" onclick="setDeepAnalyticsCatFilter('ALL')">All SKUs</span>
+                            <span class="filter-chip ${activeAnalyticsCategoryFilter === 'BEER' ? 'active' : ''}" id="deep-cat-beer" onclick="setDeepAnalyticsCatFilter('BEER')">🍺 Beer</span>
+                            <span class="filter-chip ${activeAnalyticsCategoryFilter === 'IMFL' ? 'active' : ''}" id="deep-cat-imfl" onclick="setDeepAnalyticsCatFilter('IMFL')">🍷 IMFL</span>
+                            <span class="filter-chip ${activeAnalyticsCategoryFilter === 'CS' ? 'active' : ''}" id="deep-cat-cs" onclick="setDeepAnalyticsCatFilter('CS')">🍶 CS</span>
+                        </div>
+                    </div>
+                    <div style="padding: 1.25rem;" id="deep-monthly-brands-container">
+                        <!-- Rendered by renderMonthlyDeepBrandTable() -->
+                    </div>
+                </div>
+            `;
+
+            deepSec.innerHTML = html;
+
+            // Render Brand Table inside container
+            renderMonthlyDeepBrandTable();
+        }
+
+        function setDeepAnalyticsCatFilter(cat) {
+            activeAnalyticsCategoryFilter = cat;
+            document.getElementById('deep-cat-all')?.classList.toggle('active', cat === 'ALL');
+            document.getElementById('deep-cat-beer')?.classList.toggle('active', cat === 'BEER');
+            document.getElementById('deep-cat-imfl')?.classList.toggle('active', cat === 'IMFL');
+            document.getElementById('deep-cat-cs')?.classList.toggle('active', cat === 'CS');
+            renderMonthlyDeepBrandTable();
+        }
+
+        function renderMonthlyDeepBrandTable() {
+            const container = document.getElementById('deep-monthly-brands-container');
+            if (!container) return;
+
+            if (godownMonthlyData.length === 0 || !godownMonthlyData[activeAnalyticsMonthIndex]) {
+                container.innerHTML = `<div class="empty-state-box"><span class="empty-state-icon">🍾</span><div class="empty-state-title">No Brands Data</div></div>`;
+                return;
+            }
+
+            const monthObj = godownMonthlyData[activeAnalyticsMonthIndex];
+            const allBrands = monthObj.top_brands || [];
+
+            const filtered = allBrands.filter(b => {
+                if (activeAnalyticsCategoryFilter !== 'ALL' && b.category !== activeAnalyticsCategoryFilter) return false;
+                return true;
+            });
+
+            if (filtered.length === 0) {
+                container.innerHTML = `<div class="empty-state-box" style="padding: 2rem 0;"><span class="empty-state-icon">🍾</span><div class="empty-state-title">No Brand SKUs Found for ${activeAnalyticsCategoryFilter}</div></div>`;
+                return;
+            }
+
+            const maxBrandCs = filtered[0].cases || 1;
+            let brandHtml = `<div style="display: flex; flex-direction: column; gap: 0.85rem;">`;
+
+            filtered.forEach((b, idx) => {
+                const pct = Math.round((b.cases / maxBrandCs) * 100);
+                const catClass = b.category ? b.category.toLowerCase() : 'imfl';
+                const catEmoji = b.category === 'BEER' ? '🍺 BEER' : (b.category === 'CS' ? '🍶 CS' : '🍷 IMFL');
+
+                brandHtml += `
+                    <div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.35rem;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; max-width: 65%;">
+                                <span style="font-family: var(--font-mono); color: var(--text-muted); font-size: 0.75rem;">#${idx + 1}</span>
+                                <span class="cat-badge ${catClass}" style="font-size: 0.65rem; padding: 0.15rem 0.45rem;">${catEmoji}</span>
+                                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary);">${escapeHtml(b.name)}</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                <span class="mono-code" style="color: var(--text-muted); font-size: 0.74rem;">${b.share_pct}% share</span>
+                                <span class="mono-code" style="color: var(--brand-gold); font-weight: 700; font-size: 0.88rem;">${b.cases.toLocaleString('en-IN', { maximumFractionDigits: 1 })} cs</span>
+                            </div>
+                        </div>
+                        <div style="height: 6px; background: var(--bg-surface-tint); border-radius: 3px; overflow: hidden;">
+                            <div style="width: ${pct}%; height: 100%; background: var(--brand-gold);"></div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            brandHtml += `</div>`;
+            container.innerHTML = brandHtml;
+        }
+
+        // -------------------------------------------------------------
+        // Multi-Month Historical Macro Trends Rendering Engine
+        // -------------------------------------------------------------
+        async function renderMonthlyMacroTrends() {
             if (godownMonthlyData.length === 0) {
                 try {
                     const res = await fetchWithAuth('/api/godown/monthly-summary');
@@ -4318,6 +5037,7 @@
             const barsContainer = document.getElementById('analytics-monthly-bars-container');
             const catShareContainer = document.getElementById('analytics-monthly-category-share');
             const runRateContainer = document.getElementById('analytics-monthly-run-rate');
+            const varianceContainer = document.getElementById('analytics-monthly-variance-trend');
             const topBrandsContainer = document.getElementById('analytics-monthly-top-brands');
             const topPartiesContainer = document.getElementById('analytics-monthly-top-parties');
 
@@ -4378,8 +5098,8 @@
                             <div style="width: ${pct}%; height: 100%; background: linear-gradient(90deg, #1e3a8a, var(--brand-gold)); border-radius: 5px; transition: width 0.5s ease;"></div>
                         </div>
                         <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem;">
-                            <span>${m.totals.active_days || m.days.length} Active Days</span>
-                            <span>Excise Passes: ${m.days.reduce((acc, d) => acc + (d.permtrack_cases > 0 ? 1 : 0), 0)} Loading Days</span>
+                            <span>${m.totals.operating_days || m.totals.active_days} Operating Days (${m.totals.closed_days || 0} Closed Excluded)</span>
+                            <span>Turnover: ${formatIndianCurrency(m.totals.total_mrp || 0)}</span>
                         </div>
                     </div>
                 `;
@@ -4427,7 +5147,7 @@
             if (runRateContainer) {
                 let runHtml = `<div style="display: flex; flex-direction: column; gap: 1rem;">`;
                 chronologicalMonths.forEach(m => {
-                    const activeDays = m.totals.active_days || 1;
+                    const activeDays = m.totals.operating_days || m.totals.active_days || 1;
                     const totCs = m.totals.permtrack_cases || 0;
                     const dailyAvg = totCs / activeDays;
                     const dailyMrpAvg = (m.totals.total_mrp || 0) / activeDays;
@@ -4439,8 +5159,8 @@
                                 <span class="mono-code" style="font-weight: 800; color: var(--brand-gold); font-size: 0.95rem;">${dailyAvg.toLocaleString('en-IN', { maximumFractionDigits: 1 })} cs/day</span>
                             </div>
                             <div style="display: flex; justify-content: space-between; font-size: 0.73rem; color: var(--text-muted); margin-top: 0.3rem;">
-                                <span>Based on ${activeDays} active operating days</span>
-                                <span>Turnover: ${formatIndianCurrency(dailyMrpAvg)}/day</span>
+                                <span>Based on ${activeDays} operating days</span>
+                                <span>Run-Rate: ${formatIndianCurrency(dailyMrpAvg)}/day</span>
                             </div>
                         </div>
                     `;
@@ -4449,9 +5169,42 @@
                 runRateContainer.innerHTML = runHtml;
             }
 
-            // 4. Top Monthly Brand Drivers
+            // 4. Physical Stock Variance MoM Tracking
+            if (varianceContainer) {
+                let varHtml = `<div style="display: flex; flex-direction: column; gap: 0.85rem;">`;
+                chronologicalMonths.forEach(m => {
+                    const diff = m.totals.difference;
+                    const hasRecon = m.totals.has_godown_entries;
+                    const cov = m.totals.coverage_pct || 0;
+                    const opDays = m.totals.operating_days || 1;
+                    const recDays = m.totals.reconciled_days || 0;
+
+                    let statusBadge = '<span class="badge-status info">Not Audited</span>';
+                    if (hasRecon) {
+                        statusBadge = diff !== null && Math.abs(diff) < 1 
+                            ? '<span class="badge-status success">Balanced</span>' 
+                            : `<span class="badge-status warning">${diff >= 0 ? '+' : ''}${diff} cs Delta</span>`;
+                    }
+
+                    varHtml += `
+                        <div style="padding: 0.75rem 0.85rem; background: var(--bg-surface-tint); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-weight: 700; font-family: var(--font-mono); font-size: 0.85rem;">${m.month_key}</span>
+                                ${statusBadge}
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.73rem; color: var(--text-muted); margin-top: 0.3rem;">
+                                <span>Coverage: ${cov}% (${recDays}/${opDays} Days)</span>
+                                <span>Godown Cases: ${m.totals.godown_cases !== null ? `${m.totals.godown_cases.toLocaleString()} cs` : 'Pending'}</span>
+                            </div>
+                        </div>
+                    `;
+                });
+                varHtml += `</div>`;
+                varianceContainer.innerHTML = varHtml;
+            }
+
+            // 5. Historical Leading Brands
             if (topBrandsContainer) {
-                // Latest month's top brands
                 const latestMonth = godownMonthlyData[0];
                 let brandHtml = `<div style="margin-bottom: 0.5rem; font-size: 0.75rem; color: var(--text-muted);">Top Volume SKUs for <strong>${latestMonth.month_key}</strong>:</div>`;
                 brandHtml += `<div style="display: flex; flex-direction: column; gap: 0.65rem;">`;
@@ -4477,7 +5230,7 @@
                 topBrandsContainer.innerHTML = brandHtml;
             }
 
-            // 5. Top Monthly Licensee Outlets
+            // 6. Historical Leading Licensees
             if (topPartiesContainer) {
                 const latestMonth = godownMonthlyData[0];
                 let partyHtml = `<div style="margin-bottom: 0.5rem; font-size: 0.75rem; color: var(--text-muted);">Leading Licensees for <strong>${latestMonth.month_key}</strong>:</div>`;

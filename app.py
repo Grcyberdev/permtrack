@@ -487,6 +487,8 @@ async def get_godown_monthly_summary(request: Request):
                 "days": [],
                 "totals": {
                     "permtrack_cases": 0.0,
+                    "cases_only": 0.0,
+                    "bottles_only": 0,
                     "godown_cases": 0.0,
                     "has_godown_entries": False,
                     "difference": 0.0,
@@ -494,10 +496,16 @@ async def get_godown_monthly_summary(request: Request):
                     "beer_eq": 0.0,
                     "imfl_eq": 0.0,
                     "cs_eq": 0.0,
+                    "beer_mrp": 0.0,
+                    "imfl_mrp": 0.0,
+                    "cs_mrp": 0.0,
+                    "total_permits": 0,
                     "active_days": 0
                 },
                 "brand_totals": {},
-                "party_totals": {}
+                "party_totals": {},
+                "size_totals": {},
+                "dow_totals": {d: {"cases": 0.0, "mrp": 0.0, "permits": 0, "active_days": 0, "closed_days": 0} for d in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]}
             }
 
         m_dict = months[month_key]
@@ -511,6 +519,10 @@ async def get_godown_monthly_summary(request: Request):
                 elif isinstance(bdata, dict):
                     records = (bdata.get("completed") or []) + (bdata.get("pending") or [])
 
+                day_beer_mrp = 0.0
+                day_imfl_mrp = 0.0
+                day_cs_mrp = 0.0
+
                 for rec in records:
                     status = str(rec.get("Status") or "").strip().upper()
                     if status == "PENDING":
@@ -518,7 +530,7 @@ async def get_godown_monthly_summary(request: Request):
                     permits_count += 1
                     c = float(rec.get("Cases") or 0)
                     b = int(rec.get("Bottles") or 0)
-                    pack_size = rec.get("Size") or rec.get("Pack Size")
+                    pack_size = str(rec.get("Size") or rec.get("Pack Size") or "Unknown")
                     b_per_cs = automation_utils.get_bottles_per_case(pack_size)
                     eq = (b / b_per_cs) if b_per_cs > 0 else 0.0
                     tot_eq = c + eq
@@ -534,25 +546,66 @@ async def get_godown_monthly_summary(request: Request):
 
                     if cat == "BEER":
                         day_beer_eq += tot_eq
+                        day_beer_mrp += mrp_val
                     elif cat == "CS":
                         day_cs_eq += tot_eq
+                        day_cs_mrp += mrp_val
                     else:
                         day_imfl_eq += tot_eq
+                        day_imfl_mrp += mrp_val
 
-                    m_dict["brand_totals"][brand_name] = m_dict["brand_totals"].get(brand_name, 0.0) + tot_eq
-                    m_dict["party_totals"][party_name] = m_dict["party_totals"].get(party_name, 0.0) + tot_eq
+                    # Brand SKU tracking
+                    if brand_name not in m_dict["brand_totals"]:
+                        m_dict["brand_totals"][brand_name] = {"cases": 0.0, "bottles": 0, "mrp": 0.0, "category": cat}
+                    m_dict["brand_totals"][brand_name]["cases"] += tot_eq
+                    m_dict["brand_totals"][brand_name]["bottles"] += b
+                    m_dict["brand_totals"][brand_name]["mrp"] += mrp_val
+
+                    # Party / Licensee tracking
+                    if party_name not in m_dict["party_totals"]:
+                        m_dict["party_totals"][party_name] = {"cases": 0.0, "bottles": 0, "mrp": 0.0, "permits": 0}
+                    m_dict["party_totals"][party_name]["cases"] += tot_eq
+                    m_dict["party_totals"][party_name]["bottles"] += b
+                    m_dict["party_totals"][party_name]["mrp"] += mrp_val
+                    m_dict["party_totals"][party_name]["permits"] += 1
+
+                    # Size / Pack format tracking
+                    s_key = f"{pack_size} ML" if pack_size.isdigit() else pack_size
+                    if s_key not in m_dict["size_totals"]:
+                        m_dict["size_totals"][s_key] = {"cases": 0.0, "bottles": 0, "mrp": 0.0}
+                    m_dict["size_totals"][s_key]["cases"] += tot_eq
+                    m_dict["size_totals"][s_key]["bottles"] += b
+                    m_dict["size_totals"][s_key]["mrp"] += mrp_val
         except Exception:
             pass
 
         permtrack_total_cases = round(dispatched_cases + dispatched_cs_eq, 2)
         is_closed = (permits_count == 0)
+
+        # Day of week aggregation
+        if day_name in m_dict["dow_totals"]:
+            dow = m_dict["dow_totals"][day_name]
+            if is_closed:
+                dow["closed_days"] += 1
+            else:
+                dow["active_days"] += 1
+                dow["cases"] = round(dow["cases"] + permtrack_total_cases, 2)
+                dow["mrp"] = round(dow["mrp"] + day_mrp, 2)
+                dow["permits"] += permits_count
+
         if not is_closed:
             m_dict["totals"]["active_days"] += 1
 
-        m_dict["totals"]["total_mrp"] += round(day_mrp, 2)
-        m_dict["totals"]["beer_eq"] += round(day_beer_eq, 2)
-        m_dict["totals"]["imfl_eq"] += round(day_imfl_eq, 2)
-        m_dict["totals"]["cs_eq"] += round(day_cs_eq, 2)
+        m_dict["totals"]["cases_only"] += dispatched_cases
+        m_dict["totals"]["bottles_only"] += dispatched_bottles
+        m_dict["totals"]["total_mrp"] += day_mrp
+        m_dict["totals"]["beer_eq"] += day_beer_eq
+        m_dict["totals"]["imfl_eq"] += day_imfl_eq
+        m_dict["totals"]["cs_eq"] += day_cs_eq
+        m_dict["totals"]["beer_mrp"] += day_beer_mrp
+        m_dict["totals"]["imfl_mrp"] += day_imfl_mrp
+        m_dict["totals"]["cs_mrp"] += day_cs_mrp
+        m_dict["totals"]["total_permits"] += permits_count
 
         # Godown figure from saved reconciliation
         recon_entry = recon_data.get(date_key, {})
@@ -580,6 +633,10 @@ async def get_godown_monthly_summary(request: Request):
             "beer_eq": round(day_beer_eq, 2),
             "imfl_eq": round(day_imfl_eq, 2),
             "cs_eq": round(day_cs_eq, 2),
+            "beer_mrp": round(day_beer_mrp, 2),
+            "imfl_mrp": round(day_imfl_mrp, 2),
+            "cs_mrp": round(day_cs_mrp, 2),
+            "permits_count": permits_count,
             "godown_cases": godown_cases,
             "difference": difference,
             "is_closed": is_closed,
@@ -587,7 +644,7 @@ async def get_godown_monthly_summary(request: Request):
             "updated_by": updated_by
         })
 
-    # Compute cumulative totals and prepare top rankings
+    # Compute cumulative totals and prepare enriched multi-dimensional rankings
     result_months = []
     for month_key, mdata in months.items():
         cum_permtrack = 0.0
@@ -611,20 +668,122 @@ async def get_godown_monthly_summary(request: Request):
                 day["cumulative_difference"] = None
 
         mdata["totals"]["permtrack_cases"] = round(cum_permtrack, 2)
+        mdata["totals"]["cases_only"] = round(mdata["totals"]["cases_only"], 2)
+        mdata["totals"]["bottles_only"] = int(mdata["totals"]["bottles_only"])
         mdata["totals"]["godown_cases"] = round(tot_godown, 2) if has_godown else None
         mdata["totals"]["has_godown_entries"] = has_godown
         mdata["totals"]["difference"] = round(tot_godown - cum_permtrack, 2) if has_godown else None
         mdata["totals"]["operating_days"] = mdata["totals"].get("active_days", 0)
         mdata["totals"]["closed_days"] = len(mdata["days"]) - mdata["totals"]["operating_days"]
         mdata["totals"]["total_days"] = len(mdata["days"])
+        mdata["totals"]["total_mrp"] = round(mdata["totals"]["total_mrp"], 2)
+        mdata["totals"]["beer_eq"] = round(mdata["totals"]["beer_eq"], 2)
+        mdata["totals"]["imfl_eq"] = round(mdata["totals"]["imfl_eq"], 2)
+        mdata["totals"]["cs_eq"] = round(mdata["totals"]["cs_eq"], 2)
+        mdata["totals"]["beer_mrp"] = round(mdata["totals"]["beer_mrp"], 2)
+        mdata["totals"]["imfl_mrp"] = round(mdata["totals"]["imfl_mrp"], 2)
+        mdata["totals"]["cs_mrp"] = round(mdata["totals"]["cs_mrp"], 2)
 
-        # Sort top 10 brands & retailers for the month
-        top_brands_sorted = sorted(mdata["brand_totals"].items(), key=lambda x: x[1], reverse=True)[:10]
-        top_parties_sorted = sorted(mdata["party_totals"].items(), key=lambda x: x[1], reverse=True)[:10]
-        mdata["top_brands"] = [{"name": k, "cases": round(v, 2)} for k, v in top_brands_sorted]
-        mdata["top_parties"] = [{"name": k, "cases": round(v, 2)} for k, v in top_parties_sorted]
+        op_days = mdata["totals"]["operating_days"]
+        tot_cs = mdata["totals"]["permtrack_cases"]
+        tot_rev = mdata["totals"]["total_mrp"]
+
+        mdata["totals"]["avg_case_price"] = round(tot_rev / tot_cs, 2) if tot_cs > 0 else 0.0
+        mdata["totals"]["daily_avg_cases"] = round(tot_cs / op_days, 2) if op_days > 0 else 0.0
+        mdata["totals"]["daily_avg_mrp"] = round(tot_rev / op_days, 2) if op_days > 0 else 0.0
+
+        # Peak and Lowest Dispatch Days (among operational days)
+        active_days_list = [d for d in mdata["days"] if not d["is_closed"] and d["permtrack_cases"] > 0]
+        if active_days_list:
+            peak_day = max(active_days_list, key=lambda d: d["permtrack_cases"])
+            lowest_day = min(active_days_list, key=lambda d: d["permtrack_cases"])
+            mdata["totals"]["peak_day"] = {
+                "date_str": peak_day["date_str"],
+                "day": peak_day["day"],
+                "cases": peak_day["permtrack_cases"],
+                "mrp": peak_day["mrp"]
+            }
+            mdata["totals"]["lowest_day"] = {
+                "date_str": lowest_day["date_str"],
+                "day": lowest_day["day"],
+                "cases": lowest_day["permtrack_cases"],
+                "mrp": lowest_day["mrp"]
+            }
+        else:
+            mdata["totals"]["peak_day"] = None
+            mdata["totals"]["lowest_day"] = None
+
+        # Reconciled operating days count & coverage percentage
+        reconciled_count = sum(1 for d in mdata["days"] if not d["is_closed"] and d["godown_cases"] is not None)
+        mdata["totals"]["reconciled_days"] = reconciled_count
+        mdata["totals"]["coverage_pct"] = round((reconciled_count / op_days) * 100) if op_days > 0 else 0
+
+        # Sort top 15 brands with deep SKU metrics
+        top_brands_sorted = sorted(mdata["brand_totals"].items(), key=lambda x: x[1]["cases"], reverse=True)[:15]
+        mdata["top_brands"] = [
+            {
+                "name": k,
+                "cases": round(v["cases"], 2),
+                "bottles": v["bottles"],
+                "mrp": round(v["mrp"], 2),
+                "category": v["category"],
+                "share_pct": round((v["cases"] / tot_cs) * 100, 1) if tot_cs > 0 else 0.0
+            }
+            for k, v in top_brands_sorted
+        ]
+
+        # Sort top 15 parties with permit counts and MRP
+        top_parties_sorted = sorted(mdata["party_totals"].items(), key=lambda x: x[1]["cases"], reverse=True)[:15]
+        mdata["top_parties"] = [
+            {
+                "name": k,
+                "cases": round(v["cases"], 2),
+                "bottles": v["bottles"],
+                "mrp": round(v["mrp"], 2),
+                "permits": v["permits"],
+                "share_pct": round((v["cases"] / tot_cs) * 100, 1) if tot_cs > 0 else 0.0
+            }
+            for k, v in top_parties_sorted
+        ]
+
+        # Retailer concentration Pareto
+        all_party_cases = sorted([v["cases"] for v in mdata["party_totals"].values()], reverse=True)
+        top5_sum = sum(all_party_cases[:5])
+        top10_sum = sum(all_party_cases[:10])
+        mdata["retailer_concentration"] = {
+            "total_retailers": len(mdata["party_totals"]),
+            "top5_cases": round(top5_sum, 2),
+            "top5_share_pct": round((top5_sum / tot_cs) * 100, 1) if tot_cs > 0 else 0.0,
+            "top10_cases": round(top10_sum, 2),
+            "top10_share_pct": round((top10_sum / tot_cs) * 100, 1) if tot_cs > 0 else 0.0
+        }
+
+        # Pack size distribution
+        sorted_sizes = sorted(mdata["size_totals"].items(), key=lambda x: x[1]["cases"], reverse=True)[:10]
+        mdata["pack_sizes"] = [
+            {
+                "size": k,
+                "cases": round(v["cases"], 2),
+                "bottles": v["bottles"],
+                "mrp": round(v["mrp"], 2),
+                "share_pct": round((v["cases"] / tot_cs) * 100, 1) if tot_cs > 0 else 0.0
+            }
+            for k, v in sorted_sizes
+        ]
+
+        # Day of week averages
+        for dname, dinfo in mdata["dow_totals"].items():
+            act = dinfo["active_days"]
+            dinfo["avg_cases"] = round(dinfo["cases"] / act, 2) if act > 0 else 0.0
+            dinfo["avg_mrp"] = round(dinfo["mrp"] / act, 2) if act > 0 else 0.0
+            dinfo["share_pct"] = round((dinfo["cases"] / tot_cs) * 100, 1) if tot_cs > 0 else 0.0
+
+        mdata["day_of_week"] = mdata["dow_totals"]
+
         mdata.pop("brand_totals", None)
         mdata.pop("party_totals", None)
+        mdata.pop("size_totals", None)
+        mdata.pop("dow_totals", None)
 
         result_months.append(mdata)
 
