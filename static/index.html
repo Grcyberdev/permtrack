@@ -11,7 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,600&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700;800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
 
     <!-- Stylesheet -->
-    <link rel="stylesheet" href="/static/css/style.css?v=20261005_1245">
+    <link rel="stylesheet" href="/static/css/style.css?v=20261006_1220">
 </head>
 <body>
 
@@ -662,10 +662,11 @@
                             </div>
                             <div class="table-controls">
                                 <div class="filter-chip-group">
-                                    <span class="filter-chip active" id="chip-recon-all" onclick="setGodownReconFilter('ALL')">All Days</span>
+                                    <span class="filter-chip active" id="chip-recon-all" onclick="setGodownReconFilter('ALL')">Operating Days</span>
                                     <span class="filter-chip" id="chip-recon-discrepancies" onclick="setGodownReconFilter('DISCREPANCY')">⚠️ Discrepancies</span>
                                     <span class="filter-chip" id="chip-recon-pending" onclick="setGodownReconFilter('PENDING')">📝 Pending Count</span>
                                     <span class="filter-chip" id="chip-recon-matched" onclick="setGodownReconFilter('MATCHED')">✅ Balanced</span>
+                                    <span class="filter-chip" id="chip-recon-closed" onclick="setGodownReconFilter('CLOSED')">💤 Closed Days</span>
                                 </div>
                                 <input type="text" id="godown-search-input" class="table-search-input" placeholder="Filter date or day..." oninput="renderGodownActiveMonth()" aria-label="Search reconciliation table">
                             </div>
@@ -2749,7 +2750,8 @@
                 'ALL': 'chip-recon-all',
                 'DISCREPANCY': 'chip-recon-discrepancies',
                 'PENDING': 'chip-recon-pending',
-                'MATCHED': 'chip-recon-matched'
+                'MATCHED': 'chip-recon-matched',
+                'CLOSED': 'chip-recon-closed'
             };
             Object.entries(filterMap).forEach(([k, id]) => {
                 const el = document.getElementById(id);
@@ -2813,13 +2815,18 @@
             const monthObj = godownMonthlyData[activeGodownMonthIndex];
 
             // Calculate operational & reconciliation metrics
-            const totalDays = monthObj.days.length;
+            // Exclude closed non-working days where the bond had zero sales/loading
+            const operatingDays = monthObj.days.filter(d => !d.is_closed);
+            const totalOperatingDays = operatingDays.length;
+            const closedDays = monthObj.days.filter(d => d.is_closed);
+            const closedDaysCount = closedDays.length;
+
             let enteredDaysCount = 0;
             let discrepancyCount = 0;
             let matchedCount = 0;
             let pendingCount = 0;
 
-            monthObj.days.forEach(day => {
+            operatingDays.forEach(day => {
                 const hasEntered = day.godown_cases !== null && day.godown_cases !== undefined;
                 if (hasEntered) {
                     enteredDaysCount++;
@@ -2828,12 +2835,13 @@
                     } else if (day.difference !== null && Math.abs(day.difference) < 0.5) {
                         matchedCount++;
                     }
-                } else if (!day.is_closed) {
+                } else {
                     pendingCount++;
                 }
             });
 
-            const coveragePct = totalDays > 0 ? Math.round((enteredDaysCount / totalDays) * 100) : 0;
+            // Coverage percentage is strictly based on active operating days requiring entry
+            const coveragePct = totalOperatingDays > 0 ? Math.round((enteredDaysCount / totalOperatingDays) * 100) : 0;
 
             // Update Card 1: Audit Period & Coverage
             const kpiMonthName = document.getElementById('kpi-godown-month-name');
@@ -2843,9 +2851,15 @@
             const kpiAuditBadge = document.getElementById('kpi-godown-audit-badge');
 
             if (kpiMonthName) kpiMonthName.innerText = monthObj.month_key;
-            if (kpiMonthDays) kpiMonthDays.innerText = `${totalDays} Recorded Operating Days`;
+            if (kpiMonthDays) {
+                if (closedDaysCount > 0) {
+                    kpiMonthDays.innerText = `${totalOperatingDays} Operating Days (${closedDaysCount} Closed Days Excluded)`;
+                } else {
+                    kpiMonthDays.innerText = `${totalOperatingDays} Recorded Operating Days`;
+                }
+            }
             if (kpiCoverageBar) kpiCoverageBar.style.width = `${coveragePct}%`;
-            if (kpiCoverageText) kpiCoverageText.innerText = `${coveragePct}% Reconciled (${enteredDaysCount}/${totalDays} Days)`;
+            if (kpiCoverageText) kpiCoverageText.innerText = `${coveragePct}% Reconciled (${enteredDaysCount}/${totalOperatingDays} Operating Days)`;
             if (kpiAuditBadge) kpiAuditBadge.innerText = coveragePct === 100 ? '✅ 100% AUDITED' : `${coveragePct}% AUDITED`;
 
             // Card 2: Warehouse Physical Register
@@ -2863,8 +2877,8 @@
                     : 'Awaiting Input';
             }
             if (kpiGodownEnteredBadge) {
-                kpiGodownEnteredBadge.innerText = `${enteredDaysCount} of ${totalDays} Days Entered`;
-                kpiGodownEnteredBadge.className = enteredDaysCount === totalDays ? 'badge-status success' : (enteredDaysCount > 0 ? 'badge-status warning' : 'badge-status info');
+                kpiGodownEnteredBadge.innerText = `${enteredDaysCount} of ${totalOperatingDays} Operating Days Entered`;
+                kpiGodownEnteredBadge.className = enteredDaysCount === totalOperatingDays ? 'badge-status success' : (enteredDaysCount > 0 ? 'badge-status warning' : 'badge-status info');
             }
 
             // Card 3: PermTrack Excise Billed
@@ -2874,7 +2888,14 @@
                 kpiPermTrackTotal.innerText = `${totPermtrack.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} cs`;
             }
             if (kpiPermtrackDaysBadge) {
-                kpiPermtrackDaysBadge.innerText = `${totalDays} Days Excise Billed`;
+                kpiPermtrackDaysBadge.innerText = `${totalOperatingDays} Operating Days Billed`;
+            }
+
+            // Update closed chip badge if closed days exist
+            const closedChip = document.getElementById('chip-recon-closed');
+            if (closedChip) {
+                closedChip.innerText = `💤 Closed Days (${closedDaysCount})`;
+                closedChip.style.display = closedDaysCount > 0 ? 'inline-flex' : 'none';
             }
 
             // Card 4: Net Variance Delta & Match Health
@@ -2942,6 +2963,18 @@
                     if (!dStr.includes(searchQuery) && !dDay.includes(searchQuery) && !dKey.includes(searchQuery)) {
                         return false;
                     }
+                    if (activeGodownReconFilter === 'ALL') {
+                        return true;
+                    }
+                }
+
+                if (activeGodownReconFilter === 'CLOSED') {
+                    return day.is_closed;
+                }
+
+                // In all reconciliation operational filters, exclude closed non-working days
+                if (day.is_closed) {
+                    return false;
                 }
 
                 const hasEntered = day.godown_cases !== null && day.godown_cases !== undefined;
@@ -2949,7 +2982,7 @@
                 const isDiscrepancy = hasEntered && day.difference !== null && Math.abs(day.difference) >= 0.5;
 
                 if (activeGodownReconFilter === 'DISCREPANCY') return isDiscrepancy;
-                if (activeGodownReconFilter === 'PENDING') return !hasEntered && !day.is_closed;
+                if (activeGodownReconFilter === 'PENDING') return !hasEntered;
                 if (activeGodownReconFilter === 'MATCHED') return isBalanced;
                 return true;
             });
@@ -2957,8 +2990,18 @@
             // Update Table Header Title & Count Badge
             const countBadge = document.getElementById('godown-table-count');
             const tableTitle = document.getElementById('godown-table-title');
-            if (countBadge) countBadge.innerText = `${filteredDays.length} / ${totalDays} Days`;
-            if (tableTitle) tableTitle.innerText = `${monthObj.month_key} Sales Register & Reconciliation`;
+            if (countBadge) {
+                if (activeGodownReconFilter === 'CLOSED') {
+                    countBadge.innerText = `${filteredDays.length} / ${closedDaysCount} Closed Days`;
+                } else {
+                    countBadge.innerText = `${filteredDays.length} / ${totalOperatingDays} Operating Days`;
+                }
+            }
+            if (tableTitle) {
+                tableTitle.innerText = activeGodownReconFilter === 'CLOSED'
+                    ? `${monthObj.month_key} Closed / Non-Operational Days`
+                    : `${monthObj.month_key} Sales Register & Reconciliation`;
+            }
 
             // Render Daily Rows
             const tbody = document.getElementById('godown-recon-tbody');
@@ -3048,8 +3091,9 @@
                                     class="recon-input-field"
                                     id="recon-input-${day.date_key}"
                                     value="${day.godown_cases !== null && day.godown_cases !== undefined ? day.godown_cases : ''}"
-                                    placeholder="0.00"
-                                    title="Enter physical godown dispatched cases and press Enter to save"
+                                    placeholder="${day.is_closed ? 'Closed' : '0.00'}"
+                                    ${day.is_closed ? 'disabled' : ''}
+                                    title="${day.is_closed ? 'Bond Closed - No Dispatches' : 'Enter physical godown dispatched cases and press Enter to save'}"
                                     onchange="saveGodownDailyEntry('${day.date_key}', this.value, this)"
                                     onkeydown="if(event.key === 'Enter') { this.blur(); }"
                                 />

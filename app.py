@@ -614,6 +614,9 @@ async def get_godown_monthly_summary(request: Request):
         mdata["totals"]["godown_cases"] = round(tot_godown, 2) if has_godown else None
         mdata["totals"]["has_godown_entries"] = has_godown
         mdata["totals"]["difference"] = round(tot_godown - cum_permtrack, 2) if has_godown else None
+        mdata["totals"]["operating_days"] = mdata["totals"].get("active_days", 0)
+        mdata["totals"]["closed_days"] = len(mdata["days"]) - mdata["totals"]["operating_days"]
+        mdata["totals"]["total_days"] = len(mdata["days"])
 
         # Sort top 10 brands & retailers for the month
         top_brands_sorted = sorted(mdata["brand_totals"].items(), key=lambda x: x[1], reverse=True)[:10]
