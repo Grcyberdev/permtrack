@@ -943,9 +943,8 @@ async def upload_results(request: Request):
         latest_filename = "backup_permits_latest.json"
         canonical_path = os.path.join(config_dir, canonical_filename)
         
-        # Server-side merge protection: Preserve previously completed dispatches and guard against case truncation
+        # Server-side merge protection: Preserve previously completed dispatches only if missing in incoming
         existing_completed = []
-        existing_indent_cases = {}
         if os.path.exists(canonical_path):
             try:
                 with open(canonical_path, "r") as ef:
@@ -953,39 +952,17 @@ async def upload_results(request: Request):
                 for it in ex_data:
                     if str(it.get("Status", "")).upper() == "COMPLETED":
                         existing_completed.append(it)
-                        iid = get_unique_indent_id(it)
-                        existing_indent_cases[iid] = existing_indent_cases.get(iid, 0.0) + float(it.get("Cases") or 0)
             except Exception: pass
-            
-        incoming_indent_cases = {}
-        for it in records:
-            if str(it.get("Status", "")).upper() == "COMPLETED":
-                iid = get_unique_indent_id(it)
-                incoming_indent_cases[iid] = incoming_indent_cases.get(iid, 0.0) + float(it.get("Cases") or 0)
 
-        # Detect any indents where incoming has significantly fewer cases than existing
-        degraded_indents = set()
-        for iid, ex_c in existing_indent_cases.items():
-            inc_c = incoming_indent_cases.get(iid, 0.0)
-            if inc_c > 0 and inc_c < (ex_c - 0.01):
-                print(f"🛡️ [Upload Guard] Retaining complete existing record for indent {iid}: Existing has {ex_c} cs, incoming only had {inc_c} cs.")
-                degraded_indents.add(iid)
+        incoming_completed_indents = {get_unique_indent_id(it) for it in records if str(it.get("Status", "")).upper() == "COMPLETED"}
+        incoming_completed_bonds = {str(it.get("Bond Type", "")).upper() for it in records if str(it.get("Status", "")).upper() == "COMPLETED"}
 
-        # Filter out incoming records for degraded indents so we keep the higher complete existing records
-        protected_records = [
-            it for it in records 
-            if not (str(it.get("Status", "")).upper() == "COMPLETED" and get_unique_indent_id(it) in degraded_indents)
-        ]
-
-        incoming_completed_indents = {get_unique_indent_id(it) for it in protected_records if str(it.get("Status", "")).upper() == "COMPLETED"}
-        incoming_completed_bonds = {str(it.get("Bond Type", "")).upper() for it in protected_records if str(it.get("Status", "")).upper() == "COMPLETED"}
-        
-        records_to_reconcile = list(protected_records)
+        records_to_reconcile = list(records)
         for ex in existing_completed:
             ex_bond = str(ex.get("Bond Type", "")).upper()
             ex_iid = get_unique_indent_id(ex)
-            # Add if degraded indent, or bond not present in incoming, or indent completely missing from incoming
-            if ex_iid in degraded_indents or ex_bond not in incoming_completed_bonds or ex_iid not in incoming_completed_indents:
+            # Only preserve existing if that bond type was NOT in incoming scrape, or indent was entirely missing
+            if ex_bond not in incoming_completed_bonds or ex_iid not in incoming_completed_indents:
                 records_to_reconcile.append(ex)
                 incoming_completed_indents.add(ex_iid)
                 
