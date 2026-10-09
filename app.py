@@ -142,6 +142,7 @@ async def get_today_permits(request: Request, filename: str = None, lookback_day
 
     global LATEST_WEBHOOK_DATA
     config_dir = automation_utils.get_data_dir()
+    latest_backup = None
     
     if not filename and LATEST_WEBHOOK_DATA:
         data = LATEST_WEBHOOK_DATA
@@ -184,6 +185,13 @@ async def get_today_permits(request: Request, filename: str = None, lookback_day
     # Apply reconciliation across past lookback_days
     reconciled_data = reconcile_permits(data, target_date, config_dir, lookback_days=lookback_days)
     summary_metrics = get_reconciliation_summary(reconciled_data)
+    
+    # Auto-heal disk file if corrupted or duplicate records were cleansed
+    if latest_backup and os.path.exists(latest_backup) and len(reconciled_data) < len(data):
+        try:
+            with open(latest_backup, "w", encoding="utf-8") as wf:
+                json.dump(reconciled_data, wf, indent=4)
+        except Exception: pass
     
     pending = []
     completed = []
@@ -969,18 +977,17 @@ async def upload_results(request: Request):
             if not (str(it.get("Status", "")).upper() == "COMPLETED" and get_unique_indent_id(it) in degraded_indents)
         ]
 
-        incoming_completed_keys = {get_unique_permit_key(it) for it in protected_records if str(it.get("Status", "")).upper() == "COMPLETED"}
+        incoming_completed_indents = {get_unique_indent_id(it) for it in protected_records if str(it.get("Status", "")).upper() == "COMPLETED"}
         incoming_completed_bonds = {str(it.get("Bond Type", "")).upper() for it in protected_records if str(it.get("Status", "")).upper() == "COMPLETED"}
         
         records_to_reconcile = list(protected_records)
         for ex in existing_completed:
-            ex_key = get_unique_permit_key(ex)
             ex_bond = str(ex.get("Bond Type", "")).upper()
             ex_iid = get_unique_indent_id(ex)
-            # Add if degraded indent, or bond not present, or key not present
-            if ex_iid in degraded_indents or ex_bond not in incoming_completed_bonds or ex_key not in incoming_completed_keys:
+            # Add if degraded indent, or bond not present in incoming, or indent completely missing from incoming
+            if ex_iid in degraded_indents or ex_bond not in incoming_completed_bonds or ex_iid not in incoming_completed_indents:
                 records_to_reconcile.append(ex)
-                incoming_completed_keys.add(ex_key)
+                incoming_completed_indents.add(ex_iid)
                 
         # Reconcile merged records with 7-day backups
         reconciled_records = reconcile_permits(records_to_reconcile, target_dt, config_dir, lookback_days=7)

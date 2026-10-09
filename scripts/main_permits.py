@@ -192,22 +192,30 @@ def purge_all_modals(driver):
         time.sleep(0.3)
     except: pass
 
-def open_and_parse_strict_modal(driver, wait, indent_num, cols):
+def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=None):
     """
-    Purges old modals, clicks link_elem, waits for modal matching indent_num,
-    and extracts individual brand lines AND the official bottom 'Total' row.
+    Purges old modals, clicks target column link (e.g. Col 2 for Transport Permit or Col 1 for Indent),
+    waits for modal matching indent_num, and extracts individual brand lines AND official bottom 'Total' row.
     Returns: (brand_lines, tot_cases, tot_bottles, success_bool)
     """
     purge_all_modals(driver)
     
     link_elem = None
-    if len(cols) > 1:
+    candidate_indices = [target_col_idx] if target_col_idx is not None else [2, 1, 3]
+    for idx in candidate_indices:
+        if idx is not None and len(cols) > idx:
+            try:
+                btns = cols[idx].find_elements(By.TAG_NAME, "a")
+                if not btns:
+                    btns = cols[idx].find_elements(By.XPATH, ".//button | .//span")
+                if btns:
+                    link_elem = btns[0]
+                    break
+            except: pass
+            
+    if not link_elem and len(cols) > 1:
         try: link_elem = cols[1].find_element(By.TAG_NAME, "a")
-        except:
-            try: link_elem = cols[2].find_element(By.TAG_NAME, "a")
-            except:
-                try: link_elem = cols[1]
-                except: pass
+        except: pass
                 
     if not link_elem:
         return [], 0, 0, False
@@ -264,14 +272,18 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols):
                 time.sleep(1)
         except: pass
         
-        # Filter all candidate tables that look like product tables
+        # Filter all candidate tables that look like product tables (strictly exclude main page tables)
         candidate_tables = []
         for t in tables:
+            t_id = (t.get_attribute("id") or "").lower()
+            t_cls = (t.get_attribute("class") or "").lower()
+            if "my-table-sorter" in t_id or "datatable" in t_cls or "table-sorter" in t_id:
+                continue
             t_txt = t.text.lower()
             if any(k in t_txt for k in ["brand", "product", "item", "cases", "bottles", "category"]):
                 candidate_tables.append(t)
         if not candidate_tables:
-            candidate_tables = [tables[-1]]
+            candidate_tables = [t for t in tables if "my-table-sorter" not in (t.get_attribute("id") or "").lower()]
             
         tot_official_c = 0
         tot_official_b = 0
@@ -325,12 +337,20 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols):
                     
                     prod_name = cols_r[col_name].get_attribute("innerText").strip() if col_name < len(cols_r) else ""
                     if not prod_name or prod_name.lower() == "total": continue
+                    # Guard: Ignore permit/indent numbers mistakenly parsed as products
+                    if prod_name.upper().startswith("PER") or prod_name.upper().startswith("IND"):
+                        continue
                     
                     prod_size = cols_r[col_size].get_attribute("innerText").strip() if col_size < len(cols_r) else ""
                     try: cases = int(float(cols_r[col_cases].get_attribute("innerText").strip().replace(',', '')))
                     except: cases = 0
                     try: bottles = int(float(cols_r[col_bottles].get_attribute("innerText").strip().replace(',', '')))
                     except: bottles = 0
+                    
+                    # Guard: No genuine permit line exceeds 2000 cases (retailer codes are 2000000+)
+                    if cases > 2000:
+                        continue
+                    
                     try:
                         mrp_str = cols_r[col_mrp].get_attribute("innerText").strip().replace(',', '') if col_mrp < len(cols_r) else ""
                         total_mrp = float(mrp_str) if mrp_str else 0.0
@@ -422,7 +442,12 @@ def open_and_parse_form34(driver, wait, indent_num, cols):
             driver.switch_to.window(form34_window)
             time.sleep(1.0)
         else:
-            # Maybe opened in same tab or modal
+            # Check if this page is really Form-34 or still the main dashboard
+            page_check = ""
+            try: page_check = driver.find_element(By.TAG_NAME, "body").text.upper()
+            except: pass
+            if not any(k in page_check for k in ["FORM NO. 34", "FORM-34", "FORM 34", "TRANSPORT PASS", "CHALLAN"]):
+                return [], 0, 0, "", "", "", False
             time.sleep(1.0)
             
         page_text = ""
@@ -460,11 +485,20 @@ def open_and_parse_form34(driver, wait, indent_num, cols):
         tables = driver.find_elements(By.XPATH, "//table")
         candidate_tables = []
         for t in tables:
+            t_id = (t.get_attribute("id") or "").lower()
+            t_cls = (t.get_attribute("class") or "").lower()
+            if "my-table-sorter" in t_id or "datatable" in t_cls or "table-sorter" in t_id:
+                continue
             t_text = t.text.lower()
             if any(k in t_text for k in ["brand name", "item", "cases", "bottles", "pack size", "category", "bulk", "lpl"]):
                 candidate_tables.append(t)
         if not candidate_tables and tables:
-            candidate_tables = tables
+            candidate_tables = [t for t in tables if "my-table-sorter" not in (t.get_attribute("id") or "").lower()]
+            
+        # CRITICAL FIX: Form-34 printable layout renders two identical copies (Original & Duplicate Counterfoil).
+        # We must only parse the primary (first) candidate table to avoid doubling the volume!
+        if len(candidate_tables) > 1:
+            candidate_tables = candidate_tables[:1]
             
         table_official_cases = 0
         table_official_bottles = 0
@@ -523,6 +557,9 @@ def open_and_parse_form34(driver, wait, indent_num, cols):
                 
                 prod_name = cols_r[col_brand_name].get_attribute("innerText").strip() if col_brand_name < len(cols_r) else ""
                 if not prod_name or prod_name.lower() == "total": continue
+                # Guard against permit/indent numbers mistaken for product names
+                if prod_name.upper().startswith("PER") or prod_name.upper().startswith("IND"):
+                    continue
                 if any(k in prod_name.lower() for k in ["signature", "officer", "transport pass", "vide challan"]):
                     continue
                 
@@ -535,6 +572,10 @@ def open_and_parse_form34(driver, wait, indent_num, cols):
                 except: cases = 0
                 try: bottles = int(float(cols_r[col_bottles].get_attribute("innerText").strip().replace(',', '')))
                 except: bottles = 0
+                
+                # Guard against retailer codes parsed as cases
+                if cases > 2000:
+                    continue
                 try: bl = float(cols_r[col_bl].get_attribute("innerText").strip().replace(',', '')) if col_bl < len(cols_r) else 0.0
                 except: bl = 0.0
                 try: lpl = float(cols_r[col_lpl].get_attribute("innerText").strip().replace(',', '')) if col_lpl < len(cols_r) else 0.0
@@ -562,20 +603,24 @@ def open_and_parse_form34(driver, wait, indent_num, cols):
         calc_cases = sum(b["Cases"] for b in brand_lines)
         calc_bottles = sum(b["Bottles"] for b in brand_lines)
         
-        if doc_cases is not None and doc_cases >= calc_cases:
+        if doc_cases is not None and doc_cases > 0:
             official_cases = doc_cases
-        elif found_any_total_row and table_official_cases >= calc_cases:
+        elif found_any_total_row and table_official_cases > 0:
             official_cases = table_official_cases
         else:
             official_cases = calc_cases
             
         tot_c = official_cases
-        tot_b = table_official_bottles if found_any_total_row else calc_bottles
+        tot_b = table_official_bottles if (found_any_total_row and table_official_bottles > 0) else calc_bottles
         
-        # Close Form-34 window if it was opened in a new tab
-        if len(driver.window_handles) > 1:
-            driver.close()
-            driver.switch_to.window(main_window)
+        # Close all secondary tabs and safely switch back to primary window
+        while len(driver.window_handles) > 1:
+            try:
+                driver.switch_to.window(driver.window_handles[-1])
+                driver.close()
+            except: break
+        if driver.window_handles:
+            driver.switch_to.window(driver.window_handles[0])
             
         # Guard: If 0 items were parsed from Form-34, signal fallback to modal
         if len(brand_lines) == 0:
@@ -587,17 +632,58 @@ def open_and_parse_form34(driver, wait, indent_num, cols):
     except Exception as e_f34:
         print(f"   ⚠️ Error parsing Form-34 for {indent_num}: {e_f34}")
         try:
-            if len(driver.window_handles) > 1 and driver.current_window_handle != main_window:
+            while len(driver.window_handles) > 1:
+                driver.switch_to.window(driver.window_handles[-1])
                 driver.close()
-                driver.switch_to.window(main_window)
+            if driver.window_handles:
+                driver.switch_to.window(driver.window_handles[0])
         except: pass
         return [], 0, 0, "", "", "", False
+
+def extract_vol_ml(size_str, name_str):
+    import re
+    m = re.findall(r'(\d+)\s*(?:ML|L|BTL)?', str(size_str or ""), re.IGNORECASE)
+    if m: return int(m[0])
+    m2 = re.findall(r'(\d+)\s*ML', str(name_str or ""), re.IGNORECASE)
+    if m2: return int(m2[0])
+    return None
+
+def brand_similarity_match(name1, size1, name2, size2):
+    import re
+    v1 = extract_vol_ml(size1, name1)
+    v2 = extract_vol_ml(size2, name2)
+    if v1 and v2 and v1 != v2:
+        return False
+        
+    n1 = re.sub(r'[^A-Za-z0-9]', '', str(name1 or "")).upper()
+    n2 = re.sub(r'[^A-Za-z0-9]', '', str(name2 or "")).upper()
+    if not n1 or not n2:
+        return False
+    if n1 == n2 or n1 in n2 or n2 in n1:
+        return True
+        
+    STOP_WORDS = {
+        "PREMIUM", "SUPER", "STRONG", "LAGER", "BEER", "WHISKY", "WHISKEY", "RUM",
+        "VODKA", "GIN", "BRANDY", "CAN", "BOTTLE", "DRAUGHT", "FINE", "DELUXE", "LUXURY",
+        "SMOOTH", "CRAFT", "INDIA", "INDIAN", "SPECIAL", "SELECT", "RARE", "ML", "ORIGINAL"
+    }
+    t1 = {t for t in re.findall(r'[A-Za-z0-9]+', str(name1).upper()) if len(t) > 1 and t not in STOP_WORDS}
+    t2 = {t for t in re.findall(r'[A-Za-z0-9]+', str(name2).upper()) if len(t) > 1 and t not in STOP_WORDS}
+    if not t1 or not t2:
+        t1 = {t for t in re.findall(r'[A-Za-z0-9]+', str(name1).upper()) if len(t) > 2}
+        t2 = {t for t in re.findall(r'[A-Za-z0-9]+', str(name2).upper()) if len(t) > 2}
+        
+    if t1 and t2:
+        overlap = t1.intersection(t2)
+        if len(overlap) / min(len(t1), len(t2)) >= 0.5:
+            return True
+    return False
 
 def merge_brand_data(f34_lines, modal_lines):
     """
     Bidirectional merge of official Form-34 brand lines (Vehicle, Licensee, BL, LPL, Pack Size, Category)
     with Transport Permit / Indent modal lines (Total MRP, Unit Rates).
-    Guarantees no products are dropped if they appear in one source but not the other.
+    Uses brand similarity matching and mathematical case overrun guards to guarantee no duplicated SKUs.
     """
     if not modal_lines:
         return f34_lines
@@ -615,25 +701,24 @@ def merge_brand_data(f34_lines, modal_lines):
     # Pass 1: For all f34_lines, attach MRP from matching modal_line
     for f in f34_lines:
         f_copy = dict(f)
-        f_name = norm_text(f_copy.get("Product Name"))
-        f_size = norm_text(f_copy.get("Size"))
+        f_name = f_copy.get("Product Name", "")
+        f_size = f_copy.get("Size", "")
         
         match_idx = None
         # Exact match (Name + Size)
         for idx, m in enumerate(modal_lines):
             if idx not in matched_modal_indices:
-                m_name = norm_text(m.get("Product Name"))
-                m_size = norm_text(m.get("Size"))
-                if f_name == m_name and (f_size == m_size or not f_size or not m_size):
+                if norm_text(f_name) == norm_text(m.get("Product Name")) and (norm_text(f_size) == norm_text(m.get("Size")) or not f_size or not m.get("Size")):
                     match_idx = idx
                     break
                     
-        # Fallback match by Name alone
+        # Fallback to fuzzy brand similarity match
         if match_idx is None:
             for idx, m in enumerate(modal_lines):
-                if idx not in matched_modal_indices and f_name == norm_text(m.get("Product Name")):
-                    match_idx = idx
-                    break
+                if idx not in matched_modal_indices:
+                    if brand_similarity_match(f_name, f_size, m.get("Product Name"), m.get("Size")):
+                        match_idx = idx
+                        break
                     
         if match_idx is not None:
             matched_modal_indices.add(match_idx)
@@ -647,29 +732,34 @@ def merge_brand_data(f34_lines, modal_lines):
                 
         merged_lines.append(f_copy)
         
-    # Pass 2: Add any modal_lines that were NOT present in Form-34
-    for idx, m in enumerate(modal_lines):
-        if idx not in matched_modal_indices:
-            print(f"   ℹ️ [Merge] Adding SKU found in modal but missing from Form-34: {m.get('Product Name')} ({m.get('Cases', 0)} cs)")
-            m_copy = dict(m)
-            raw_size = m_copy.get("Size", "")
-            size_ml = raw_size.split("/")[0].strip() if "/" in raw_size else raw_size
-            b_per_cs = get_bottles_per_case(size_ml)
-            
-            cs = m_copy.get("Cases", 0)
-            b = m_copy.get("Bottles", 0)
-            tot_bottles = (cs * b_per_cs) + b
-            try:
-                vol_ml = int(re.sub(r'[^0-9]', '', str(size_ml)))
-                bl = (tot_bottles * vol_ml) / 1000.0
-            except:
-                bl = 0.0
+    f34_tot_cases = sum(f.get("Cases", 0) for f in f34_lines)
+    modal_tot_cases = sum(m.get("Cases", 0) for m in modal_lines)
+    
+    # Pass 2: Add modal_lines ONLY if Form-34 was genuinely partial (e.g. Beer missing from IMFL challan)
+    # If Form-34 already has >= modal_tot_cases, Form-34 is already complete; do not duplicate items.
+    if modal_tot_cases > f34_tot_cases:
+        for idx, m in enumerate(modal_lines):
+            if idx not in matched_modal_indices:
+                print(f"   ℹ️ [Merge] Adding SKU found in modal but missing from Form-34: {m.get('Product Name')} ({m.get('Cases', 0)} cs)")
+                m_copy = dict(m)
+                raw_size = m_copy.get("Size", "")
+                size_ml = raw_size.split("/")[0].strip() if "/" in raw_size else raw_size
+                b_per_cs = get_bottles_per_case(size_ml)
                 
-            m_copy["Category"] = m_copy.get("Category", "Beer" if "BEER" in m_copy.get("Product Name", "").upper() else "IMFL")
-            m_copy["Pack Size"] = m_copy.get("Pack Size", f"{size_ml}/{b_per_cs}")
-            m_copy["Bulk Litres"] = bl
-            m_copy["LPL"] = bl * 0.75
-            merged_lines.append(m_copy)
+                cs = m_copy.get("Cases", 0)
+                b = m_copy.get("Bottles", 0)
+                tot_bottles = (cs * b_per_cs) + b
+                try:
+                    vol_ml = int(re.sub(r'[^0-9]', '', str(size_ml)))
+                    bl = (tot_bottles * vol_ml) / 1000.0
+                except:
+                    bl = 0.0
+                    
+                m_copy["Category"] = m_copy.get("Category", "Beer" if "BEER" in m_copy.get("Product Name", "").upper() else "IMFL")
+                m_copy["Pack Size"] = m_copy.get("Pack Size", f"{size_ml}/{b_per_cs}")
+                m_copy["Bulk Litres"] = bl
+                m_copy["LPL"] = bl * 0.75
+                merged_lines.append(m_copy)
             
     return merged_lines
 
@@ -831,10 +921,13 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
     extraction_errors_count = 0
     scrape_success = True
     
-    portal_url = driver.current_url
-    dispatch_url = portal_url.split("/index.php")[0] + "/index.php/Retailer/Retailer/Indentlist?param=stockdispatch"
-    automation_utils.navigate_to_url_with_retry(driver, dispatch_url)
-    time.sleep(3)
+    if "stockdispatch" in driver.current_url and len(driver.find_elements(By.ID, "datepicker")) > 0:
+        print("   ℹ️ Already on stockdispatch page with active DOM, reusing existing session.")
+    else:
+        portal_url = driver.current_url
+        dispatch_url = portal_url.split("/index.php")[0] + "/index.php/Retailer/Retailer/Indentlist?param=stockdispatch"
+        automation_utils.navigate_to_url_with_retry(driver, dispatch_url)
+        time.sleep(3)
     
     try:
         set_date_input(driver, wait, "datepicker", start_date)
@@ -880,6 +973,15 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
             # Pass 1: Parse table rows on current page
             for i in range(num_rows):
                 try:
+                    # Guarantee browser is on main window and extra tabs are cleaned
+                    while len(driver.window_handles) > 1:
+                        try:
+                            driver.switch_to.window(driver.window_handles[-1])
+                            driver.close()
+                        except: break
+                    if driver.window_handles:
+                        driver.switch_to.window(driver.window_handles[0])
+                        
                     purge_all_modals(driver)
                     
                     table_body = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#my-table-sorter tbody, table.dataTable tbody, table tbody")))
@@ -913,7 +1015,7 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                     licensee_name = ""
                     extract_success = False
                     
-                    # Auto-detect if row is completed (has Transit Pass or Form-34 button) even during Pending lookback
+                    # Auto-detect if row is completed (has Transit Pass or Form-34 button)
                     has_tp = bool(transit_pass and transit_pass.upper().startswith("TP"))
                     has_f34 = False
                     if len(cols) > 8:
@@ -921,7 +1023,11 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                             has_f34 = len(cols[8].find_elements(By.XPATH, ".//button | .//a | .//i")) > 0
                         except: pass
                         
-                    is_completed = (status_filter == "Pass Issued") or has_tp or has_f34
+                    # If we are scraping Pending permits, skip any row that was already dispatched in past days
+                    if status_filter == "Pending" and (has_tp or has_f34):
+                        continue
+                        
+                    is_completed = (status_filter == "Pass Issued")
                     
                     if is_completed:
                         f34_lines, f34_c, f34_b, f34_veh, f34_date, f34_lic, f34_ok = [], 0, 0, "", "", "", False
@@ -930,22 +1036,39 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                         except Exception as e_f34:
                             print(f"   ℹ️ Form-34 error for {indent_num}: {e_f34}")
                             
-                        # Also fetch modal for Total MRP
+                        # Primary cross-verification: Transport Permit modal (Col 2) for approved quantities & MRP
                         modal_lines, m_cases, m_bottles, modal_ok = [], 0, 0, False
                         try:
-                            modal_lines, m_cases, m_bottles, modal_ok = open_and_parse_strict_modal(driver, wait, indent_num, cols)
+                            modal_lines, m_cases, m_bottles, modal_ok = open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=2)
                             purge_all_modals(driver)
                         except Exception as e_modal:
                             purge_all_modals(driver)
                             
+                        # Fallback to Column 1 (Indent Modal) if Col 2 was unavailable
+                        if not modal_ok:
+                            try:
+                                modal_lines, m_cases, m_bottles, modal_ok = open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=1)
+                                purge_all_modals(driver)
+                            except: purge_all_modals(driver)
+                            
                         if f34_ok and modal_ok:
+                            # Primary source of truth for volume is Column 2 Transport Permit modal (official excise database record)
+                            # Form-34 provides physical challan metadata (Vehicle No, Challan Date, Licensee Name, BL, LPL)
+                            if abs(f34_c - 2 * m_cases) <= 2 or f34_c > m_cases:
+                                print(f"   ⚖️ [Duplicate Copy Guard] Form-34 ({f34_c} cs) doubled vs Transport Permit ({m_cases} cs). Using official {m_cases} cs.")
+                                tot_cases = m_cases
+                                tot_bottles = m_bottles
+                            else:
+                                tot_cases = m_cases if m_cases > 0 else f34_c
+                                tot_bottles = m_bottles if m_bottles > 0 else f34_b
+                                
                             brand_lines = merge_brand_data(f34_lines, modal_lines)
-                            tot_cases = max(f34_c, m_cases)
-                            tot_bottles = max(f34_b, m_bottles)
                             vehicle_no = f34_veh
                             challan_date = f34_date
                             licensee_name = f34_lic
                             extract_success = True
+                            if abs(f34_c - m_cases) > 0.01:
+                                print(f"   ⚖️ [Dual Verify] Form-34 ({f34_c} cs) vs Transport Permit Col 2 ({m_cases} cs) -> Verified to {tot_cases} cs.")
                         elif f34_ok:
                             brand_lines = f34_lines
                             tot_cases = f34_c
@@ -1218,52 +1341,9 @@ def run_scraper_for_credentials(username, password, target_date, bond_type, head
         config = automation_utils.load_config()
         portal_url = config.get("portal_url", "https://stateexcise.assam.gov.in/index.php/site/login")
         
-        login_success = False
-        for attempt in range(5):
-            print(f"🔐 Login attempt {attempt + 1}/5...")
-            automation_utils.navigate_to_url_with_retry(driver, portal_url, max_retries=3, wait_time=3)
-            time.sleep(2)
-            
-            try:
-                temp_user = driver.find_elements(By.ID, "LoginForm_username")
-                if not temp_user or not temp_user[0].is_displayed():
-                    try:
-                        login_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(@class, 'header-login-btn') or contains(text(), 'Login')]")))
-                        driver.execute_script("arguments[0].click();", login_btn)
-                        time.sleep(2)
-                    except: pass
-            except: pass
-
-            try:
-                user_elem = wait.until(EC.presence_of_element_located((By.ID, "LoginForm_username")))
-                user_elem.clear()
-                user_elem.send_keys(username)
-                pwd_box = driver.find_element(By.ID, "LoginForm_password")
-                try: driver.execute_script("arguments[0].removeAttribute('readonly')", pwd_box)
-                except: pass
-                pwd_box.clear()
-                pwd_box.send_keys(password)
-                
-                code = automation_utils.solve_captcha_ocr(driver)
-                if code:
-                    driver.find_element(By.ID, "LoginForm_verifyCode").send_keys(code)
-                    
-                driver.find_element(By.XPATH, "//button[contains(text(),'Login')]").click()
-                time.sleep(5)
-                
-                if "Login" not in driver.title and len(driver.find_elements(By.ID, "LoginForm_username")) == 0:
-                    print(f"✅ Login successful for {bond_type} ({username})!")
-                    login_success = True
-                    break
-                else:
-                    err_elems = driver.find_elements(By.CSS_SELECTOR, ".errorMessage, .alert-danger, #LoginForm_verifyCode_em_")
-                    err_txt = " | ".join([e.text for e in err_elems if e.text])
-                    print(f"⚠️ Login attempt {attempt + 1} did not succeed. (Title: {driver.title}, Msg: {err_txt or 'Invalid captcha/credentials'})")
-            except Exception as e:
-                print(f"⚠️ Error during login: {e} (Current URL: {driver.current_url})")
-                
+        login_success = automation_utils.login_to_portal(driver, portal_url, username, password, max_retries=15)
         if not login_success:
-            print(f"❌ Login failed for {bond_type} ({username}) after 5 attempts.")
+            print(f"❌ Login failed for {bond_type} ({username}) after retries.")
             return [], [], False, 0
             
         p_recs, p_ok, p_errs = scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pending", lookback_days=lookback_days)
@@ -1380,13 +1460,11 @@ def main():
         ex_bond = str(ex_item.get("Bond Type", "")).upper()
         ex_key = get_unique_permit_key(ex_item)
         
+        # Only preserve previous records if that bond category was NOT scraped or failed in current run
         should_preserve = False
         if ex_bond == "IMFL" and (not imfl_attempted or not imfl_success):
             should_preserve = True
         elif ex_bond == "CS" and (not cs_attempted or not cs_success):
-            should_preserve = True
-        elif ex_key not in current_completed_keys:
-            # Preserve existing dispatch line so data never shrinks unexpectedly
             should_preserve = True
             
         if should_preserve and ex_key not in current_completed_keys:

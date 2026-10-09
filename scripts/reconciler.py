@@ -22,13 +22,37 @@ def normalize_key(val: Any) -> str:
     """Normalizes string keys for consistent matching."""
     return str(val or "").strip().upper()
 
+def normalize_size(size_val: Any) -> str:
+    """Extracts base volume in ml from size string for unified SKU matching."""
+    if not size_val:
+        return ""
+    import re
+    digits = re.findall(r'\d+', str(size_val))
+    return digits[0] if digits else str(size_val).strip()
+
+def normalize_brand_key(name: Any) -> str:
+    """Normalizes brand names by removing filler descriptors and non-alphanumeric chars."""
+    if not name:
+        return ""
+    import re
+    STOP_WORDS = {
+        "PREMIUM", "SUPER", "STRONG", "LAGER", "BEER", "WHISKY", "WHISKEY", "RUM",
+        "VODKA", "GIN", "BRANDY", "CAN", "BOTTLE", "DRAUGHT", "FINE", "DELUXE", "LUXURY",
+        "SMOOTH", "CRAFT", "INDIA", "INDIAN", "SPECIAL", "SELECT", "RARE", "ML", "ORIGINAL"
+    }
+    raw = str(name).upper()
+    tokens = [t for t in re.findall(r'[A-Za-z0-9]+', raw) if t not in STOP_WORDS]
+    if not tokens:
+        tokens = [t for t in re.findall(r'[A-Za-z0-9]+', raw)]
+    return "".join(tokens)
+
 def get_unique_permit_key(item: Dict[str, Any]) -> str:
     """Generates a composite unique key for an indent/permit row."""
     indent = normalize_key(item.get("Indent Number"))
     permit = normalize_key(item.get("Permit Number"))
     retailer_code = normalize_key(item.get("Retailer Code"))
-    product = normalize_key(item.get("Product Name"))
-    size = normalize_key(item.get("Size"))
+    product = normalize_brand_key(item.get("Product Name"))
+    size = normalize_size(item.get("Size"))
     
     if indent and product:
         return f"{indent}::{product}::{size}"
@@ -264,9 +288,74 @@ def reconcile_permits(
         )
     )
     
-    # 5. Return unified combined records: Pending + Completed
-    combined_result = all_reconciled_pending + current_completed
+    # 5. Clean, sanitize, and deduplicate combined records
+    combined_result = clean_permit_records(all_reconciled_pending + current_completed)
     return combined_result
+
+def clean_permit_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Cleans up permit records:
+    1. Removes corrupted lines (Product Name starting with PER/IND, Cases > 2000, etc.)
+    2. Deduplicates multiple lines within the same indent that represent the same SKU.
+    3. Merges metadata (MRP, Licensee, Vehicle) across duplicate lines.
+    """
+    if not records:
+        return []
+        
+    cleaned = []
+    from collections import defaultdict
+    indents_map = defaultdict(list)
+    
+    for r in records:
+        p_name = str(r.get("Product Name") or "").strip().upper()
+        try: cases = float(r.get("Cases") or 0)
+        except: cases = 0.0
+        
+        # Drop corrupted rows where main table columns were parsed as products
+        if p_name.startswith("PER") or p_name.startswith("IND"):
+            continue
+        if cases > 2000:
+            continue
+            
+        iid = get_unique_indent_id(r)
+        status = normalize_key(r.get("Status"))
+        indents_map[(iid, status)].append(r)
+        
+    for (iid, status), items in indents_map.items():
+        if status != "COMPLETED":
+            # For pending, deduplicate by unique key
+            seen_keys = set()
+            for it in items:
+                k = get_unique_permit_key(it)
+                if k not in seen_keys:
+                    seen_keys.add(k)
+                    cleaned.append(it)
+            continue
+            
+        # For completed items, deduplicate by (normalized_brand, normalized_size)
+        sku_groups = defaultdict(list)
+        for it in items:
+            b_key = normalize_brand_key(it.get("Product Name"))
+            s_key = normalize_size(it.get("Size"))
+            sku_groups[(b_key, s_key)].append(it)
+            
+        for (b_key, s_key), group in sku_groups.items():
+            if len(group) == 1:
+                cleaned.append(group[0])
+            else:
+                # Merge duplicate lines: pick the one with the most complete data
+                best = dict(group[0])
+                for other in group[1:]:
+                    for fld in ["Total MRP", "Bulk Litres", "LPL", "Vehicle Number", "Challan Date", "Licensee Name", "Pack Size", "Category"]:
+                        if not best.get(fld) and other.get(fld):
+                            best[fld] = other[fld]
+                        elif fld == "Total MRP" and (other.get(fld) or 0) > (best.get(fld) or 0):
+                            best[fld] = other[fld]
+                    best["Cases"] = max(best.get("Cases", 0), other.get("Cases", 0))
+                    best["Bottles"] = max(best.get("Bottles", 0), other.get("Bottles", 0))
+                cleaned.append(best)
+                
+    return cleaned
 
 def get_reconciliation_summary(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
