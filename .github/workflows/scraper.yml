@@ -52,6 +52,7 @@ jobs:
         run: |
           TARGET_DATE="${{ github.event.client_payload.date || github.event.client_payload.target_date || github.event.inputs.date || '' }}"
           BOND_TYPE="${{ github.event.client_payload.bond || github.event.client_payload.bond_type || github.event.inputs.bond || 'BOTH' }}"
+          LOOKBACK_DAYS="${{ github.event.client_payload.lookback_days || github.event.inputs.lookback_days || '' }}"
           
           CMD="python scripts/main_permits.py --headless"
           if [ -n "$TARGET_DATE" ]; then
@@ -59,6 +60,9 @@ jobs:
           fi
           if [ -n "$BOND_TYPE" ]; then
             CMD="$CMD --bond $BOND_TYPE"
+          fi
+          if [ -n "$LOOKBACK_DAYS" ]; then
+            CMD="$CMD --lookback-days $LOOKBACK_DAYS"
           fi
           
           echo "🚀 Executing: $CMD"
