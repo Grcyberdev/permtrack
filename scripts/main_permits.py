@@ -1390,9 +1390,12 @@ def main():
     has_errors = False
     total_extraction_errors = 0
     imfl_attempted = False
+    imfl_ok = False
     imfl_success = False
     cs_attempted = False
+    cs_ok = False
     cs_success = False
+    failed_bonds = []
     
     if args.bond in ["IMFL", "BOTH"]:
         imfl_attempted = True
@@ -1401,7 +1404,10 @@ def main():
             all_pending.extend(p)
             all_completed.extend(c)
             total_extraction_errors += errs
+            imfl_ok = ok
             imfl_success = ok and errs == 0
+            if not ok:
+                failed_bonds.append("IMFL")
             if not ok or errs > 0:
                 has_errors = True
         else:
@@ -1414,7 +1420,10 @@ def main():
             all_pending.extend(p)
             all_completed.extend(c)
             total_extraction_errors += errs
+            cs_ok = ok
             cs_success = ok and errs == 0
+            if not ok:
+                failed_bonds.append("CS")
             if not ok or errs > 0:
                 has_errors = True
         else:
@@ -1423,8 +1432,18 @@ def main():
     print(f"\n📊 Raw Scraped Summary for {date_str}:")
     print(f"   Pending Permits (brand lines): {len(all_pending)}")
     print(f"   Completed Dispatches (brand lines): {len(all_completed)}")
+    if failed_bonds:
+        print(f"   ❌ Failed Bond Scrapes (Login/Network): {', '.join(failed_bonds)}")
     if total_extraction_errors > 0:
         print(f"   ⚠️ Modal Extraction Errors: {total_extraction_errors}")
+
+    # Fatal failure guard: If all attempted bond scrapes failed (e.g. portal unreachable / login failed),
+    # abort immediately so we NEVER overwrite backups or push empty payloads to the live dashboard.
+    any_bond_succeeded = (imfl_attempted and imfl_ok) or (cs_attempted and cs_ok)
+    if (imfl_attempted or cs_attempted) and not any_bond_succeeded and not args.allow_partial:
+        print(f"\n🚨 Critical Error: All attempted bond scrapes ({', '.join(failed_bonds)}) failed to connect or authenticate.")
+        print("   Aborting backup write and webhook upload to preserve live dashboard data integrity.")
+        sys.exit(1)
     
     backup_dir = automation_utils.get_data_dir()
     os.makedirs(backup_dir, exist_ok=True)
@@ -1519,7 +1538,9 @@ def main():
             resp = requests.post(endpoint, json={
                 "secret": webhook_secret,
                 "date": date_str,
-                "records": reconciled_records
+                "records": reconciled_records,
+                "has_errors": has_errors,
+                "failed_bonds": failed_bonds
             }, timeout=30)
             if resp.status_code == 200:
                 print(f"✅ Reconciled records pushed to dashboard successfully! Server response: {resp.json()}")
@@ -1529,7 +1550,12 @@ def main():
             print(f"⚠️ Webhook push failed: {e_webhook}")
             
     if has_errors and not args.allow_partial:
-        print(f"\n⚠️ Scraper finished with extraction errors ({total_extraction_errors} errors).")
+        err_details = []
+        if failed_bonds:
+            err_details.append(f"failed bonds: {', '.join(failed_bonds)}")
+        if total_extraction_errors > 0:
+            err_details.append(f"{total_extraction_errors} modal extraction errors")
+        print(f"\n⚠️ Scraper finished with errors ({'; '.join(err_details) or 'unknown error'}).")
         sys.exit(1)
     else:
         print("\n🏁 Scraper process completed successfully.")

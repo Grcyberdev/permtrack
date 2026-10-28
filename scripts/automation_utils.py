@@ -53,18 +53,42 @@ def reset_tor_identity():
         print(f"⚠️ Failed to reset Tor identity: {e}")
     return False
 
-def navigate_to_url_with_retry(driver, url, max_retries=10, wait_time=10):
+def navigate_to_url_with_retry(driver, url, max_retries=5, wait_time=5, page_load_timeout=None):
     """
     Navigates to a URL with retry logic to handle transient network errors
-    like ERR_CONNECTION_RESET.
+    like ERR_CONNECTION_RESET or ERR_CONNECTION_TIMED_OUT.
     """
     from selenium.common.exceptions import WebDriverException, TimeoutException
+    from selenium.webdriver.common.by import By
     
+    retryable_patterns = (
+        "connection_reset",
+        "err_connection_closed",
+        "err_connection_timed_out",
+        "err_timed_out",
+        "timed_out",
+        "timed out",
+        "timeout",
+        "chrome error page",
+        "socks_connection_failed",
+        "socks_server_responded",
+        "err_connection_refused",
+        "err_name_not_resolved",
+        "err_network_changed",
+        "err_tunnel_connection_failed",
+        "err_proxy_connection_failed",
+    )
+
+    if page_load_timeout is None:
+        # Use 60s timeout for login page so dead/blocked connections fail fast,
+        # and 240s for heavy authenticated portal queries (e.g. IMFL stockdispatch).
+        page_load_timeout = 60 if "site/login" in (url or "").lower() else 240
+
     for attempt in range(1, max_retries + 1):
         try:
             print(f"   🚀 Navigating to {url} (Attempt {attempt}/{max_retries})...")
             try:
-                driver.set_page_load_timeout(300)
+                driver.set_page_load_timeout(page_load_timeout)
             except Exception:
                 pass
             driver.get(url)
@@ -73,22 +97,29 @@ def navigate_to_url_with_retry(driver, url, max_retries=10, wait_time=10):
             # Selenium driver.get() returns successful even if it's an internal error page.
             try:
                 page_src = driver.page_source
-                if "Copyright 2017 The Chromium Authors" in page_src or "ERR_" in page_src or "This site can’t be reached" in page_src:
+                if "Copyright 2017 The Chromium Authors" in page_src or "ERR_" in page_src or "This site can’t be reached" in page_src or "This site can't be reached" in page_src:
                      print(f"   ⚠️ Chrome Error Page Detected (Validation Failed).")
                      raise WebDriverException("Chrome Error Page Detected (Chromium Authors / ERR_ / Site Unreachable)")
             except Exception as valid_e:
-                # If we raised above, re-raise to trigger retry
-                if "Chrome Error Page" in str(valid_e): raise valid_e
-                # Otherwise, maybe page_source failed? iterate code.
+                if "Chrome Error Page" in str(valid_e):
+                    raise valid_e
                 pass
 
             return True
 
-        except WebDriverException as e:
+        except (WebDriverException, TimeoutException) as e:
             error_msg = str(e).lower()
-            # Added "socks_connection_failed" and "socks_server_responded" to the retry list
-            if "connection_reset" in error_msg or "err_connection_closed" in error_msg or "timeout" in error_msg or "chrome error page" in error_msg or "socks_connection_failed" in error_msg or "socks_server_responded" in error_msg:
-                print(f"   ⚠️ Navigation failed: {e}")
+            # If renderer timed out on a slow portal page, check if the target DOM actually finished loading
+            if "stockdispatch" in (url or "").lower() and ("renderer" in error_msg or "timeout" in error_msg or "timed out" in error_msg):
+                try:
+                    if len(driver.find_elements(By.ID, "datepicker")) > 0:
+                        print("   ℹ️ Page DOM (#datepicker) is ready despite renderer timeout; continuing.")
+                        return True
+                except Exception:
+                    pass
+
+            if any(pat in error_msg for pat in retryable_patterns):
+                print(f"   ⚠️ Navigation failed (Attempt {attempt}/{max_retries}): {str(e).splitlines()[0] if str(e) else e}")
                 
                 # Request a new Tor IP before retrying
                 if os.environ.get("USE_TOR_PROXY") == "true":
@@ -96,15 +127,15 @@ def navigate_to_url_with_retry(driver, url, max_retries=10, wait_time=10):
                 
                 if attempt < max_retries:
                     print(f"   ♻️ Retrying in {wait_time}s...")
+                    try:
+                        driver.execute_script("window.stop();")
+                    except Exception:
+                        pass
                     time.sleep(wait_time)
-                    # Refresh driver might help if stuck?
-                    try: driver.refresh()
-                    except: pass
                 else:
                     print("   ❌ Max navigation retries reached.")
                     raise e
             else:
-                # If it's a different error, raise immediately
                 raise e
     return False 
 
@@ -267,7 +298,7 @@ def setup_driver(headless=False):
     chrome_options.add_argument("--disable-extensions") # Speed up
     chrome_options.add_argument("--dns-prefetch-disable") # Speed up
     chrome_options.add_argument("--disable-software-rasterizer")
-    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36")
+    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
     chrome_options.add_argument("--ignore-certificate-errors")
 
     # SCRAPER_API_KEY CONFIGURATION
@@ -275,7 +306,7 @@ def setup_driver(headless=False):
     wire_webdriver = None
     scraper_api_key = config.get("SCRAPER_API_KEY")
     if scraper_api_key:
-        print("🕵️‍♂️ SCAPER API DETECTED: Routing traffic through ScraperAPI Proxy Tunnel.")
+        print("🕵️‍♂️ SCRAPER API DETECTED: Routing traffic through ScraperAPI Proxy Tunnel.")
         try:
             from seleniumwire import webdriver as wire_webdriver
         except ImportError:
@@ -291,7 +322,7 @@ def setup_driver(headless=False):
             }
 
     # TOR PROXY CONFIGURATION (Fallback only if ScraperAPI is not active)
-    elif config.get("USE_TOR_PROXY") == "true":
+    if not proxy_options and (config.get("USE_TOR_PROXY") == "true" or os.environ.get("USE_TOR_PROXY") == "true"):
         print("🧅 TOR PROXY ENABLED: Configuring Chrome to use SOCKS5 127.0.0.1:9050")
         chrome_options.add_argument("--proxy-server=socks5://127.0.0.1:9050")
         chrome_options.add_argument("--proxy-bypass-list=<-loopback>")
@@ -299,8 +330,6 @@ def setup_driver(headless=False):
     # PAGE LOAD STRATEGY: Eager (Waits for DOM only, ignores slow images/styles)
     # This is critical for slow portals to avoid timeouts
     chrome_options.page_load_strategy = 'eager'
-    
-    # chrome_options.add_argument("--remote-debugging-port=9222") # REMOVED: Fixed port causes collisions on local runs
     
     # Use unique user-data-dir to prevent profile locking/crashing
     import tempfile
@@ -315,11 +344,19 @@ def setup_driver(headless=False):
         chrome_options.add_argument("--window-size=1920,1080")
 
     # Suppress logging
-    chrome_options.add_argument("--log-level=0") # Changed from 3 to 0
+    chrome_options.add_argument("--log-level=0")
     
-    # Try finding system chrome first (Oracle Cloud / Linux)
-    # Priority: Chromium (Default on Ubuntu) -> Google Chrome
-    possible_bins = ["/usr/bin/chromium-browser", "/usr/bin/chromium", "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome"]
+    # Resolve Chrome binary:
+    # On CI (GitHub Actions), prioritize google-chrome-stable (installed by setup-chrome action)
+    # to avoid mismatch with snap/dev chromium-browser builds.
+    env_chrome_bin = os.environ.get("CHROME_BIN")
+    if os.environ.get("CI"):
+        possible_bins = ["/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium-browser", "/usr/bin/chromium"]
+    else:
+        possible_bins = ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome"]
+    if env_chrome_bin:
+        possible_bins.insert(0, env_chrome_bin)
+
     found_bin = None
     for b in possible_bins:
         if shutil.which(b): 
@@ -598,7 +635,7 @@ def is_logged_in(driver):
 def login_to_portal(driver, portal_url, username, password, max_retries=12):
     """
     Robust login implementation with up to max_retries attempts,
-    OCR candidate validation, and verified session checks.
+    OCR candidate validation, fast captcha refresh, and verified 2-step AJAX session checks.
     """
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support.ui import WebDriverWait
@@ -613,36 +650,73 @@ def login_to_portal(driver, portal_url, username, password, max_retries=12):
             return True
 
         print(f"🔐 Login attempt {attempt + 1}/{max_retries} for user: {username}...")
-        navigate_to_url_with_retry(driver, portal_url, max_retries=3, wait_time=3)
-        time.sleep(2)
-
-        if is_logged_in(driver):
-            print(f"✅ Session active on {driver.current_url}.")
-            return True
-        
         try:
+            # Check if login modal is already open on the login page from a previous attempt
+            curr_url = (driver.current_url or "").lower()
+            existing_user_inputs = driver.find_elements(By.ID, "LoginForm_username")
+            modal_already_open = (
+                "site/login" in curr_url
+                and existing_user_inputs
+                and existing_user_inputs[0].is_displayed()
+            )
+
+            if modal_already_open and attempt > 0:
+                # Refresh captcha via AJAX button instead of reloading the full 575KB page
+                try:
+                    refresh_btns = driver.find_elements(By.ID, "refreshCaptcha")
+                    if refresh_btns:
+                        driver.execute_script("arguments[0].click();", refresh_btns[0])
+                        time.sleep(1.2)
+                    else:
+                        navigate_to_url_with_retry(driver, portal_url, max_retries=3, wait_time=4)
+                        time.sleep(2)
+                except Exception:
+                    navigate_to_url_with_retry(driver, portal_url, max_retries=3, wait_time=4)
+                    time.sleep(2)
+            else:
+                navigate_to_url_with_retry(driver, portal_url, max_retries=3, wait_time=4)
+                time.sleep(2)
+
+            if is_logged_in(driver):
+                print(f"✅ Session active on {driver.current_url}.")
+                return True
+
             temp_user = driver.find_elements(By.ID, "LoginForm_username")
             if not temp_user or not temp_user[0].is_displayed():
                 try:
                     login_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(@class, 'header-login-btn') or contains(text(), 'Login')]")))
                     driver.execute_script("arguments[0].click();", login_btn)
                     time.sleep(2)
-                except: pass
-        except: pass
+                except Exception:
+                    pass
 
-        try:
             user_elem = wait.until(EC.presence_of_element_located((By.ID, "LoginForm_username")))
             user_elem.clear()
             user_elem.send_keys(username)
             
             pwd_box = driver.find_element(By.ID, "LoginForm_password")
-            try: driver.execute_script("arguments[0].removeAttribute('readonly')", pwd_box)
-            except: pass
+            try:
+                driver.execute_script("arguments[0].removeAttribute('readonly')", pwd_box)
+            except Exception:
+                pass
             pwd_box.clear()
             pwd_box.send_keys(password)
+            # Trigger blur so portal's checkotprequire() AJAX completes while OCR runs
+            try:
+                driver.execute_script("arguments[0].dispatchEvent(new Event('blur'));", pwd_box)
+            except Exception:
+                pass
             
             code = solve_captcha_ocr(driver)
             if code:
+                # Ensure password was not cleared by checkotprequire()
+                try:
+                    if not pwd_box.get_attribute("value"):
+                        driver.execute_script("arguments[0].removeAttribute('readonly')", pwd_box)
+                        pwd_box.send_keys(password)
+                except Exception:
+                    pass
+
                 captcha_box = driver.find_element(By.ID, "LoginForm_verifyCode")
                 captcha_box.clear()
                 captcha_box.send_keys(code)
@@ -651,19 +725,55 @@ def login_to_portal(driver, portal_url, username, password, max_retries=12):
                 print(f"   - Attempt {attempt+1}/{max_retries}: OCR failed to read code. Retrying...")
                 continue
                 
-            driver.find_element(By.XPATH, "//button[contains(text(),'Login')]").click()
-            time.sleep(4)
+            submit_btns = driver.find_elements(By.ID, "submitbuttonwelcome")
+            if not submit_btns:
+                submit_btns = driver.find_elements(By.XPATH, "//button[@id='submitbutton' or contains(text(),'Login')]")
+            if submit_btns:
+                try:
+                    submit_btns[0].click()
+                except Exception:
+                    driver.execute_script("arguments[0].click();", submit_btns[0])
+
+            # Portal performs 2 sequential POSTs (AJAX validation -> hidden form submit redirect).
+            # Poll up to 15s for either authenticated session or visible validation error.
+            err_txt = ""
+            for _ in range(30):
+                time.sleep(0.5)
+                if is_logged_in(driver):
+                    login_success = True
+                    break
+                try:
+                    err_elems = driver.find_elements(
+                        By.CSS_SELECTOR,
+                        "#LoginForm_verifyCode_em_, #password_error, #LoginForm_username_em_, #LoginForm_password_em_, .errorMessage, .alert-danger"
+                    )
+                    visible_errs = [e.text.strip() for e in err_elems if e.is_displayed() and e.text.strip()]
+                    if visible_errs:
+                        err_txt = " | ".join(visible_errs)
+                        break
+                except Exception:
+                    pass
             
-            if ("Login" not in driver.title and len(driver.find_elements(By.ID, "LoginForm_username")) == 0) or is_logged_in(driver):
+            if login_success or is_logged_in(driver):
+                # Allow post-login dashboard redirect to finish releasing the server-side PHP session lock
+                for _ in range(10):
+                    try:
+                        if driver.execute_script("return document.readyState") in ("interactive", "complete"):
+                            break
+                    except Exception:
+                        pass
+                    time.sleep(0.5)
+                time.sleep(2)
                 print(f"✅ Login successful for {username}!")
                 login_success = True
                 break
             else:
-                err_elems = driver.find_elements(By.CSS_SELECTOR, ".errorMessage, .alert-danger, #LoginForm_verifyCode_em_")
-                err_txt = " | ".join([e.text for e in err_elems if e.text])
+                if not err_txt:
+                    err_elems = driver.find_elements(By.CSS_SELECTOR, ".errorMessage, .alert-danger, #LoginForm_verifyCode_em_, #password_error")
+                    err_txt = " | ".join([e.text.strip() for e in err_elems if e.text.strip()])
                 print(f"⚠️ Login attempt {attempt + 1} did not succeed. (Title: {driver.title}, Msg: {err_txt or 'Invalid captcha/credentials'})")
         except Exception as e:
-            print(f"⚠️ Error during login: {e} (Current URL: {driver.current_url})")
+            print(f"⚠️ Error during login attempt {attempt + 1}: {str(e).splitlines()[0] if str(e) else e} (Current URL: {driver.current_url})")
 
     return login_success
 

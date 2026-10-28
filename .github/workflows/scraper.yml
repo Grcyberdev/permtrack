@@ -13,6 +13,10 @@ on:
         description: 'Bond Credentials (IMFL, CS, BOTH)'
         required: false
         default: 'BOTH'
+      lookback_days:
+        description: 'Lookback Days for Pending Permits (default: 7)'
+        required: false
+        default: '7'
 
 jobs:
   scrape-permits:
@@ -38,6 +42,33 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Check Portal Reachability & Configure Fallback Proxy
+        env:
+          SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
+        run: |
+          echo "🔍 Testing direct connectivity to stateexcise.assam.gov.in..."
+          if curl -sI --connect-timeout 12 --max-time 18 https://stateexcise.assam.gov.in/index.php/site/login > /dev/null; then
+            echo "✅ Direct connection to portal succeeded."
+            echo "USE_TOR_PROXY=false" >> $GITHUB_ENV
+          elif [ -n "$SCRAPER_API_KEY" ]; then
+            echo "⚠️ Direct connection timed out, using configured SCRAPER_API_KEY proxy."
+            echo "USE_TOR_PROXY=false" >> $GITHUB_ENV
+          else
+            echo "⚠️ Direct connection from US runner timed out (Geo-IP block). Installing Tor SOCKS5 fallback..."
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq tor netcat-openbsd
+            printf "\nControlPort 9051\nCookieAuthentication 0\n" | sudo tee -a /etc/tor/torrc > /dev/null
+            sudo service tor restart
+            for i in $(seq 1 15); do
+              if nc -z 127.0.0.1 9050 2>/dev/null; then
+                echo "✅ Tor SOCKS5 proxy listening on 127.0.0.1:9050"
+                break
+              fi
+              sleep 1
+            done
+            echo "USE_TOR_PROXY=true" >> $GITHUB_ENV
+          fi
+
       - name: Run Permit Scraper
         env:
           TZ: "Asia/Kolkata"
@@ -47,7 +78,7 @@ jobs:
           CS_PASSWORD: ${{ secrets.CS_PASSWORD }}
           FLY_APP_URL: ${{ secrets.FLY_APP_URL }}
           WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
-          USE_TOR_PROXY: "false"
+          SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
           PYTHONUNBUFFERED: "1"
         run: |
           TARGET_DATE="${{ github.event.client_payload.date || github.event.client_payload.target_date || github.event.inputs.date || '' }}"

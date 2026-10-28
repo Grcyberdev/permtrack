@@ -912,6 +912,8 @@ async def upload_results(request: Request):
         
         records = payload.get("records", [])
         date_str = payload.get("date")
+        has_errors = bool(payload.get("has_errors", False))
+        failed_bonds = [str(b).upper() for b in (payload.get("failed_bonds") or [])]
         
         config_dir = automation_utils.get_data_dir()
         os.makedirs(config_dir, exist_ok=True)
@@ -943,28 +945,74 @@ async def upload_results(request: Request):
         latest_filename = "backup_permits_latest.json"
         canonical_path = os.path.join(config_dir, canonical_filename)
         
-        # Server-side merge protection: Preserve previously completed dispatches only if missing in incoming
+        # Load existing records for this date (if any) to guard against empty/failed or degraded runs
+        ex_data = []
         existing_completed = []
         if os.path.exists(canonical_path):
             try:
                 with open(canonical_path, "r") as ef:
-                    ex_data = json.load(ef)
+                    ex_data = json.load(ef) or []
                 for it in ex_data:
                     if str(it.get("Status", "")).upper() == "COMPLETED":
                         existing_completed.append(it)
             except Exception: pass
 
-        incoming_completed_indents = {get_unique_indent_id(it) for it in records if str(it.get("Status", "")).upper() == "COMPLETED"}
-        incoming_completed_bonds = {str(it.get("Bond Type", "")).upper() for it in records if str(it.get("Status", "")).upper() == "COMPLETED"}
+        # Guard against failed runs pushing empty records (or only carried-over records when all bonds failed)
+        fresh_incoming = [it for it in records if not it.get("carried_over")]
+        if len(fresh_incoming) == 0 and (has_errors or failed_bonds or len(existing_completed) > 0):
+            err_msg = f"Rejected empty/failed scrape upload for {date_str} (failed_bonds={failed_bonds}, has_errors={has_errors}, existing_completed={len(existing_completed)})"
+            print(f"🚨 {err_msg}")
+            JOB_MANAGER.add_log(f"🚨 {err_msg}\n")
+            JOB_MANAGER.mark_completed(success=False, error=err_msg)
+            return JSONResponse(status_code=422, content={"status": "error", "error": err_msg})
 
-        records_to_reconcile = list(records)
+        # Guard against degraded completed indents (e.g., partial modal extraction with fewer cases than already saved)
+        existing_indent_cases = {}
+        for it in existing_completed:
+            iid = get_unique_indent_id(it)
+            existing_indent_cases[iid] = existing_indent_cases.get(iid, 0.0) + float(it.get("Cases") or 0)
+
+        incoming_indent_cases = {}
+        for it in records:
+            if str(it.get("Status", "")).upper() == "COMPLETED":
+                iid = get_unique_indent_id(it)
+                incoming_indent_cases[iid] = incoming_indent_cases.get(iid, 0.0) + float(it.get("Cases") or 0)
+
+        degraded_indents = set()
+        for iid, ex_c in existing_indent_cases.items():
+            inc_c = incoming_indent_cases.get(iid, 0.0)
+            if inc_c > 0 and inc_c < (ex_c - 0.01):
+                degraded_indents.add(iid)
+
+        protected_records = [
+            it for it in records
+            if not (str(it.get("Status", "")).upper() == "COMPLETED" and get_unique_indent_id(it) in degraded_indents)
+        ]
+
+        incoming_completed_indents = {get_unique_indent_id(it) for it in protected_records if str(it.get("Status", "")).upper() == "COMPLETED"}
+        incoming_completed_bonds = {str(it.get("Bond Type", "")).upper() for it in protected_records if str(it.get("Status", "")).upper() == "COMPLETED" and str(it.get("Bond Type", "")).upper() not in failed_bonds}
+        incoming_keys = {get_unique_permit_key(it) for it in protected_records}
+
+        records_to_reconcile = list(protected_records)
         for ex in existing_completed:
             ex_bond = str(ex.get("Bond Type", "")).upper()
             ex_iid = get_unique_indent_id(ex)
-            # Only preserve existing if that bond type was NOT in incoming scrape, or indent was entirely missing
-            if ex_bond not in incoming_completed_bonds or ex_iid not in incoming_completed_indents:
-                records_to_reconcile.append(ex)
-                incoming_completed_indents.add(ex_iid)
+            ex_key = get_unique_permit_key(ex)
+            # Preserve existing completed if bond failed/missing, indent missing, or indent was degraded
+            if ex_bond in failed_bonds or ex_bond not in incoming_completed_bonds or ex_iid not in incoming_completed_indents or ex_iid in degraded_indents:
+                if ex_key not in incoming_keys:
+                    records_to_reconcile.append(ex)
+                    incoming_keys.add(ex_key)
+
+        # If a specific bond failed in a partial run, also preserve existing fresh PENDING records for that bond
+        if failed_bonds and ex_data:
+            for ex in ex_data:
+                if str(ex.get("Status", "")).upper() == "PENDING" and not ex.get("carried_over"):
+                    ex_bond = str(ex.get("Bond Type", "")).upper()
+                    ex_key = get_unique_permit_key(ex)
+                    if ex_bond in failed_bonds and ex_key not in incoming_keys:
+                        records_to_reconcile.append(ex)
+                        incoming_keys.add(ex_key)
                 
         # Reconcile merged records with 7-day backups
         reconciled_records = reconcile_permits(records_to_reconcile, target_dt, config_dir, lookback_days=7)
