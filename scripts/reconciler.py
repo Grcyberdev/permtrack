@@ -18,6 +18,54 @@ def parse_date_str(date_str: Optional[str]) -> Optional[datetime]:
             continue
     return None
 
+def get_record_effective_date_key(item: Dict[str, Any], default_date_key: Optional[str] = None) -> str:
+    """
+    Extracts the operational effective date (YYYYMMDD) for a permit record.
+    Priority order:
+    1. Challan Date (Form-34 physical stock dispatch date)
+    2. Transit Pass embedded date (Assam Excise format: TP<wh_code 4 digits><DD><MM><YY><seq>)
+    3. Record Date field
+    4. default_date_key fallback
+    """
+    import re
+    # 1. Challan Date (e.g. 16-Oct-2026, 16-10-2026, 2026-10-16)
+    ch_raw = str(item.get("Challan Date") or "").strip()
+    if ch_raw:
+        dt = parse_date_str(ch_raw)
+        if dt:
+            return dt.strftime("%Y%m%d")
+
+    # 2. Transit Pass embedded date (e.g. TP309716102600293 -> 16-10-2026 -> 20261016)
+    tp_raw = str(item.get("Transit Pass") or "").strip()
+    if tp_raw:
+        m = re.match(r"^TP\d{4}(\d{2})(\d{2})(\d{2})", tp_raw)
+        if m:
+            dd, mm, yy = m.groups()
+            try:
+                dt = datetime(2000 + int(yy), int(mm), int(dd))
+                return dt.strftime("%Y%m%d")
+            except ValueError:
+                pass
+
+    # 3. Record Date field
+    rec_date = str(item.get("Date") or "").strip()
+    if rec_date:
+        dt = parse_date_str(rec_date)
+        if dt:
+            return dt.strftime("%Y%m%d")
+
+    return default_date_key or ""
+
+def parse_effective_date(item: Dict[str, Any], default_dt: Optional[datetime] = None) -> Optional[datetime]:
+    """Returns a datetime object representing the effective date of a permit record."""
+    dkey = get_record_effective_date_key(item)
+    if dkey and len(dkey) == 8 and dkey.isdigit():
+        try:
+            return datetime(int(dkey[:4]), int(dkey[4:6]), int(dkey[6:8]))
+        except ValueError:
+            pass
+    return default_dt
+
 def normalize_key(val: Any) -> str:
     """Normalizes string keys for consistent matching."""
     return str(val or "").strip().upper()

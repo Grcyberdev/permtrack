@@ -20,7 +20,14 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(PROJECT_ROOT, "scripts"))
 
 from pdf_report import generate_report_pdf
-from reconciler import reconcile_permits, get_reconciliation_summary, parse_date_str, get_unique_permit_key, get_unique_indent_id
+from reconciler import (
+    reconcile_permits,
+    get_reconciliation_summary,
+    parse_date_str,
+    get_unique_permit_key,
+    get_unique_indent_id,
+    get_record_effective_date_key
+)
 import automation_utils
 import auth
 
@@ -459,13 +466,67 @@ async def get_godown_monthly_summary(request: Request):
             return "BEER"
         return "IMFL"
 
-    # Build per-day data sorted chronologically
-    sorted_date_keys = sorted(by_date.keys())
+    # Extract and deduplicate completed records across all latest backup files,
+    # mapping each to its true operational effective date (Challan Date -> Transit Pass -> File Date)
+    unique_completed_records = {}
+    for f_date_key, finfo in by_date.items():
+        fpath = finfo["filepath"]
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                bdata = json.load(f)
+                records = []
+                if isinstance(bdata, list):
+                    records = bdata
+                elif isinstance(bdata, dict):
+                    records = (bdata.get("completed") or []) + (bdata.get("pending") or [])
+
+                for rec in records:
+                    status = str(rec.get("Status") or "").strip().upper()
+                    if status != "COMPLETED":
+                        continue
+                    pkey = get_unique_permit_key(rec)
+                    if pkey not in unique_completed_records:
+                        eff_k = get_record_effective_date_key(rec, default_date_key=f_date_key)
+                        compact_rec = {
+                            "Cases": float(rec.get("Cases") or 0),
+                            "Bottles": int(rec.get("Bottles") or 0),
+                            "Size": str(rec.get("Size") or rec.get("Pack Size") or "Unknown"),
+                            "Total MRP": float(rec.get("Total MRP") or 0),
+                            "Bond Type": str(rec.get("Bond Type") or ""),
+                            "Category": str(rec.get("Category") or ""),
+                            "Product Name": str(rec.get("Product Name") or "Unknown Brand"),
+                            "Retailer Name": str(rec.get("Retailer Name") or "Unknown Licensee")
+                        }
+                        unique_completed_records[pkey] = (compact_rec, eff_k, finfo["filename"])
+        except Exception:
+            pass
+
+    records_by_effective_date = {}
+    for pkey, (rec, eff_k, orig_fname) in unique_completed_records.items():
+        records_by_effective_date.setdefault(eff_k, []).append((rec, orig_fname))
+
+    # Determine all calendar dates to cover across all active months (ensuring no missing Sundays/holidays)
+    all_raw_date_keys = set(by_date.keys()) | set(records_by_effective_date.keys()) | set(recon_data.keys())
+    months_span = {}
+    for k in all_raw_date_keys:
+        if len(k) == 8 and k.isdigit() and k >= "20260101":
+            ym = k[:6]
+            months_span.setdefault(ym, []).append(int(k[6:8]))
+
+    full_date_keys = set()
+    for ym, days_list in months_span.items():
+        y, m = int(ym[:4]), int(ym[4:6])
+        min_d = min(days_list)
+        max_d = max(days_list)
+        for d in range(min_d, max_d + 1):
+            full_date_keys.add(f"{y:04d}{m:02d}{d:02d}")
+
+    sorted_date_keys = sorted(full_date_keys)
     
     # Group by month
     months = {}
     for date_key in sorted_date_keys:
-        filepath = by_date[date_key]["filepath"]
+        fallback_filename = by_date.get(date_key, {}).get("filename", f"backup_permits_{date_key}_000000.json")
         year, month, day = int(date_key[:4]), int(date_key[4:6]), int(date_key[6:8])
         try:
             dt = datetime(year, month, day, tzinfo=IST)
@@ -518,74 +579,62 @@ async def get_godown_monthly_summary(request: Request):
 
         m_dict = months[month_key]
 
-        try:
-            with open(filepath, "r", encoding="utf-8") as f:
-                bdata = json.load(f)
-                records = []
-                if isinstance(bdata, list):
-                    records = bdata
-                elif isinstance(bdata, dict):
-                    records = (bdata.get("completed") or []) + (bdata.get("pending") or [])
+        day_beer_mrp = 0.0
+        day_imfl_mrp = 0.0
+        day_cs_mrp = 0.0
 
-                day_beer_mrp = 0.0
-                day_imfl_mrp = 0.0
-                day_cs_mrp = 0.0
+        day_items = records_by_effective_date.get(date_key, [])
+        for item_tuple in day_items:
+            rec = item_tuple[0]
+            permits_count += 1
+            c = float(rec.get("Cases") or 0)
+            b = int(rec.get("Bottles") or 0)
+            pack_size = str(rec.get("Size") or rec.get("Pack Size") or "Unknown")
+            b_per_cs = automation_utils.get_bottles_per_case(pack_size)
+            eq = (b / b_per_cs) if b_per_cs > 0 else 0.0
+            tot_eq = c + eq
+            mrp_val = float(rec.get("Total MRP") or 0)
+            cat = get_cat(rec)
+            brand_name = rec.get("Product Name") or "Unknown Brand"
+            party_name = rec.get("Retailer Name") or "Unknown Licensee"
 
-                for rec in records:
-                    status = str(rec.get("Status") or "").strip().upper()
-                    if status == "PENDING":
-                        continue
-                    permits_count += 1
-                    c = float(rec.get("Cases") or 0)
-                    b = int(rec.get("Bottles") or 0)
-                    pack_size = str(rec.get("Size") or rec.get("Pack Size") or "Unknown")
-                    b_per_cs = automation_utils.get_bottles_per_case(pack_size)
-                    eq = (b / b_per_cs) if b_per_cs > 0 else 0.0
-                    tot_eq = c + eq
-                    mrp_val = float(rec.get("Total MRP") or 0)
-                    cat = get_cat(rec)
-                    brand_name = rec.get("Product Name") or "Unknown Brand"
-                    party_name = rec.get("Retailer Name") or "Unknown Licensee"
+            dispatched_cases += c
+            dispatched_bottles += b
+            dispatched_cs_eq += eq
+            day_mrp += mrp_val
 
-                    dispatched_cases += c
-                    dispatched_bottles += b
-                    dispatched_cs_eq += eq
-                    day_mrp += mrp_val
+            if cat == "BEER":
+                day_beer_eq += tot_eq
+                day_beer_mrp += mrp_val
+            elif cat == "CS":
+                day_cs_eq += tot_eq
+                day_cs_mrp += mrp_val
+            else:
+                day_imfl_eq += tot_eq
+                day_imfl_mrp += mrp_val
 
-                    if cat == "BEER":
-                        day_beer_eq += tot_eq
-                        day_beer_mrp += mrp_val
-                    elif cat == "CS":
-                        day_cs_eq += tot_eq
-                        day_cs_mrp += mrp_val
-                    else:
-                        day_imfl_eq += tot_eq
-                        day_imfl_mrp += mrp_val
+            # Brand SKU tracking
+            if brand_name not in m_dict["brand_totals"]:
+                m_dict["brand_totals"][brand_name] = {"cases": 0.0, "bottles": 0, "mrp": 0.0, "category": cat}
+            m_dict["brand_totals"][brand_name]["cases"] += tot_eq
+            m_dict["brand_totals"][brand_name]["bottles"] += b
+            m_dict["brand_totals"][brand_name]["mrp"] += mrp_val
 
-                    # Brand SKU tracking
-                    if brand_name not in m_dict["brand_totals"]:
-                        m_dict["brand_totals"][brand_name] = {"cases": 0.0, "bottles": 0, "mrp": 0.0, "category": cat}
-                    m_dict["brand_totals"][brand_name]["cases"] += tot_eq
-                    m_dict["brand_totals"][brand_name]["bottles"] += b
-                    m_dict["brand_totals"][brand_name]["mrp"] += mrp_val
+            # Party / Licensee tracking
+            if party_name not in m_dict["party_totals"]:
+                m_dict["party_totals"][party_name] = {"cases": 0.0, "bottles": 0, "mrp": 0.0, "permits": 0}
+            m_dict["party_totals"][party_name]["cases"] += tot_eq
+            m_dict["party_totals"][party_name]["bottles"] += b
+            m_dict["party_totals"][party_name]["mrp"] += mrp_val
+            m_dict["party_totals"][party_name]["permits"] += 1
 
-                    # Party / Licensee tracking
-                    if party_name not in m_dict["party_totals"]:
-                        m_dict["party_totals"][party_name] = {"cases": 0.0, "bottles": 0, "mrp": 0.0, "permits": 0}
-                    m_dict["party_totals"][party_name]["cases"] += tot_eq
-                    m_dict["party_totals"][party_name]["bottles"] += b
-                    m_dict["party_totals"][party_name]["mrp"] += mrp_val
-                    m_dict["party_totals"][party_name]["permits"] += 1
-
-                    # Size / Pack format tracking
-                    s_key = f"{pack_size} ML" if pack_size.isdigit() else pack_size
-                    if s_key not in m_dict["size_totals"]:
-                        m_dict["size_totals"][s_key] = {"cases": 0.0, "bottles": 0, "mrp": 0.0}
-                    m_dict["size_totals"][s_key]["cases"] += tot_eq
-                    m_dict["size_totals"][s_key]["bottles"] += b
-                    m_dict["size_totals"][s_key]["mrp"] += mrp_val
-        except Exception:
-            pass
+            # Size / Pack format tracking
+            s_key = f"{pack_size} ML" if pack_size.isdigit() else pack_size
+            if s_key not in m_dict["size_totals"]:
+                m_dict["size_totals"][s_key] = {"cases": 0.0, "bottles": 0, "mrp": 0.0}
+            m_dict["size_totals"][s_key]["cases"] += tot_eq
+            m_dict["size_totals"][s_key]["bottles"] += b
+            m_dict["size_totals"][s_key]["mrp"] += mrp_val
 
         permtrack_total_cases = round(dispatched_cases + dispatched_cs_eq, 2)
         is_closed = (permits_count == 0)
@@ -631,7 +680,7 @@ async def get_godown_monthly_summary(request: Request):
 
         months[month_key]["days"].append({
             "date_key": date_key,
-            "filename": by_date[date_key]["filename"],
+            "filename": fallback_filename,
             "date_str": date_str,
             "day": day_name,
             "permtrack_cases": permtrack_total_cases,
@@ -1022,6 +1071,40 @@ async def upload_results(request: Request):
             json.dump(reconciled_records, f, indent=4)
         with open(os.path.join(config_dir, latest_filename), "w") as f:
             json.dump(reconciled_records, f, indent=4)
+            
+        # Cross-day attribution: if incoming run contains completed dispatches belonging to prior dates
+        # (e.g. approved after midnight with prior day's Challan Date), update prior backups so they reflect actual sales
+        prior_date_completed = {}
+        for r in records_to_reconcile:
+            if str(r.get("Status", "")).upper() == "COMPLETED":
+                eff_k = get_record_effective_date_key(r, default_date_key=parsed_date)
+                if eff_k and eff_k < parsed_date:
+                    prior_date_completed.setdefault(eff_k, []).append(r)
+
+        for p_date, p_recs in prior_date_completed.items():
+            p_filename = f"backup_permits_{p_date}_000000.json"
+            p_path = os.path.join(config_dir, p_filename)
+            existing_p_data = []
+            if os.path.exists(p_path):
+                try:
+                    with open(p_path, "r", encoding="utf-8") as pf:
+                        existing_p_data = json.load(pf) or []
+                except Exception:
+                    existing_p_data = []
+            
+            p_keys = {get_unique_permit_key(it) for it in existing_p_data}
+            updated = False
+            for nr in p_recs:
+                nr_key = get_unique_permit_key(nr)
+                if nr_key not in p_keys:
+                    existing_p_data.append(nr)
+                    p_keys.add(nr_key)
+                    updated = True
+                    
+            if updated:
+                with open(p_path, "w", encoding="utf-8") as pf:
+                    json.dump(existing_p_data, pf, indent=4)
+                print(f"🔄 Backfilled {len(p_recs)} crossover dispatches into prior backup {p_filename}")
             
         # Clean up any extra timestamp files for the same target date
         for old_f in glob.glob(os.path.join(config_dir, f"backup_permits_{parsed_date}_*.json")):

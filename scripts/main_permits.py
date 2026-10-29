@@ -33,6 +33,7 @@ def parse_args():
     parser.add_argument("--no-headless", dest="headless", action="store_false", help="Disable headless mode")
     parser.add_argument("--bond", type=str, choices=["IMFL", "CS", "BOTH"], default="BOTH", help="Which bond credentials to query")
     parser.add_argument("--lookback-days", type=int, default=7, help="Number of days to look back for pending permits (defaults to 7)")
+    parser.add_argument("--dispatched-lookback", type=int, default=2, help="Number of days to look back for dispatched permits to capture midnight crossover approvals (defaults to 2)")
     parser.add_argument("--allow-partial", action="store_true", default=False, help="Allow saving partial results even if extraction errors occurred")
     return parser.parse_args()
 
@@ -470,6 +471,14 @@ def open_and_parse_form34(driver, wait, indent_num, cols):
         m_ch = re.search(r'Vide\s+Challan\s+No\s*\d+\s*Dated\s*:\s*([0-9A-Za-z\-]+)', page_text, re.IGNORECASE)
         if m_ch:
             challan_date = m_ch.group(1).strip()
+        else:
+            m_ch2 = re.search(r'(?:Vide\s+)?Challan\s+No\.?\s*[:\s]*[A-Za-z0-9\/\-]+\s*Dated\s*[:\s]*([0-9A-Za-z\-]+)', page_text, re.IGNORECASE)
+            if m_ch2:
+                challan_date = m_ch2.group(1).strip()
+            else:
+                m_ch3 = re.search(r'Dated\s*[:\s]*([0-9]{1,2}-[A-Za-z]{3}-[0-9]{4}|[0-9]{1,2}-[0-9]{2}-[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})', page_text, re.IGNORECASE)
+                if m_ch3:
+                    challan_date = m_ch3.group(1).strip()
             
         # 3. Extract Licensee Name
         licensee_name = ""
@@ -907,10 +916,11 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
     and explicit extraction error tracking.
     Returns: (results, success_bool, extraction_errors_count)
     """
-    if status_filter == "Pending" and lookback_days > 0:
+    if lookback_days > 0:
         start_date = target_date - timedelta(days=lookback_days)
         end_date = target_date
-        status_label = f"Pending Permits (Lookback {lookback_days}d: {start_date.strftime('%d-%b-%Y')} to {end_date.strftime('%d-%b-%Y')})"
+        prefix = "Pending Permits" if status_filter == "Pending" else "Dispatched Permits (Pass Issued)"
+        status_label = f"{prefix} (Lookback {lookback_days}d: {start_date.strftime('%d-%b-%Y')} to {end_date.strftime('%d-%b-%Y')})"
     else:
         start_date = target_date
         end_date = target_date
@@ -1120,6 +1130,16 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                         continue
                         
                     record_status = "COMPLETED" if is_completed else "PENDING"
+                    if is_completed and not challan_date and transit_pass:
+                        import re
+                        m_tp = re.match(r'^TP\d{4}(\d{2})(\d{2})(\d{2})', transit_pass)
+                        if m_tp:
+                            dd, mm, yy = m_tp.groups()
+                            try:
+                                dt_tp = datetime(2000 + int(yy), int(mm), int(dd))
+                                challan_date = dt_tp.strftime("%d-%b-%Y")
+                            except ValueError:
+                                pass
                     
                     if brand_lines:
                         for line in brand_lines:
@@ -1201,6 +1221,16 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                         
                         has_tp_retry = bool(item.get("transit_pass") and item["transit_pass"].upper().startswith("TP"))
                         record_status = "COMPLETED" if (status_filter == "Pass Issued" or has_tp_retry) else "PENDING"
+                        retry_ch_date = ""
+                        if record_status == "COMPLETED" and item.get("transit_pass"):
+                            import re
+                            m_tp = re.match(r'^TP\d{4}(\d{2})(\d{2})(\d{2})', item["transit_pass"])
+                            if m_tp:
+                                dd, mm, yy = m_tp.groups()
+                                try:
+                                    retry_ch_date = datetime(2000 + int(yy), int(mm), int(dd)).strftime("%d-%b-%Y")
+                                except ValueError:
+                                    pass
                         
                         if modal_success and brand_lines:
                             print(f"   ✅ Successfully recovered modal for Indent: {indent_num} ({len(brand_lines)} brand lines)")
@@ -1212,7 +1242,7 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                                     "Permit Number": item["permit_num"],
                                     "Transit Pass": item["transit_pass"],
                                     "Vehicle Number": "",
-                                    "Challan Date": "",
+                                    "Challan Date": retry_ch_date,
                                     "Licensee Name": "",
                                     "Retailer Name": item["retailer_name"],
                                     "Retailer Code": item["retailer_code"],
@@ -1237,7 +1267,7 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                                 "Permit Number": item["permit_num"],
                                 "Transit Pass": item["transit_pass"],
                                 "Vehicle Number": "",
-                                "Challan Date": "",
+                                "Challan Date": retry_ch_date,
                                 "Licensee Name": "",
                                 "Retailer Name": item["retailer_name"],
                                 "Retailer Code": item["retailer_code"],
@@ -1325,7 +1355,7 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
         
     return results, scrape_success, extraction_errors_count
 
-def run_scraper_for_credentials(username, password, target_date, bond_type, headless, lookback_days=7):
+def run_scraper_for_credentials(username, password, target_date, bond_type, headless, lookback_days=7, dispatched_lookback=2):
     """Runs scraper for a single credential user."""
     print(f"\n🚀 Running scraper for {bond_type} ({username})...")
     
@@ -1347,7 +1377,7 @@ def run_scraper_for_credentials(username, password, target_date, bond_type, head
             return [], [], False, 0
             
         p_recs, p_ok, p_errs = scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pending", lookback_days=lookback_days)
-        c_recs, c_ok, c_errs = scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pass Issued", lookback_days=0)
+        c_recs, c_ok, c_errs = scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pass Issued", lookback_days=dispatched_lookback)
         
         pending_records.extend(p_recs)
         completed_records.extend(c_recs)
@@ -1400,7 +1430,7 @@ def main():
     if args.bond in ["IMFL", "BOTH"]:
         imfl_attempted = True
         if imfl_user and imfl_pass:
-            p, c, ok, errs = run_scraper_for_credentials(imfl_user, imfl_pass, target_date, "IMFL", args.headless, lookback_days=args.lookback_days)
+            p, c, ok, errs = run_scraper_for_credentials(imfl_user, imfl_pass, target_date, "IMFL", args.headless, lookback_days=args.lookback_days, dispatched_lookback=args.dispatched_lookback)
             all_pending.extend(p)
             all_completed.extend(c)
             total_extraction_errors += errs
@@ -1416,7 +1446,7 @@ def main():
     if args.bond in ["CS", "BOTH"]:
         cs_attempted = True
         if cs_user and cs_pass:
-            p, c, ok, errs = run_scraper_for_credentials(cs_user, cs_pass, target_date, "CS", args.headless, lookback_days=args.lookback_days)
+            p, c, ok, errs = run_scraper_for_credentials(cs_user, cs_pass, target_date, "CS", args.headless, lookback_days=args.lookback_days, dispatched_lookback=args.dispatched_lookback)
             all_pending.extend(p)
             all_completed.extend(c)
             total_extraction_errors += errs
