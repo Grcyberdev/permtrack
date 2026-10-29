@@ -42,7 +42,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def sync_bundled_data() -> dict:
+def sync_bundled_data(force: bool = False) -> dict:
     """
     Synchronizes bundled repository configuration and historical datasets
     into the active runtime DATA_DIR (e.g. Fly.io persistent storage /data).
@@ -59,13 +59,14 @@ def sync_bundled_data() -> dict:
         return {"status": "skipped", "message": "bundled_dir equals target_dir"}
         
     synced_files = []
+    diagnostics = {}
     import shutil
     
     # 1. Sync godown_reconciliation.json
     bundled_recon_path = os.path.join(bundled_dir, "godown_reconciliation.json")
     target_recon_path = os.path.join(target_dir, "godown_reconciliation.json")
     if os.path.exists(bundled_recon_path):
-        if not os.path.exists(target_recon_path):
+        if not os.path.exists(target_recon_path) or force:
             shutil.copy2(bundled_recon_path, target_recon_path)
             synced_files.append("godown_reconciliation.json (copied)")
         else:
@@ -89,7 +90,7 @@ def sync_bundled_data() -> dict:
     # 2. Sync config.json
     bundled_cfg = os.path.join(bundled_dir, "config.json")
     target_cfg = os.path.join(target_dir, "config.json")
-    if os.path.exists(bundled_cfg) and not os.path.exists(target_cfg):
+    if os.path.exists(bundled_cfg) and (not os.path.exists(target_cfg) or force):
         shutil.copy2(bundled_cfg, target_cfg)
         synced_files.append("config.json (copied)")
 
@@ -98,9 +99,9 @@ def sync_bundled_data() -> dict:
     for b_path in bundled_backups:
         fname = os.path.basename(b_path)
         t_path = os.path.join(target_dir, fname)
-        if not os.path.exists(t_path):
+        if not os.path.exists(t_path) or force:
             shutil.copy2(b_path, t_path)
-            synced_files.append(f"{fname} (copied new)")
+            synced_files.append(f"{fname} (copied new or forced)")
         else:
             try:
                 with open(b_path, "r", encoding="utf-8") as bf:
@@ -114,12 +115,17 @@ def sync_bundled_data() -> dict:
                 b_cases = sum(float(r.get("Cases") or 0) for r in b_comp)
                 t_cases = sum(float(r.get("Cases") or 0) for r in t_comp)
                 
+                diagnostics[fname] = {
+                    "b_len": len(b_records), "t_len": len(t_records),
+                    "b_comp": len(b_comp), "t_comp": len(t_comp),
+                    "b_cases": b_cases, "t_cases": t_cases
+                }
+                
                 # If bundled has more completed records or cases (e.g. Oct 26 has 1453 vs 0 on Fly volume)
                 if len(b_comp) > len(t_comp) or (b_cases > t_cases + 1.0):
                     shutil.copy2(b_path, t_path)
                     synced_files.append(f"{fname} (repaired: {len(b_comp)} comp vs {len(t_comp)})")
                 elif len(t_comp) > len(b_comp) and len(b_comp) > 0:
-                    # Target has newer dispatches. Merge any missing lines from bundled
                     t_keys = {get_unique_permit_key(r) for r in t_records}
                     merged = list(t_records)
                     added = 0
@@ -134,17 +140,18 @@ def sync_bundled_data() -> dict:
                             json.dump(merged, wf, indent=4)
                         synced_files.append(f"{fname} (merged {added} records)")
             except Exception as e_sync:
+                diagnostics[fname] = {"error": str(e_sync)}
                 print(f"⚠️ Error comparing backup {fname}: {e_sync}")
 
     # Ensure backup_permits_latest.json exists
     t_latest = os.path.join(target_dir, "backup_permits_latest.json")
     b_latest = os.path.join(bundled_dir, "backup_permits_latest.json")
-    if os.path.exists(b_latest) and not os.path.exists(t_latest):
+    if os.path.exists(b_latest) and (not os.path.exists(t_latest) or force):
         shutil.copy2(b_latest, t_latest)
         synced_files.append("backup_permits_latest.json (copied)")
         
     print(f"✅ Bundled data sync completed. Synced files: {len(synced_files)}")
-    return {"status": "success", "synced_files": synced_files}
+    return {"status": "success", "synced_files": synced_files, "diagnostics": diagnostics}
 
 @app.on_event("startup")
 async def on_startup():
@@ -1633,7 +1640,8 @@ async def admin_sync_seed_data(request: Request):
     expected_secret = os.environ.get("WEBHOOK_SECRET") or "PermTrack@2026"
     if not user and secret != expected_secret:
         return JSONResponse(status_code=401, content={"error": "Authentication required"})
-    res = sync_bundled_data()
+    force = request.query_params.get("force", "").lower() in ["true", "1", "yes"]
+    res = sync_bundled_data(force=force)
     return JSONResponse(content=res)
 
 if __name__ == "__main__":
