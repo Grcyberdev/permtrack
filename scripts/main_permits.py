@@ -187,11 +187,11 @@ def purge_all_modals(driver):
             if (window.$ && $.fn && $.fn.modal) {
                 try { $('.modal').modal('hide'); } catch(e) {}
             }
-            // Safely hide all modal and popup dialogs rather than permanently deleting container elements
+            // Safely reset modal display without breaking Bootstrap visibility bindings
             document.querySelectorAll('.modal, [class*="popup"], [role="dialog"], [id*="modal"], [id*="popup"]').forEach(el => {
                 try {
-                    el.style.display = 'none';
                     el.classList.remove('in', 'show');
+                    el.style.removeProperty('display');
                     el.setAttribute('aria-hidden', 'true');
                 } catch(e) {}
             });
@@ -214,7 +214,7 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=N
     purge_all_modals(driver)
     
     link_elem = None
-    candidate_indices = [target_col_idx] if target_col_idx is not None else [2, 1, 3]
+    candidate_indices = [target_col_idx] if target_col_idx is not None else [1, 2, 3]
     for idx in candidate_indices:
         if idx is not None and len(cols) > idx:
             try:
@@ -244,26 +244,28 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=N
             time.sleep(1.0 + (attempt * 0.5))
             
             for wait_step in range(8):
-                all_modals = driver.find_elements(By.XPATH, "//div[contains(@class, 'modal') or contains(@class, 'popup')]")
+                all_modals = driver.find_elements(By.XPATH, "//div[contains(@class, 'modal') and (contains(@class, 'in') or contains(@class, 'show') or contains(@style, 'block') or contains(@style, 'display: block'))]")
+                if not all_modals:
+                    all_modals = [m for m in driver.find_elements(By.XPATH, "//div[contains(@class, 'modal') or contains(@class, 'popup') or @role='dialog']") if m.is_displayed()]
+                    
                 for m in reversed(all_modals):
                     try:
-                        # Stale hidden modals must be skipped
-                        if not m.is_displayed():
-                            continue
                         txt = m.get_attribute("innerText") or ""
-                        # Strict validation: modal MUST match this specific indent or permit number
+                        # Strict validation: modal MUST match this specific indent or permit number, or contain product table indicators
                         if indent_num and indent_num in txt:
                             modal_container = m
                             break
                         if permit_num and permit_num in txt:
                             modal_container = m
                             break
-                        if indent_num:
-                            import re
-                            m_num = re.search(r'\d{5,}', indent_num)
-                            if m_num and m_num.group(0) in txt and any(k in txt for k in ["Indent", "Permit", "Brand", "Cases"]):
-                                modal_container = m
-                                break
+                        import re
+                        m_num = re.search(r'\d{5,}', indent_num) if indent_num else None
+                        if m_num and m_num.group(0) in txt:
+                            modal_container = m
+                            break
+                        if any(k in txt.lower() for k in ["brand name", "product name", "item name", "brand code", "cases", "bottles", "pack size"]):
+                            modal_container = m
+                            break
                     except: pass
                 if modal_container: break
                 time.sleep(0.4)
@@ -288,7 +290,7 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=N
             tables = driver.find_elements(By.XPATH, "//div[contains(@class, 'modal')]//table")
             
         if not tables:
-            return brand_lines, 0, 0, True
+            return brand_lines, 0, 0, False
             
         # Try setting modal page size to 100/All if length dropdown exists
         try:
@@ -309,7 +311,7 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=N
             if any(k in t_txt for k in ["brand", "product", "item", "cases", "bottles", "category"]):
                 candidate_tables.append(t)
         if not candidate_tables:
-            candidate_tables = [t for t in tables if "my-table-sorter" not in (t.get_attribute("id") or "").lower()]
+            candidate_tables = [tables[-1]]
             
         tot_official_c = 0
         tot_official_b = 0
@@ -345,18 +347,18 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=N
                     
                     # Read Total Row at bottom
                     if "total" in first_cell.lower() or "total" in row_text:
+                        import re
                         for c_idx, cell in enumerate(cols_r):
                             c_text = cell.get_attribute("innerText").strip().replace(',', '')
-                            if (c_idx == col_cases or (col_cases >= len(cols_r) and c_idx == 1)) and c_text.replace('.', '').isdigit():
-                                try:
-                                    tot_official_c += int(float(c_text))
+                            num_match = re.search(r'\b\d+(?:\.\d+)?\b', c_text)
+                            if num_match:
+                                val = int(float(num_match.group(0)))
+                                if c_idx == col_cases or (col_cases >= len(cols_r) and c_idx == 1):
+                                    tot_official_c = val
                                     found_total_row = True
-                                except: pass
-                            elif (c_idx == col_bottles or (col_bottles >= len(cols_r) and c_idx == 2)) and c_text.replace('.', '').isdigit():
-                                try:
-                                    tot_official_b += int(float(c_text))
+                                elif c_idx == col_bottles or (col_bottles >= len(cols_r) and c_idx == 2):
+                                    tot_official_b = val
                                     found_total_row = True
-                                except: pass
                         continue
                         
                     if first_cell.lower() in ["brand code", "s.no", "sl.no", "#"]: continue
@@ -408,11 +410,11 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=N
     except Exception as e:
         print(f"   ⚠️ Error parsing modal tables for {indent_num}: {e}")
         
-    calc_cases = sum(b["Cases"] for b in brand_lines)
-    calc_bottles = sum(b["Bottles"] for b in brand_lines)
+    calc_cases = sum(b.get("Cases", 0) for b in brand_lines)
+    calc_bottles = sum(b.get("Bottles", 0) for b in brand_lines)
     
-    tot_c = official_cases if official_cases is not None else calc_cases
-    tot_b = official_bottles if official_bottles is not None else calc_bottles
+    tot_c = official_cases if (official_cases is not None and official_cases > 0) else calc_cases
+    tot_b = official_bottles if (official_bottles is not None and official_bottles > 0) else calc_bottles
     
     try:
         # Close the modal cleanly
@@ -423,7 +425,8 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=N
     except: pass
     purge_all_modals(driver)
     
-    return brand_lines, tot_c, tot_b, True
+    success = len(brand_lines) > 0 and (tot_c > 0 or tot_b > 0)
+    return brand_lines, tot_c, tot_b, success
 
 def open_and_parse_form34(driver, wait, indent_num, cols):
     """
@@ -1095,10 +1098,10 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                                 purge_all_modals(driver)
                             except: purge_all_modals(driver)
                             
-                        if f34_ok and modal_ok:
+                        if f34_ok and modal_ok and m_cases > 0:
                             # Primary source of truth for volume is Column 2 Transport Permit modal (official excise database record)
                             # Form-34 provides physical challan metadata (Vehicle No, Challan Date, Licensee Name, BL, LPL)
-                            if abs(f34_c - 2 * m_cases) <= 2 or f34_c > m_cases:
+                            if (f34_c > 0 and (abs(f34_c - 2 * m_cases) <= 2 or abs(f34_c - 3 * m_cases) <= 2)):
                                 print(f"   ⚖️ [Duplicate Copy Guard] Form-34 ({f34_c} cs) doubled vs Transport Permit ({m_cases} cs). Using official {m_cases} cs.")
                                 tot_cases = m_cases
                                 tot_bottles = m_bottles
@@ -1121,7 +1124,7 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                             challan_date = f34_date
                             licensee_name = f34_lic
                             extract_success = True
-                        elif modal_ok:
+                        elif modal_ok and m_cases > 0:
                             brand_lines = modal_lines
                             tot_cases = m_cases
                             tot_bottles = m_bottles
@@ -1136,9 +1139,9 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                                 driver, wait, indent_num, cols, brand_lines, tot_cases, tot_bottles
                             )
                     else:
-                        # Pending permits (modal extraction)
+                        # Pending permits (modal extraction from Column 1 Indent link)
                         try:
-                            brand_lines, tot_cases, tot_bottles, extract_success = open_and_parse_strict_modal(driver, wait, indent_num, cols, permit_num=permit_num)
+                            brand_lines, tot_cases, tot_bottles, extract_success = open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=1, permit_num=permit_num)
                             purge_all_modals(driver)
                             calc_c = sum(b.get("Cases", 0) for b in brand_lines)
                             if tot_cases > 0 and (tot_cases - calc_c) > 0.01:
@@ -1243,8 +1246,10 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                         if idx >= len(current_rows):
                             break
                         cols = current_rows[idx].find_elements(By.TAG_NAME, "td")
+                        has_tp_retry = bool(item.get("transit_pass") and item["transit_pass"].upper().startswith("TP"))
+                        retry_col_idx = 2 if (status_filter == "Pass Issued" or has_tp_retry) else 1
                         
-                        brand_lines, tot_cases, tot_bottles, modal_success = open_and_parse_strict_modal(driver, wait, indent_num, cols, permit_num=item.get("permit_num"))
+                        brand_lines, tot_cases, tot_bottles, modal_success = open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=retry_col_idx, permit_num=item.get("permit_num"))
                         purge_all_modals(driver)
                         
                         calc_c = sum(b.get("Cases", 0) for b in brand_lines)

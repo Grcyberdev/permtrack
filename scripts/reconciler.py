@@ -482,9 +482,13 @@ def clean_permit_records(records: List[Dict[str, Any]], config_dir: Optional[str
         
     for (iid, status), items in indents_map.items():
         if status != "COMPLETED":
+            # If there are items with positive cases or product name, drop empty 0-case placeholders
+            valid_items = [it for it in items if float(it.get("Cases") or 0) > 0 or float(it.get("Bottles") or 0) > 0 or it.get("Product Name")]
+            items_to_use = valid_items if valid_items else items
+            
             # For pending, deduplicate by unique key
             seen_keys = set()
-            for it in items:
+            for it in items_to_use:
                 k = get_unique_permit_key(it)
                 if k not in seen_keys:
                     seen_keys.add(k)
