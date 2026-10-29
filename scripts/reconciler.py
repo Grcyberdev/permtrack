@@ -196,11 +196,22 @@ def reconcile_permits(
     current_completed_keys = set()
     current_completed_indents = set()
     
+    # Pre-scan all completed indents and line keys in current_records
+    for item in current_records:
+        status = normalize_key(item.get("Status"))
+        tp = item.get("Transit Pass")
+        has_tp = bool(tp and str(tp).strip().upper().startswith("TP"))
+        if status == "COMPLETED" or has_tp:
+            current_completed_indents.add(get_unique_indent_id(item))
+            current_completed_keys.add(get_unique_permit_key(item))
+    
     for item in current_records:
         rec = dict(item)
         status = normalize_key(rec.get("Status"))
         line_key = get_unique_permit_key(rec)
         indent_id = get_unique_indent_id(rec)
+        tp = rec.get("Transit Pass")
+        has_tp = bool(tp and str(tp).strip().upper().startswith("TP"))
         
         # Ensure Date is set
         if not rec.get("Date"):
@@ -209,7 +220,7 @@ def reconcile_permits(
         app_date_str = rec.get("Application Date")
         app_dt = parse_date_str(app_date_str) if app_date_str else None
         
-        if status == "COMPLETED":
+        if status == "COMPLETED" or has_tp:
             current_completed_keys.add(line_key)
             current_completed_indents.add(indent_id)
             rec["Status"] = "COMPLETED"
@@ -229,6 +240,10 @@ def reconcile_permits(
             current_completed.append(rec)
             
         elif status == "PENDING":
+            # If this indent was already approved/dispatched today, it is NOT pending!
+            if indent_id in current_completed_indents or line_key in current_completed_keys:
+                continue
+                
             current_pending_keys.add(line_key)
             rec["Status"] = "PENDING"
             
@@ -282,9 +297,8 @@ def reconcile_permits(
                 indent_id = get_unique_indent_id(item)
                 
                 product_name = normalize_key(item.get("Product Name"))
-                # If specific SKU product line is identified, match on line_key.
-                # If unexpanded indent row without product, fallback to indent_id matching.
-                is_fulfilled = (line_key in current_completed_keys) if product_name else (indent_id in current_completed_indents or line_key in current_completed_keys)
+                # If the indent as a whole was completed today, or this specific line was completed, it is fulfilled!
+                is_fulfilled = (indent_id in current_completed_indents) or (line_key in current_completed_keys)
                 if is_fulfilled:
                     # Successfully fulfilled today!
                     if line_key in historical_pending_pool:
@@ -354,6 +368,12 @@ def clean_permit_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     from collections import defaultdict
     indents_map = defaultdict(list)
     
+    # Pre-identify all indents that have at least one COMPLETED line or Transit Pass
+    completed_iids = {
+        get_unique_indent_id(r) for r in records
+        if normalize_key(r.get("Status")) == "COMPLETED" or (r.get("Transit Pass") and str(r.get("Transit Pass")).strip().upper().startswith("TP"))
+    }
+    
     for r in records:
         p_name = str(r.get("Product Name") or "").strip().upper()
         try: cases = float(r.get("Cases") or 0)
@@ -367,6 +387,11 @@ def clean_permit_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             
         iid = get_unique_indent_id(r)
         status = normalize_key(r.get("Status"))
+        
+        # If this indent has already been completed, drop any lingering PENDING lines
+        if status != "COMPLETED" and iid in completed_iids:
+            continue
+            
         indents_map[(iid, status)].append(r)
         
     for (iid, status), items in indents_map.items():

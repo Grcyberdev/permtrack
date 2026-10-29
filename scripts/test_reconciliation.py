@@ -37,5 +37,21 @@ def test_reconciliation():
     assert len(reconciled) >= len(records_23), "Reconciled records should be >= raw records"
     print("✅ test_reconciliation passed successfully!")
 
+def test_no_pending_completed_overlap():
+    from reconciler import get_unique_indent_id
+    config_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config")
+    target_file = os.path.join(config_dir, "backup_permits_20261016_000000.json")
+    with open(target_file, "r") as f:
+        records_16 = json.load(f)
+        
+    reconciled = reconcile_permits(records_16, datetime(2026, 10, 16), config_dir, lookback_days=7)
+    completed_iids = {get_unique_indent_id(r) for r in reconciled if r.get("Status") == "COMPLETED"}
+    pending_iids = {get_unique_indent_id(r) for r in reconciled if r.get("Status") == "PENDING"}
+    
+    overlap = completed_iids.intersection(pending_iids)
+    assert len(overlap) == 0, f"No indent should exist in both completed and pending: {overlap}"
+    print("✅ test_no_pending_completed_overlap passed: 0 overlap!")
+
 if __name__ == "__main__":
     test_reconciliation()
+    test_no_pending_completed_overlap()

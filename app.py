@@ -1053,13 +1053,14 @@ async def upload_results(request: Request):
                     records_to_reconcile.append(ex)
                     incoming_keys.add(ex_key)
 
-        # If a specific bond failed in a partial run, also preserve existing fresh PENDING records for that bond
+        # If a specific bond failed in a partial run, also preserve existing fresh PENDING records for that bond (unless completed in current run)
         if failed_bonds and ex_data:
             for ex in ex_data:
                 if str(ex.get("Status", "")).upper() == "PENDING" and not ex.get("carried_over"):
                     ex_bond = str(ex.get("Bond Type", "")).upper()
+                    ex_iid = get_unique_indent_id(ex)
                     ex_key = get_unique_permit_key(ex)
-                    if ex_bond in failed_bonds and ex_key not in incoming_keys:
+                    if ex_bond in failed_bonds and ex_key not in incoming_keys and ex_iid not in incoming_completed_indents:
                         records_to_reconcile.append(ex)
                         incoming_keys.add(ex_key)
                 

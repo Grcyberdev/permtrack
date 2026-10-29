@@ -271,6 +271,10 @@
                                 <span id="ov-imfl-share" style="color: #8b5cf6;">🍷 IMFL: 0 cs (0%)</span>
                                 <span id="ov-cs-share" style="color: #06b6d4;">🍶 CS: 0 cs (0%)</span>
                             </div>
+                            <div class="kpi-forecast-badge" id="ov-forecast-box" style="margin-top: 0.6rem; padding: 0.35rem 0.6rem; background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; font-size: 0.72rem; display: flex; justify-content: space-between; align-items: center;">
+                                <span style="color: #60a5fa; font-weight: 600;">🔮 Day Forecast (Disp + Pend):</span>
+                                <span id="ov-forecast-val" style="font-family: var(--font-mono); font-weight: 700; color: #93c5fd;">0.00 cs</span>
+                            </div>
                         </div>
 
                         <!-- Card 2: Dispatched Turnover -->
@@ -2531,6 +2535,14 @@
                 const ovTotalCasesSub = document.getElementById('ov-total-cases-sub');
                 if (ovTotalCases) ovTotalCases.innerText = `${totalCsStr} cs`;
                 if (ovTotalCasesSub) ovTotalCasesSub.innerText = `${totalDispatchedCases.toLocaleString()} Physical cs • ${totalDispatchedBottleCsEq.toFixed(2)} cs Loose`;
+
+                // Update Day Forecast Pill (Dispatched + Pending)
+                const totalForecastCs = totalDispatchedEqCs + totalPendingEqCs;
+                const ovForecastVal = document.getElementById('ov-forecast-val');
+                if (ovForecastVal) {
+                    const fcStr = totalForecastCs % 1 === 0 ? totalForecastCs.toLocaleString() : totalForecastCs.toFixed(2);
+                    ovForecastVal.innerText = `${fcStr} cs (${totalDispatchedEqCs.toFixed(1)} disp + ${totalPendingEqCs.toFixed(1)} pend)`;
+                }
 
                 // Card 2: Dispatched Turnover (Gross MRP)
                 const mrpVal = document.getElementById('ov-total-mrp');
