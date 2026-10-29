@@ -21,6 +21,7 @@ on:
 jobs:
   scrape-permits:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - name: Checkout Code
@@ -42,32 +43,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Check Portal Reachability & Configure Fallback Proxy
-        env:
-          SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
+      - name: Discover Verified Indian Proxy or Direct Connectivity
         run: |
-          echo "🔍 Testing direct connectivity to stateexcise.assam.gov.in..."
-          if curl -sI --connect-timeout 12 --max-time 18 https://stateexcise.assam.gov.in/index.php/site/login > /dev/null; then
-            echo "✅ Direct connection to portal succeeded."
-            echo "USE_TOR_PROXY=false" >> $GITHUB_ENV
-          elif [ -n "$SCRAPER_API_KEY" ]; then
-            echo "⚠️ Direct connection timed out, using configured SCRAPER_API_KEY proxy."
-            echo "USE_TOR_PROXY=false" >> $GITHUB_ENV
-          else
-            echo "⚠️ Direct connection from US runner timed out (Geo-IP block). Installing Tor SOCKS5 fallback..."
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq tor netcat-openbsd
-            printf "\nControlPort 9051\nCookieAuthentication 0\n" | sudo tee -a /etc/tor/torrc > /dev/null
-            sudo service tor restart
-            for i in $(seq 1 15); do
-              if nc -z 127.0.0.1 9050 2>/dev/null; then
-                echo "✅ Tor SOCKS5 proxy listening on 127.0.0.1:9050"
-                break
-              fi
-              sleep 1
-            done
-            echo "USE_TOR_PROXY=true" >> $GITHUB_ENV
-          fi
+          python -u scripts/find_indian_proxy.py
 
       - name: Run Permit Scraper
         env:
@@ -79,6 +57,8 @@ jobs:
           FLY_APP_URL: ${{ secrets.FLY_APP_URL }}
           WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
           SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
+          INDIAN_PROXY: ${{ env.INDIAN_PROXY }}
+          USE_INDIAN_PROXY: ${{ env.USE_INDIAN_PROXY }}
           PYTHONUNBUFFERED: "1"
         run: |
           TARGET_DATE="${{ github.event.client_payload.date || github.event.client_payload.target_date || github.event.inputs.date || '' }}"
@@ -99,9 +79,12 @@ jobs:
           echo "🚀 Executing: $CMD"
           eval $CMD
 
-      - name: Upload Scraped JSON Artifact
+      - name: Upload Scraped JSON Artifact & Screenshots
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: permit-backups
-          path: config/backup_permits_*.json
+          path: |
+            config/backup_permits_*.json
+            debug_screenshots/*.png
+            *.png

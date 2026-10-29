@@ -260,7 +260,8 @@ def load_config():
         "IMFL_USERNAME", "IMFL_PASSWORD", 
         "CS_USERNAME", "CS_PASSWORD", 
         "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", 
-        "SCRAPER_API_KEY", "USE_TOR_PROXY"
+        "SCRAPER_API_KEY", "USE_TOR_PROXY",
+        "INDIAN_PROXY", "USE_INDIAN_PROXY"
     ]
     
     for var in env_vars:
@@ -273,7 +274,7 @@ def load_config():
             else:
                 print(f"🔐 Using Environment Variable for: {var} (Value: {env_val})")
         else:
-            if var not in config and var not in ["USE_TOR_PROXY", "SCRAPER_API_KEY"]:
+            if var not in config and var not in ["USE_TOR_PROXY", "SCRAPER_API_KEY", "INDIAN_PROXY", "USE_INDIAN_PROXY"]:
                 # Suppress noisy warning for optional vars
                 pass
             
@@ -321,8 +322,13 @@ def setup_driver(headless=False):
                 }
             }
 
-    # TOR PROXY CONFIGURATION (Fallback only if ScraperAPI is not active)
-    if not proxy_options and (config.get("USE_TOR_PROXY") == "true" or os.environ.get("USE_TOR_PROXY") == "true"):
+    # INDIAN PROXY / SOCKS5 / TOR CONFIGURATION
+    if os.environ.get("INDIAN_PROXY") or config.get("INDIAN_PROXY"):
+        indian_proxy = os.environ.get("INDIAN_PROXY") or config.get("INDIAN_PROXY")
+        print(f"🇮🇳 INDIAN PROXY ENABLED: Configuring Chrome to use {indian_proxy}")
+        chrome_options.add_argument(f"--proxy-server={indian_proxy}")
+        chrome_options.add_argument("--proxy-bypass-list=<-loopback>")
+    elif not proxy_options and (config.get("USE_TOR_PROXY") == "true" or os.environ.get("USE_TOR_PROXY") == "true"):
         print("🧅 TOR PROXY ENABLED: Configuring Chrome to use SOCKS5 127.0.0.1:9050")
         chrome_options.add_argument("--proxy-server=socks5://127.0.0.1:9050")
         chrome_options.add_argument("--proxy-bypass-list=<-loopback>")
@@ -774,6 +780,15 @@ def login_to_portal(driver, portal_url, username, password, max_retries=12):
                 print(f"⚠️ Login attempt {attempt + 1} did not succeed. (Title: {driver.title}, Msg: {err_txt or 'Invalid captcha/credentials'})")
         except Exception as e:
             print(f"⚠️ Error during login attempt {attempt + 1}: {str(e).splitlines()[0] if str(e) else e} (Current URL: {driver.current_url})")
+
+    if not login_success:
+        try:
+            os.makedirs("debug_screenshots", exist_ok=True)
+            screenshot_path = f"debug_screenshots/login_failed_{username}_{int(time.time())}.png"
+            driver.save_screenshot(screenshot_path)
+            print(f"📸 Saved failure screenshot: {screenshot_path}")
+        except Exception:
+            pass
 
     return login_success
 
