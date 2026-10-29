@@ -351,10 +351,96 @@ def reconcile_permits(
     )
     
     # 5. Clean, sanitize, and deduplicate combined records
-    combined_result = clean_permit_records(all_reconciled_pending + current_completed)
+    combined_result = clean_permit_records(all_reconciled_pending + current_completed, config_dir=config_dir)
     return combined_result
 
-def clean_permit_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def get_bpc_fallback(pack_size: Any, size: Any, category: Any) -> int:
+    try:
+        from automation_utils import get_bottles_per_case
+        return get_bottles_per_case(pack_size, size, category)
+    except Exception:
+        return 12
+
+def build_historical_sku_rates(config_dir: str) -> Dict[str, float]:
+    """
+    Builds a robust dictionary of known SKU MRP case rates from historical permit backups.
+    Maps:
+      1. f"{normalized_brand}_{normalized_size}" -> case_rate
+      2. normalized_brand -> case_rate
+    """
+    rates: Dict[str, float] = {}
+    if not config_dir or not os.path.exists(config_dir):
+        return rates
+        
+    for p in glob.glob(os.path.join(config_dir, "backup_permits_*.json")):
+        if "latest" in p:
+            continue
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for r in data:
+                p_name = normalize_brand_key(r.get("Product Name"))
+                size = normalize_size(r.get("Size"))
+                try:
+                    mrp = float(r.get("Total MRP") or 0)
+                    cases = float(r.get("Cases") or 0)
+                    bottles = float(r.get("Bottles") or 0)
+                except (ValueError, TypeError):
+                    continue
+                if mrp > 0 and cases > 0 and bottles == 0 and p_name:
+                    rate = mrp / cases
+                    rates[f"{p_name}_{size}"] = rate
+                    if p_name not in rates:
+                        rates[p_name] = rate
+        except Exception:
+            pass
+    return rates
+
+def backfill_missing_mrps(records: List[Dict[str, Any]], sku_rates: Dict[str, float]) -> List[Dict[str, Any]]:
+    """
+    Backfills missing/zero Total MRP for records using known historical SKU rates.
+    """
+    if not sku_rates or not records:
+        return records
+        
+    import re
+    for r in records:
+        try:
+            cur_mrp = float(r.get("Total MRP") or 0)
+            cases = float(r.get("Cases") or 0)
+            bottles = float(r.get("Bottles") or 0)
+        except (ValueError, TypeError):
+            continue
+            
+        if cur_mrp <= 0 and (cases > 0 or bottles > 0):
+            p_name = normalize_brand_key(r.get("Product Name"))
+            size = normalize_size(r.get("Size"))
+            
+            rate = sku_rates.get(f"{p_name}_{size}") or sku_rates.get(p_name)
+            if not rate:
+                # Token similarity matching across known sku rates
+                p_tokens = set(re.findall(r'[A-Z0-9]+', p_name))
+                best_match = None
+                best_sim = 0.0
+                for known_k, known_rate in sku_rates.items():
+                    k_name = known_k.rsplit("_", 1)[0] if "_" in known_k else known_k
+                    k_tokens = set(re.findall(r'[A-Z0-9]+', k_name))
+                    if p_tokens and k_tokens:
+                        sim = len(p_tokens & k_tokens) / max(len(p_tokens), len(k_tokens))
+                        if sim > 0.5 and sim > best_sim:
+                            best_sim = sim
+                            best_match = known_rate
+                if best_match:
+                    rate = best_match
+                    
+            if rate:
+                bpc = get_bpc_fallback(r.get("Pack Size"), r.get("Size"), r.get("Category"))
+                loose_eq = (bottles / bpc) if (bpc and bpc > 0) else 0.0
+                r["Total MRP"] = round((cases + loose_eq) * rate, 2)
+                
+    return records
+
+def clean_permit_records(records: List[Dict[str, Any]], config_dir: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Cleans up permit records:
     1. Removes corrupted lines (Product Name starting with PER/IND, Cases > 2000, etc.)
@@ -428,6 +514,10 @@ def clean_permit_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     best["Bottles"] = max(best.get("Bottles", 0), other.get("Bottles", 0))
                 cleaned.append(best)
                 
+    if config_dir:
+        sku_rates = build_historical_sku_rates(config_dir)
+        cleaned = backfill_missing_mrps(cleaned, sku_rates)
+        
     return cleaned
 
 def get_reconciliation_summary(records: List[Dict[str, Any]]) -> Dict[str, Any]:

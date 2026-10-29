@@ -181,16 +181,26 @@ def get_next_page_button(driver):
     return None
 
 def purge_all_modals(driver):
-    """Purges all modal, popup, and dialog elements from the DOM to avoid stale modal leaks."""
+    """Safely closes, hides, and resets all modal and dialog elements in DOM without destroying container elements."""
     try:
         driver.execute_script("""
             if (window.$ && $.fn && $.fn.modal) {
                 try { $('.modal').modal('hide'); } catch(e) {}
             }
-            document.querySelectorAll('.modal, .modal-backdrop, [class*="modal-backdrop"], [class*="popup"], [role="dialog"], [id*="modal"], [id*="popup"]').forEach(el => {
+            // Safely hide all modal and popup dialogs rather than permanently deleting container elements
+            document.querySelectorAll('.modal, [class*="popup"], [role="dialog"], [id*="modal"], [id*="popup"]').forEach(el => {
+                try {
+                    el.style.display = 'none';
+                    el.classList.remove('in', 'show');
+                    el.setAttribute('aria-hidden', 'true');
+                } catch(e) {}
+            });
+            // Clean up dark overlay backdrops
+            document.querySelectorAll('.modal-backdrop, [class*="modal-backdrop"]').forEach(el => {
                 try { el.remove(); } catch(e) {}
             });
             document.body.classList.remove('modal-open');
+            document.body.style.removeProperty('padding-right');
         """)
         time.sleep(0.3)
     except: pass
@@ -403,6 +413,15 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=N
     
     tot_c = official_cases if official_cases is not None else calc_cases
     tot_b = official_bottles if official_bottles is not None else calc_bottles
+    
+    try:
+        # Close the modal cleanly
+        close_btns = modal_container.find_elements(By.XPATH, ".//button[contains(@class, 'close') or @data-dismiss='modal'] | .//a[contains(@class, 'close')]")
+        if close_btns:
+            driver.execute_script("arguments[0].click();", close_btns[0])
+            time.sleep(0.2)
+    except: pass
+    purge_all_modals(driver)
     
     return brand_lines, tot_c, tot_b, True
 

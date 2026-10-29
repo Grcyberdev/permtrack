@@ -184,21 +184,34 @@ async def get_today_permits(request: Request, filename: str = None, lookback_day
             )
             
     target_date = None
-    for item in data:
-        if item.get("Date"):
-            target_date = item.get("Date")
-            break
+    target_date_key = None
+    
+    # Try extracting target_date_key from filename first
+    if latest_backup_name:
+        import re
+        m = re.search(r'backup_permits_(\d{8})', latest_backup_name)
+        if m:
+            target_date_key = m.group(1)
+            try:
+                from reconciler import parse_date_str
+                target_dt = datetime.strptime(target_date_key, "%Y%m%d")
+                target_date = target_dt.strftime("%d-%b-%Y")
+            except Exception:
+                pass
+
+    if not target_date:
+        for item in data:
+            if item.get("Date"):
+                target_date = item.get("Date")
+                break
+        if target_date:
+            from reconciler import parse_date_str
+            dt = parse_date_str(target_date)
+            if dt:
+                target_date_key = dt.strftime("%Y%m%d")
             
     # Apply reconciliation across past lookback_days
     reconciled_data = reconcile_permits(data, target_date, config_dir, lookback_days=lookback_days)
-    summary_metrics = get_reconciliation_summary(reconciled_data)
-    
-    # Auto-heal disk file if corrupted or duplicate records were cleansed
-    if latest_backup and os.path.exists(latest_backup) and len(reconciled_data) < len(data):
-        try:
-            with open(latest_backup, "w", encoding="utf-8") as wf:
-                json.dump(reconciled_data, wf, indent=4)
-        except Exception: pass
     
     pending = []
     completed = []
@@ -208,7 +221,23 @@ async def get_today_permits(request: Request, filename: str = None, lookback_day
         if status == "PENDING":
             pending.append(item)
         elif status == "COMPLETED":
+            # Strict date partition guard: completed dispatches must strictly match target date
+            if target_date_key:
+                from reconciler import get_record_effective_date_key
+                eff_k = get_record_effective_date_key(item, default_date_key=target_date_key)
+                if eff_k != target_date_key:
+                    continue
             completed.append(item)
+
+    summary_metrics = get_reconciliation_summary(pending + completed)
+    
+    # Auto-heal disk file if corrupted, cross-day, or duplicate records were cleansed
+    partitioned_data = pending + completed
+    if latest_backup and os.path.exists(latest_backup) and len(partitioned_data) < len(data):
+        try:
+            with open(latest_backup, "w", encoding="utf-8") as wf:
+                json.dump(partitioned_data, wf, indent=4)
+        except Exception: pass
             
     last_updated_str = "Live (Updated)"
     last_updated_ts = None
@@ -1066,12 +1095,19 @@ async def upload_results(request: Request):
                 
         # Reconcile merged records with 7-day backups
         reconciled_records = reconcile_permits(records_to_reconcile, target_dt, config_dir, lookback_days=7)
-        LATEST_WEBHOOK_DATA = reconciled_records
+        
+        # Partition target date records vs prior-date completed records
+        # canonical_filename MUST ONLY hold pending records + completed records whose effective date matches parsed_date!
+        canonical_records = [
+            r for r in reconciled_records
+            if str(r.get("Status", "")).upper() == "PENDING" or get_record_effective_date_key(r, default_date_key=parsed_date) == parsed_date
+        ]
+        LATEST_WEBHOOK_DATA = canonical_records
             
         with open(os.path.join(config_dir, canonical_filename), "w") as f:
-            json.dump(reconciled_records, f, indent=4)
+            json.dump(canonical_records, f, indent=4)
         with open(os.path.join(config_dir, latest_filename), "w") as f:
-            json.dump(reconciled_records, f, indent=4)
+            json.dump(canonical_records, f, indent=4)
             
         # Cross-day attribution: if incoming run contains completed dispatches belonging to prior dates
         # (e.g. approved after midnight with prior day's Challan Date), update prior backups so they reflect actual sales
@@ -1103,9 +1139,11 @@ async def upload_results(request: Request):
                     updated = True
                     
             if updated:
+                p_dt = parse_date_str(p_date)
+                cleaned_p = reconcile_permits(existing_p_data, p_dt, config_dir, lookback_days=7) if p_dt else clean_permit_records(existing_p_data, config_dir=config_dir)
                 with open(p_path, "w", encoding="utf-8") as pf:
-                    json.dump(existing_p_data, pf, indent=4)
-                print(f"🔄 Backfilled {len(p_recs)} crossover dispatches into prior backup {p_filename}")
+                    json.dump(cleaned_p, pf, indent=4)
+                print(f"🔄 Backfilled & reconciled {len(p_recs)} crossover dispatches into prior backup {p_filename}")
             
         # Clean up any extra timestamp files for the same target date
         for old_f in glob.glob(os.path.join(config_dir, f"backup_permits_{parsed_date}_*.json")):
