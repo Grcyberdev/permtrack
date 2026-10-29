@@ -42,6 +42,117 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def sync_bundled_data() -> dict:
+    """
+    Synchronizes bundled repository configuration and historical datasets
+    into the active runtime DATA_DIR (e.g. Fly.io persistent storage /data).
+    Preserves data integrity:
+    1. Copies missing files.
+    2. Overwrites/repairs corrupted or truncated files (e.g. if bundled version has more dispatches/cases).
+    3. Merges physical godown counts without overwriting newer live counts.
+    """
+    bundled_dir = os.path.join(PROJECT_ROOT, "config")
+    target_dir = automation_utils.get_data_dir()
+    os.makedirs(target_dir, exist_ok=True)
+    
+    if os.path.abspath(bundled_dir) == os.path.abspath(target_dir):
+        return {"status": "skipped", "message": "bundled_dir equals target_dir"}
+        
+    synced_files = []
+    import shutil
+    
+    # 1. Sync godown_reconciliation.json
+    bundled_recon_path = os.path.join(bundled_dir, "godown_reconciliation.json")
+    target_recon_path = os.path.join(target_dir, "godown_reconciliation.json")
+    if os.path.exists(bundled_recon_path):
+        if not os.path.exists(target_recon_path):
+            shutil.copy2(bundled_recon_path, target_recon_path)
+            synced_files.append("godown_reconciliation.json (copied)")
+        else:
+            try:
+                with open(bundled_recon_path, "r", encoding="utf-8") as bf:
+                    b_data = json.load(bf) or {}
+                with open(target_recon_path, "r", encoding="utf-8") as tf:
+                    t_data = json.load(tf) or {}
+                updated = False
+                for k, v in b_data.items():
+                    if k not in t_data or (isinstance(v, dict) and t_data.get(k) is None):
+                        t_data[k] = v
+                        updated = True
+                if updated:
+                    with open(target_recon_path, "w", encoding="utf-8") as tf:
+                        json.dump(t_data, tf, indent=4)
+                    synced_files.append("godown_reconciliation.json (merged)")
+            except Exception as e_recon:
+                print(f"⚠️ Error syncing godown reconciliation: {e_recon}")
+
+    # 2. Sync config.json
+    bundled_cfg = os.path.join(bundled_dir, "config.json")
+    target_cfg = os.path.join(target_dir, "config.json")
+    if os.path.exists(bundled_cfg) and not os.path.exists(target_cfg):
+        shutil.copy2(bundled_cfg, target_cfg)
+        synced_files.append("config.json (copied)")
+
+    # 3. Sync backup_permits_*.json
+    bundled_backups = glob.glob(os.path.join(bundled_dir, "backup_permits_*.json"))
+    for b_path in bundled_backups:
+        fname = os.path.basename(b_path)
+        t_path = os.path.join(target_dir, fname)
+        if not os.path.exists(t_path):
+            shutil.copy2(b_path, t_path)
+            synced_files.append(f"{fname} (copied new)")
+        else:
+            try:
+                with open(b_path, "r", encoding="utf-8") as bf:
+                    b_records = json.load(bf) or []
+                with open(t_path, "r", encoding="utf-8") as tf:
+                    t_records = json.load(tf) or []
+                    
+                b_comp = [r for r in b_records if str(r.get("Status", "")).upper() == "COMPLETED"]
+                t_comp = [r for r in t_records if str(r.get("Status", "")).upper() == "COMPLETED"]
+                
+                b_cases = sum(float(r.get("Cases") or 0) for r in b_comp)
+                t_cases = sum(float(r.get("Cases") or 0) for r in t_comp)
+                
+                # If bundled has more completed records or cases (e.g. Oct 26 has 1453 vs 0 on Fly volume)
+                if len(b_comp) > len(t_comp) or (b_cases > t_cases + 1.0):
+                    shutil.copy2(b_path, t_path)
+                    synced_files.append(f"{fname} (repaired: {len(b_comp)} comp vs {len(t_comp)})")
+                elif len(t_comp) > len(b_comp) and len(b_comp) > 0:
+                    # Target has newer dispatches. Merge any missing lines from bundled
+                    t_keys = {get_unique_permit_key(r) for r in t_records}
+                    merged = list(t_records)
+                    added = 0
+                    for br in b_records:
+                        bk = get_unique_permit_key(br)
+                        if bk not in t_keys:
+                            merged.append(br)
+                            t_keys.add(bk)
+                            added += 1
+                    if added > 0:
+                        with open(t_path, "w", encoding="utf-8") as wf:
+                            json.dump(merged, wf, indent=4)
+                        synced_files.append(f"{fname} (merged {added} records)")
+            except Exception as e_sync:
+                print(f"⚠️ Error comparing backup {fname}: {e_sync}")
+
+    # Ensure backup_permits_latest.json exists
+    t_latest = os.path.join(target_dir, "backup_permits_latest.json")
+    b_latest = os.path.join(bundled_dir, "backup_permits_latest.json")
+    if os.path.exists(b_latest) and not os.path.exists(t_latest):
+        shutil.copy2(b_latest, t_latest)
+        synced_files.append("backup_permits_latest.json (copied)")
+        
+    print(f"✅ Bundled data sync completed. Synced files: {len(synced_files)}")
+    return {"status": "success", "synced_files": synced_files}
+
+@app.on_event("startup")
+async def on_startup():
+    try:
+        sync_bundled_data()
+    except Exception as e:
+        print(f"⚠️ Startup sync failed: {e}")
+
 # -------------------------------------------------------------
 # Authentication & Access Control Endpoints
 # -------------------------------------------------------------
@@ -231,14 +342,6 @@ async def get_today_permits(request: Request, filename: str = None, lookback_day
 
     summary_metrics = get_reconciliation_summary(pending + completed)
     
-    # Auto-heal disk file if corrupted, cross-day, or duplicate records were cleansed
-    partitioned_data = pending + completed
-    if latest_backup and os.path.exists(latest_backup) and len(partitioned_data) < len(data):
-        try:
-            with open(latest_backup, "w", encoding="utf-8") as wf:
-                json.dump(partitioned_data, wf, indent=4)
-        except Exception: pass
-            
     last_updated_str = "Live (Updated)"
     last_updated_ts = None
     if latest_backup and os.path.exists(latest_backup):
@@ -1518,6 +1621,20 @@ async def websocket_run(websocket: WebSocket):
             await asyncio.sleep(0.5)
     except WebSocketDisconnect:
         print("🔌 Client disconnected from WebSocket.")
+
+@app.post("/api/admin/sync-seed-data")
+@app.get("/api/admin/sync-seed-data")
+async def admin_sync_seed_data(request: Request):
+    """
+    Manually triggers bundled data sync into active runtime DATA_DIR.
+    """
+    user = auth.get_current_user(request)
+    secret = request.query_params.get("secret") or request.headers.get("x-cron-secret")
+    expected_secret = os.environ.get("WEBHOOK_SECRET") or "PermTrack@2026"
+    if not user and secret != expected_secret:
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+    res = sync_bundled_data()
+    return JSONResponse(content=res)
 
 if __name__ == "__main__":
     import uvicorn

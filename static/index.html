@@ -2407,7 +2407,7 @@
                     const bPerCs = getBottlesPerCase(item.Size);
                     const bottleCsEq = (item.Bottles || 0) / bPerCs;
                     const lineEqCases = (item.Cases || 0) + bottleCsEq;
-                    const lineMRP = item["Total MRP"] || 0;
+                    const lineMRP = Number(item["Total MRP"] || item["Total Amount"] || item["MRP"] || 0) || 0;
 
                     const permitKey = (item["Indent Number"] && item["Indent Number"] !== '-')
                         ? item["Indent Number"]
@@ -3729,7 +3729,7 @@
                 pendingGroups[key].totalCases += (item.Cases || 0);
                 pendingGroups[key].totalBottles += (item.Bottles || 0);
                 pendingGroups[key].totalEqCases += lineEqCs;
-                pendingGroups[key].totalMRP += (item["Total MRP"] || 0);
+                pendingGroups[key].totalMRP += (Number(item["Total MRP"] || item["Total Amount"] || item["MRP"] || 0) || 0);
             });
 
             currentPendingGroups = Object.values(pendingGroups);

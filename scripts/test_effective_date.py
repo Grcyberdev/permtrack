@@ -100,3 +100,34 @@ def test_strict_date_partitioning():
     assert len(partitioned) == 2
     assert {r["Indent Number"] for r in partitioned} == {"IND2", "IND3"}
 
+def test_sync_bundled_data_repairs_truncated(tmp_path, monkeypatch):
+    import json
+    from app import sync_bundled_data
+    # Create fake bundled config and target data dir
+    bundled = tmp_path / "bundled"
+    bundled.mkdir()
+    target = tmp_path / "target"
+    target.mkdir()
+
+    # Bundled has 10 completed dispatches
+    b_records = [{"Indent Number": f"IND{i}", "Status": "COMPLETED", "Cases": 10, "Total MRP": 1000} for i in range(10)]
+
+    monkeypatch.setattr("app.PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("app.automation_utils.get_data_dir", lambda: str(target))
+    monkeypatch.setattr("scripts.automation_utils.get_data_dir", lambda: str(target))
+
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "backup_permits_99990101_000000.json").write_text(json.dumps(b_records))
+
+    # Target has corrupted 1 record
+    t_records = [{"Indent Number": "IND0", "Status": "COMPLETED", "Cases": 10, "Total MRP": 1000}]
+    (target / "backup_permits_99990101_000000.json").write_text(json.dumps(t_records))
+
+    res = sync_bundled_data()
+    assert res["status"] == "success"
+    
+    # Target should now be repaired with 10 records
+    repaired = json.loads((target / "backup_permits_99990101_000000.json").read_text())
+    assert len(repaired) == 10
+
+
