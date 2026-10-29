@@ -181,22 +181,24 @@ def get_next_page_button(driver):
     return None
 
 def purge_all_modals(driver):
-    """Purges all modal elements from the DOM to avoid stale modal leaks."""
+    """Purges all modal, popup, and dialog elements from the DOM to avoid stale modal leaks."""
     try:
         driver.execute_script("""
             if (window.$ && $.fn && $.fn.modal) {
-                $('.modal').modal('hide');
+                try { $('.modal').modal('hide'); } catch(e) {}
             }
-            document.querySelectorAll('.modal, .modal-backdrop, [class*="modal-backdrop"]').forEach(el => el.remove());
+            document.querySelectorAll('.modal, .modal-backdrop, [class*="modal-backdrop"], [class*="popup"], [role="dialog"], [id*="modal"], [id*="popup"]').forEach(el => {
+                try { el.remove(); } catch(e) {}
+            });
             document.body.classList.remove('modal-open');
         """)
         time.sleep(0.3)
     except: pass
 
-def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=None):
+def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=None, permit_num=None):
     """
     Purges old modals, clicks target column link (e.g. Col 2 for Transport Permit or Col 1 for Indent),
-    waits for modal matching indent_num, and extracts individual brand lines AND official bottom 'Total' row.
+    waits for modal strictly matching indent_num or permit_num, and extracts individual brand lines AND official bottom 'Total' row.
     Returns: (brand_lines, tot_cases, tot_bottles, success_bool)
     """
     purge_all_modals(driver)
@@ -235,10 +237,23 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=N
                 all_modals = driver.find_elements(By.XPATH, "//div[contains(@class, 'modal') or contains(@class, 'popup')]")
                 for m in reversed(all_modals):
                     try:
+                        # Stale hidden modals must be skipped
+                        if not m.is_displayed():
+                            continue
                         txt = m.get_attribute("innerText") or ""
-                        if indent_num in txt or "Brand Code" in txt or "Retailer Name" in txt:
+                        # Strict validation: modal MUST match this specific indent or permit number
+                        if indent_num and indent_num in txt:
                             modal_container = m
                             break
+                        if permit_num and permit_num in txt:
+                            modal_container = m
+                            break
+                        if indent_num:
+                            import re
+                            m_num = re.search(r'\d{5,}', indent_num)
+                            if m_num and m_num.group(0) in txt and any(k in txt for k in ["Indent", "Permit", "Brand", "Cases"]):
+                                modal_container = m
+                                break
                     except: pass
                 if modal_container: break
                 time.sleep(0.4)
@@ -1049,7 +1064,7 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                         # Primary cross-verification: Transport Permit modal (Col 2) for approved quantities & MRP
                         modal_lines, m_cases, m_bottles, modal_ok = [], 0, 0, False
                         try:
-                            modal_lines, m_cases, m_bottles, modal_ok = open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=2)
+                            modal_lines, m_cases, m_bottles, modal_ok = open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=2, permit_num=permit_num)
                             purge_all_modals(driver)
                         except Exception as e_modal:
                             purge_all_modals(driver)
@@ -1057,7 +1072,7 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                         # Fallback to Column 1 (Indent Modal) if Col 2 was unavailable
                         if not modal_ok:
                             try:
-                                modal_lines, m_cases, m_bottles, modal_ok = open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=1)
+                                modal_lines, m_cases, m_bottles, modal_ok = open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=1, permit_num=permit_num)
                                 purge_all_modals(driver)
                             except: purge_all_modals(driver)
                             
@@ -1104,7 +1119,7 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                     else:
                         # Pending permits (modal extraction)
                         try:
-                            brand_lines, tot_cases, tot_bottles, extract_success = open_and_parse_strict_modal(driver, wait, indent_num, cols)
+                            brand_lines, tot_cases, tot_bottles, extract_success = open_and_parse_strict_modal(driver, wait, indent_num, cols, permit_num=permit_num)
                             purge_all_modals(driver)
                             calc_c = sum(b.get("Cases", 0) for b in brand_lines)
                             if tot_cases > 0 and (tot_cases - calc_c) > 0.01:
@@ -1210,7 +1225,7 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                             break
                         cols = current_rows[idx].find_elements(By.TAG_NAME, "td")
                         
-                        brand_lines, tot_cases, tot_bottles, modal_success = open_and_parse_strict_modal(driver, wait, indent_num, cols)
+                        brand_lines, tot_cases, tot_bottles, modal_success = open_and_parse_strict_modal(driver, wait, indent_num, cols, permit_num=item.get("permit_num"))
                         purge_all_modals(driver)
                         
                         calc_c = sum(b.get("Cases", 0) for b in brand_lines)
