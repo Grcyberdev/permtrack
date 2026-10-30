@@ -79,20 +79,13 @@ def normalize_size(size_val: Any) -> str:
     return digits[0] if digits else str(size_val).strip()
 
 def normalize_brand_key(name: Any) -> str:
-    """Normalizes brand names by removing filler descriptors and non-alphanumeric chars."""
+    """Normalizes brand names by removing punctuation and whitespace without stripping distinctive product words."""
     if not name:
         return ""
     import re
-    STOP_WORDS = {
-        "PREMIUM", "SUPER", "STRONG", "LAGER", "BEER", "WHISKY", "WHISKEY", "RUM",
-        "VODKA", "GIN", "BRANDY", "CAN", "BOTTLE", "DRAUGHT", "FINE", "DELUXE", "LUXURY",
-        "SMOOTH", "CRAFT", "INDIA", "INDIAN", "SPECIAL", "SELECT", "RARE", "ML", "ORIGINAL"
-    }
-    raw = str(name).upper()
-    tokens = [t for t in re.findall(r'[A-Za-z0-9]+', raw) if t not in STOP_WORDS]
-    if not tokens:
-        tokens = [t for t in re.findall(r'[A-Za-z0-9]+', raw)]
-    return "".join(tokens)
+    raw = str(name).upper().strip()
+    # Normalize symbols like backticks, apostrophes, dashes, slashes, periods
+    return re.sub(r'[^A-Z0-9]', '', raw)
 
 def get_unique_permit_key(item: Dict[str, Any]) -> str:
     """Generates a composite unique key for an indent/permit row."""
@@ -495,7 +488,7 @@ def clean_permit_records(records: List[Dict[str, Any]], config_dir: Optional[str
                     cleaned.append(it)
             continue
             
-        # For completed items, deduplicate by (normalized_brand, normalized_size)
+        # For completed items, deduplicate true duplicate scrapes by (normalized_brand, normalized_size)
         sku_groups = defaultdict(list)
         for it in items:
             b_key = normalize_brand_key(it.get("Product Name"))
@@ -506,17 +499,24 @@ def clean_permit_records(records: List[Dict[str, Any]], config_dir: Optional[str
             if len(group) == 1:
                 cleaned.append(group[0])
             else:
-                # Merge duplicate lines: pick the one with the most complete data
-                best = dict(group[0])
-                for other in group[1:]:
-                    for fld in ["Total MRP", "Bulk Litres", "LPL", "Vehicle Number", "Challan Date", "Licensee Name", "Pack Size", "Category"]:
-                        if not best.get(fld) and other.get(fld):
-                            best[fld] = other[fld]
-                        elif fld == "Total MRP" and (other.get(fld) or 0) > (best.get(fld) or 0):
-                            best[fld] = other[fld]
-                    best["Cases"] = max(best.get("Cases", 0), other.get("Cases", 0))
-                    best["Bottles"] = max(best.get("Bottles", 0), other.get("Bottles", 0))
-                cleaned.append(best)
+                # Check if group items have distinct non-empty product names
+                p_names = {normalize_brand_key(g.get("Product Name")) for g in group if g.get("Product Name")}
+                if len(p_names) > 1:
+                    # Distinct products must never be collapsed
+                    for g in group:
+                        cleaned.append(g)
+                else:
+                    # Merge duplicate lines: pick the one with the most complete data
+                    best = dict(group[0])
+                    for other in group[1:]:
+                        for fld in ["Total MRP", "Bulk Litres", "LPL", "Vehicle Number", "Challan Date", "Licensee Name", "Pack Size", "Category"]:
+                            if not best.get(fld) and other.get(fld):
+                                best[fld] = other[fld]
+                            elif fld == "Total MRP" and (other.get(fld) or 0) > (best.get(fld) or 0):
+                                best[fld] = other[fld]
+                        best["Cases"] = max(best.get("Cases", 0), other.get("Cases", 0))
+                        best["Bottles"] = max(best.get("Bottles", 0), other.get("Bottles", 0))
+                    cleaned.append(best)
                 
     if config_dir:
         sku_rates = build_historical_sku_rates(config_dir)

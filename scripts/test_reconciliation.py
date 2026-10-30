@@ -52,6 +52,37 @@ def test_no_pending_completed_overlap():
     assert len(overlap) == 0, f"No indent should exist in both completed and pending: {overlap}"
     print("✅ test_no_pending_completed_overlap passed: 0 overlap!")
 
+def test_brand_variant_separation():
+    from reconciler import get_unique_permit_key, clean_permit_records
+    
+    item1 = {
+        "Status": "COMPLETED",
+        "Indent Number": "IND2026DEPOLD309816422",
+        "Product Name": "MASTI SPECIAL",
+        "Size": "300",
+        "Cases": 5,
+        "Total MRP": 6166.15
+    }
+    item2 = {
+        "Status": "COMPLETED",
+        "Indent Number": "IND2026DEPOLD309816422",
+        "Product Name": "MASTI",
+        "Size": "300",
+        "Cases": 20,
+        "Total MRP": 24664.6
+    }
+    
+    k1 = get_unique_permit_key(item1)
+    k2 = get_unique_permit_key(item2)
+    assert k1 != k2, f"Keys must be distinct: {k1} vs {k2}"
+    
+    cleaned = clean_permit_records([item1, item2])
+    assert len(cleaned) == 2, f"Both distinct brand variants must survive deduplication: got {len(cleaned)}"
+    tot_cases = sum(c.get("Cases", 0) for c in cleaned)
+    assert tot_cases == 25, f"Expected 25 total cases, got {tot_cases}"
+    print("✅ test_brand_variant_separation passed: MASTI and MASTI SPECIAL correctly preserved without collision!")
+
 if __name__ == "__main__":
     test_reconciliation()
     test_no_pending_completed_overlap()
+    test_brand_variant_separation()

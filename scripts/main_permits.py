@@ -705,7 +705,21 @@ def brand_similarity_match(name1, size1, name2, size2):
     n2 = re.sub(r'[^A-Za-z0-9]', '', str(name2 or "")).upper()
     if not n1 or not n2:
         return False
-    if n1 == n2 or n1 in n2 or n2 in n1:
+    if n1 == n2:
+        return True
+        
+    # Variant words that distinguish distinct products from the same distillery / line
+    VARIANT_WORDS = {
+        "SPECIAL", "STRONG", "PREMIUM", "SUPER", "ULTRA", "LAGER", "WHITE", "BLACK",
+        "BLUE", "RED", "GOLD", "RESERVE", "SELECT", "CLASSIC", "NO1", "NO", "1", "FOURELEMENTS"
+    }
+    w1 = {w for w in re.findall(r'[A-Za-z0-9]+', str(name1).upper()) if w in VARIANT_WORDS}
+    w2 = {w for w in re.findall(r'[A-Za-z0-9]+', str(name2).upper()) if w in VARIANT_WORDS}
+    if w1 != w2:
+        # Differing variant descriptors (e.g. MASTI vs MASTI SPECIAL) must never match
+        return False
+
+    if n1 in n2 or n2 in n1:
         return True
         
     STOP_WORDS = {
