@@ -8,6 +8,7 @@ import sys
 import os
 import time
 import ssl
+import random
 import subprocess
 import urllib.request
 import concurrent.futures
@@ -82,9 +83,8 @@ def fetch_candidate_proxies():
 def verify_single_proxy(proxy_url):
     """
     Verifies a proxy by fetching the Assam Excise portal login page.
-    Uses curl for native support of both SOCKS5 and HTTP proxies.
+    Performs a 2-step verification to confirm the proxy can sustain multiple connections.
     """
-    t0 = time.time()
     cmd = [
         "curl", "-k", "-s", "-L",
         "--connect-timeout", "4",
@@ -93,45 +93,35 @@ def verify_single_proxy(proxy_url):
         PORTAL_URL
     ]
     try:
+        t0 = time.time()
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
         elapsed = time.time() - t0
         body = res.stdout.lower()
-        if "assam" in body or "excise" in body or "logincaptcha" in body or "loginform" in body:
-            return (proxy_url, elapsed)
+        if ("assam" in body or "excise" in body) and ("logincaptcha" in body or "loginform" in body or "username" in body):
+            # Double-check stability: second rapid request to confirm proxy is genuinely responsive and won't drop Chrome
+            time.sleep(0.3)
+            res2 = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+            body2 = res2.stdout.lower()
+            if ("assam" in body2 or "excise" in body2) and ("logincaptcha" in body2 or "loginform" in body2 or "username" in body2):
+                return (proxy_url, elapsed)
     except Exception:
         pass
 
-    # Fallback to urllib if proxy is HTTP and curl failed
-    if proxy_url.startswith("http://"):
-        try:
-            handler = urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
-            ctx = ssl._create_unverified_context()
-            opener = urllib.request.build_opener(handler)
-            req = urllib.request.Request(
-                PORTAL_URL,
-                headers={"User-Agent": "Mozilla/5.0"}
-            )
-            t0 = time.time()
-            with opener.open(req, timeout=6) as resp:
-                elapsed = time.time() - t0
-                if resp.status == 200:
-                    body = resp.read(1024).decode("utf-8", errors="ignore").lower()
-                    if "assam" in body or "excise" in body or "login" in body:
-                        return (proxy_url, elapsed)
-        except Exception:
-            pass
-
     return None
 
-def find_working_indian_proxy(max_candidates=120, max_workers=35):
+def find_working_indian_proxy(max_candidates=150, max_workers=35):
     candidates = fetch_candidate_proxies()
     
-    # Prioritize seeds
-    ordered_candidates = [p for p in PRIORITY_SEEDS if p in candidates] + [p for p in PRIORITY_SEEDS if p not in candidates]
-    ordered_candidates += [p for p in candidates if p not in PRIORITY_SEEDS]
+    # Shuffle candidate pool so concurrent GitHub runners distribute traffic across different proxies
+    random.shuffle(candidates)
+    
+    # Mix priority seeds with candidates
+    shuffled_seeds = list(PRIORITY_SEEDS)
+    random.shuffle(shuffled_seeds)
+    ordered_candidates = shuffled_seeds + [p for p in candidates if p not in PRIORITY_SEEDS]
 
     test_batch = ordered_candidates[:max_candidates]
-    print(f"⚡ Concurrently testing {len(test_batch)} Indian proxies against portal (timeout=7s)...")
+    print(f"⚡ Concurrently testing {len(test_batch)} Indian proxies against portal (timeout=7s, randomized pool)...")
     
     verified = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -142,13 +132,15 @@ def find_working_indian_proxy(max_candidates=120, max_workers=35):
                 proxy_url, latency = res
                 print(f"   🎯 Live Indian Proxy verified: {proxy_url} (latency: {latency:.2f}s)")
                 verified.append(res)
-                if len(verified) >= 3:
+                if len(verified) >= 8:
                     break
 
     if verified:
         verified.sort(key=lambda x: x[1])
-        best_proxy, best_time = verified[0]
-        print(f"🏆 Best Indian proxy selected: {best_proxy} (latency: {best_time:.2f}s)")
+        # Randomly choose among the top 5 lowest-latency verified proxies to eliminate single-proxy collisions
+        top_tier = verified[:min(5, len(verified))]
+        best_proxy, best_time = random.choice(top_tier)
+        print(f"🏆 Distributed Indian proxy selected: {best_proxy} (latency: {best_time:.2f}s, out of {len(verified)} verified)")
         return best_proxy
 
     print("⚠️ No verified live proxies found in this batch.")
