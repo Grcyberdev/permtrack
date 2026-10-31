@@ -799,35 +799,10 @@ def merge_brand_data(f34_lines, modal_lines):
                 
         merged_lines.append(f_copy)
         
-    f34_tot_cases = sum(f.get("Cases", 0) for f in f34_lines)
-    modal_tot_cases = sum(m.get("Cases", 0) for m in modal_lines)
-    
-    # Pass 2: Add modal_lines ONLY if Form-34 was genuinely partial (e.g. Beer missing from IMFL challan)
-    # If Form-34 already has >= modal_tot_cases, Form-34 is already complete; do not duplicate items.
-    if modal_tot_cases > f34_tot_cases:
-        for idx, m in enumerate(modal_lines):
-            if idx not in matched_modal_indices:
-                print(f"   ℹ️ [Merge] Adding SKU found in modal but missing from Form-34: {m.get('Product Name')} ({m.get('Cases', 0)} cs)")
-                m_copy = dict(m)
-                raw_size = m_copy.get("Size", "")
-                size_ml = raw_size.split("/")[0].strip() if "/" in raw_size else raw_size
-                b_per_cs = get_bottles_per_case(size_ml)
-                
-                cs = m_copy.get("Cases", 0)
-                b = m_copy.get("Bottles", 0)
-                tot_bottles = (cs * b_per_cs) + b
-                try:
-                    vol_ml = int(re.sub(r'[^0-9]', '', str(size_ml)))
-                    bl = (tot_bottles * vol_ml) / 1000.0
-                except:
-                    bl = 0.0
-                    
-                m_copy["Category"] = m_copy.get("Category", "Beer" if "BEER" in m_copy.get("Product Name", "").upper() else "IMFL")
-                m_copy["Pack Size"] = m_copy.get("Pack Size", f"{size_ml}/{b_per_cs}")
-                m_copy["Bulk Litres"] = bl
-                m_copy["LPL"] = bl * 0.75
-                merged_lines.append(m_copy)
-            
+    # Form-34 is the authoritative legal transport pass issued by the Superintendent of Excise.
+    # Any lines that were in the original Indent requisition but NOT approved on Form-34
+    # were reduced, rejected, or cut down by the Excise Department.
+    # Therefore, never append unapproved modal/indent lines to an issued Form-34 pass.
     return merged_lines
 
 def recheck_permit_from_portal(driver, wait, indent_num, cols, brand_lines, official_cases, official_bottles):
@@ -940,24 +915,7 @@ def recheck_permit_from_portal(driver, wait, indent_num, cols, brand_lines, offi
                 })
                 existing_keys[ek] = extra
 
-    # 4. Final verification against official_cases
-    calc_cases = sum(b.get("Cases", 0) for b in brand_lines)
-    if calc_cases < official_cases:
-        diff = official_cases - calc_cases
-        print(f"   🛡️ [Recheck] Applying verified balance entry: {diff} cs to match exact official portal total ({official_cases} cs).")
-        brand_lines.append({
-            "Product Name": f"VERIFIED DISPATCH BALANCE ({indent_num})",
-            "Category": "Verified Excise Balance",
-            "Size": "Standard",
-            "Pack Size": "",
-            "Cases": diff,
-            "Bottles": 0,
-            "Bulk Litres": 0.0,
-            "LPL": 0.0,
-            "Total MRP": 0.0,
-            "is_reconciled_balance": True
-        })
-        
+    # Only authentic SKUs from the official pass are retained; no synthetic dummy entries.
     return brand_lines, official_cases, official_bottles
 
 def close_modal(driver):
@@ -1112,12 +1070,9 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                         except Exception as e_modal:
                             purge_all_modals(driver)
                             
-                        # Fallback to Column 1 (Indent Modal) if Col 2 was unavailable
-                        if not modal_ok:
-                            try:
-                                modal_lines, m_cases, m_bottles, modal_ok = open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=1, permit_num=permit_num)
-                                purge_all_modals(driver)
-                            except: purge_all_modals(driver)
+                        # Note: Never fallback to Column 1 (Indent Modal) for completed passes,
+                        # because Indent contains requested/unapproved requisition quantities,
+                        # not approved transport pass dispatches. Form-34 is the single source of truth.
                             
                         if f34_ok and modal_ok and m_cases > 0:
                             # Primary source of truth for volume is Column 2 Transport Permit modal (official excise database record)

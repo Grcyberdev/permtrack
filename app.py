@@ -623,6 +623,13 @@ async def get_godown_monthly_summary(request: Request):
                     status = str(rec.get("Status") or "").strip().upper()
                     if status != "COMPLETED":
                         continue
+                    # Strict validation: Only officially approved Transit Passes (TP...) count toward sales
+                    tp = str(rec.get("Transit Pass") or "").strip().upper()
+                    if not tp.startswith("TP"):
+                        continue
+                    pname = str(rec.get("Product Name") or "").upper()
+                    if "VERIFIED DISPATCH BALANCE" in pname:
+                        continue
                     pkey = get_unique_permit_key(rec)
                     if pkey not in unique_completed_records:
                         eff_k = get_record_effective_date_key(rec, default_date_key=f_date_key)
