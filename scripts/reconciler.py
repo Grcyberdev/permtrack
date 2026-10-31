@@ -276,6 +276,16 @@ def reconcile_permits(
     # 3. Load historical backups within lookback_days
     historical_backups = load_historical_backups(config_dir, target_dt, max_lookback_days=lookback_days)
     
+    # Pre-collect all indent IDs that have been completed in ANY historical backup
+    all_completed_indents = set(current_completed_indents)
+    for _, _, b_records in historical_backups:
+        for item in b_records:
+            st = normalize_key(item.get("Status"))
+            tp = item.get("Transit Pass")
+            has_tp = bool(tp and str(tp).strip().upper().startswith("TP"))
+            if st == "COMPLETED" or has_tp:
+                all_completed_indents.add(get_unique_indent_id(item))
+    
     # Store unresolved historical pending items mapped by line_key
     historical_pending_pool: Dict[str, Dict[str, Any]] = {}
     
@@ -290,12 +300,16 @@ def reconcile_permits(
                 indent_id = get_unique_indent_id(item)
                 
                 product_name = normalize_key(item.get("Product Name"))
-                # If the indent as a whole was completed today, or this specific line was completed, it is fulfilled!
-                is_fulfilled = (indent_id in current_completed_indents) or (line_key in current_completed_keys)
+                # If the indent as a whole was completed anywhere (today or in historical backups), it is fulfilled!
+                is_fulfilled = (indent_id in all_completed_indents) or (line_key in current_completed_keys)
                 if is_fulfilled:
-                    # Successfully fulfilled today!
+                    # Successfully fulfilled!
                     if line_key in historical_pending_pool:
                         del historical_pending_pool[line_key]
+                    if indent_id:
+                        to_del = [k for k, v in historical_pending_pool.items() if get_unique_indent_id(v) == indent_id]
+                        for k in to_del:
+                            del historical_pending_pool[k]
                     continue
                     
                 # Check if already present in today's pending list (e.g. from portal lookback)
@@ -326,8 +340,13 @@ def reconcile_permits(
             elif status == "COMPLETED":
                 # If a permit was completed in an earlier day's backup, remove from historical pending pool
                 line_key = get_unique_permit_key(item)
+                indent_id = get_unique_indent_id(item)
                 if line_key in historical_pending_pool:
                     del historical_pending_pool[line_key]
+                if indent_id:
+                    to_del = [k for k, v in historical_pending_pool.items() if get_unique_indent_id(v) == indent_id]
+                    for k in to_del:
+                        del historical_pending_pool[k]
 
     # 4. Combine current pending + carried over pending from backups
     all_reconciled_pending = list(current_pending)
@@ -477,7 +496,8 @@ def clean_permit_records(records: List[Dict[str, Any]], config_dir: Optional[str
         if status != "COMPLETED":
             # If there are items with positive cases or product name, drop empty 0-case placeholders
             valid_items = [it for it in items if float(it.get("Cases") or 0) > 0 or float(it.get("Bottles") or 0) > 0 or it.get("Product Name")]
-            items_to_use = valid_items if valid_items else items
+            # Completely filter out empty ghost rows (0 cases, 0 bottles, and completely empty product name)
+            items_to_use = valid_items if valid_items else [it for it in items if not (float(it.get("Cases") or 0) == 0 and float(it.get("Bottles") or 0) == 0 and not str(it.get("Product Name") or "").strip())]
             
             # For pending, deduplicate by unique key
             seen_keys = set()

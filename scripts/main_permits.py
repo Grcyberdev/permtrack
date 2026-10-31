@@ -304,14 +304,16 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=N
         candidate_tables = []
         for t in tables:
             t_id = (t.get_attribute("id") or "").lower()
-            t_cls = (t.get_attribute("class") or "").lower()
-            if "my-table-sorter" in t_id or "datatable" in t_cls or "table-sorter" in t_id:
+            # Strictly exclude main page tables
+            if t_id in ["my-table-sorter", "table-sorter"] or "my-table-sorter" in t_id:
                 continue
             t_txt = t.text.lower()
-            if any(k in t_txt for k in ["brand", "product", "item", "cases", "bottles", "category"]):
+            if any(k in t_txt for k in ["brand", "product", "item", "cases", "bottles", "category", "applied", "approved"]):
                 candidate_tables.append(t)
         if not candidate_tables:
-            candidate_tables = [tables[-1]]
+            candidate_tables = [t for t in tables if "my-table-sorter" not in (t.get_attribute("id") or "").lower()]
+            if not candidate_tables and tables:
+                candidate_tables = [tables[-1]]
             
         tot_official_c = 0
         tot_official_b = 0
@@ -327,16 +329,21 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=N
                 col_bottles = 4
                 col_mrp = 6
                 
-                for r in rows[:3]:
+                for r in rows[:4]:
                     cells = r.find_elements(By.XPATH, ".//th | .//td")
                     texts = [c.get_attribute("innerText").strip().lower() for c in cells]
-                    if any("brand" in t or "product" in t or "item" in t for t in texts):
+                    if any(k in " ".join(texts) for k in ["brand", "product", "item", "cases", "bottles"]):
                         for idx, t in enumerate(texts):
-                            if "brand" in t or "product" in t or "item" in t: col_name = idx
-                            elif "size" in t or "pack" in t: col_size = idx
-                            elif "cases" in t or ("case" in t and "rate" not in t): col_cases = idx
-                            elif "bottles" in t or "bottle" in t: col_bottles = idx
-                            elif "value" in t or "mrp" in t or "amount" in t: col_mrp = idx
+                            if any(k in t for k in ["brand", "product", "item", "description"]):
+                                col_name = idx
+                            elif any(k in t for k in ["size", "pack", "capacity", "ml"]):
+                                col_size = idx
+                            elif ("case" in t or "approved c" in t or "indent c" in t or "applied c" in t) and ("rate" not in t and "price" not in t and "mrp" not in t):
+                                col_cases = idx
+                            elif "bottle" in t:
+                                col_bottles = idx
+                            elif any(k in t for k in ["mrp", "value", "amount", "price"]):
+                                col_mrp = idx
 
                 for r in rows:
                     cols_r = r.find_elements(By.TAG_NAME, "td")
@@ -1218,7 +1225,7 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                                 "Application Date": created_on,
                                 "extraction_error": False
                             })
-                    else:
+                    elif tot_cases > 0 or tot_bottles > 0:
                         results.append({
                             "Date": target_date.strftime("%d-%b-%Y"),
                             "Bond Type": bond_type,
@@ -1243,6 +1250,18 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                             "Application Date": created_on,
                             "extraction_error": False
                         })
+                    else:
+                        print(f"   ⏳ Indent {indent_num} yielded 0 cases and no brand lines; queuing for retry pass...")
+                        failed_modal_rows.append({
+                            "index": i,
+                            "indent_num": indent_num,
+                            "permit_num": permit_num,
+                            "transit_pass": transit_pass,
+                            "retailer_name": retailer_name,
+                            "retailer_code": retailer_code,
+                            "created_on": created_on
+                        })
+                        continue
                 except Exception as e_row:
                     print(f"   ⚠️ Error parsing row {i} on page {page_num}: {e_row}")
                     
@@ -1312,7 +1331,7 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                                     "Application Date": item["created_on"],
                                     "extraction_error": False
                                 })
-                        elif modal_success:
+                        elif modal_success and (tot_cases > 0 or tot_bottles > 0):
                             results.append({
                                 "Date": target_date.strftime("%d-%b-%Y"),
                                 "Bond Type": bond_type,
@@ -1607,6 +1626,47 @@ def main():
         print(f"💾 Reconciled data backed up locally to {backup_dir}.")
     except Exception as e:
         print(f"⚠️ Failed to save local backup files: {e}")
+        
+    # Cross-day attribution: if scraped run contains completed dispatches belonging to prior dates
+    # (e.g. issued after cutoff or via lookback), update prior backup files so they reflect actual sales and purge stale pending entries!
+    try:
+        target_date_key = target_date.strftime("%Y%m%d")
+        prior_date_completed = {}
+        for r in all_completed:
+            if str(r.get("Status", "")).upper() == "COMPLETED":
+                from reconciler import get_record_effective_date_key, get_unique_indent_id
+                eff_k = get_record_effective_date_key(r, default_date_key=target_date_key)
+                if eff_k and eff_k < target_date_key:
+                    prior_date_completed.setdefault(eff_k, []).append(r)
+                    
+        for p_date, p_recs in prior_date_completed.items():
+            p_filename = f"backup_permits_{p_date}_000000.json"
+            p_path = os.path.join(backup_dir, p_filename)
+            if os.path.exists(p_path):
+                try:
+                    with open(p_path, "r", encoding="utf-8") as pf:
+                        p_data = json.load(pf) or []
+                    p_keys = {get_unique_permit_key(it) for it in p_data}
+                    p_completed_iids = {get_unique_indent_id(it) for it in p_recs}
+                    # Filter out any stale pending entries for indents that are now completed!
+                    p_data = [it for it in p_data if not (str(it.get("Status", "")).upper() == "PENDING" and get_unique_indent_id(it) in p_completed_iids)]
+                    p_updated = False
+                    for nr in p_recs:
+                        nr_key = get_unique_permit_key(nr)
+                        if nr_key not in p_keys:
+                            p_data.append(nr)
+                            p_keys.add(nr_key)
+                            p_updated = True
+                    if p_updated:
+                        p_dt = parse_date_str(p_date)
+                        cleaned_p = reconcile_permits(p_data, p_dt, backup_dir, lookback_days=args.lookback_days)
+                        with open(p_path, "w", encoding="utf-8") as pf:
+                            json.dump(cleaned_p, pf, indent=4)
+                        print(f"🔄 Backfilled & updated prior backup {p_filename} with {len(p_recs)} crossover dispatches (purged stale pending).")
+                except Exception as e_p:
+                    print(f"⚠️ Error backfilling prior backup {p_filename}: {e_p}")
+    except Exception as e_cross:
+        print(f"⚠️ Cross-day backfill error: {e_cross}")
         
     fly_app_url = os.environ.get("FLY_APP_URL")
     webhook_secret = os.environ.get("WEBHOOK_SECRET")

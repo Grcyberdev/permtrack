@@ -1240,6 +1240,9 @@ async def upload_results(request: Request):
                     existing_p_data = []
             
             p_keys = {get_unique_permit_key(it) for it in existing_p_data}
+            p_completed_iids = {get_unique_indent_id(it) for it in p_recs}
+            # Purge any stale pending entries for indents that are now completed!
+            existing_p_data = [it for it in existing_p_data if not (str(it.get("Status", "")).upper() == "PENDING" and get_unique_indent_id(it) in p_completed_iids)]
             updated = False
             for nr in p_recs:
                 nr_key = get_unique_permit_key(nr)
