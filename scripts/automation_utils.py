@@ -539,40 +539,56 @@ def solve_captcha_ocr(driver, captcha_element_id="loginCaptcha"):
             time.sleep(0.5)
 
         # Save screenshot of the element
-        # Custom Logic for safer screenshotting 
-        # Strategy: 1. Try Element Screenshot (Best for Local/Mac) -> 2. Fallback to Full Page Crop (Best for Headless/Linux)
+        # Strategy: 1. Try Element Screenshot -> 2. Canvas Base64 Extraction -> 3. Fallback to Full Page Crop
         
+        image_bytes = None
         try:
             captcha_img.screenshot(screenshot_path)
-            # Verify file size/validity
-            if not os.path.exists(screenshot_path) or os.path.getsize(screenshot_path) < 100:
+            if os.path.exists(screenshot_path) and os.path.getsize(screenshot_path) >= 100:
+                with open(screenshot_path, "rb") as f:
+                    image_bytes = f.read()
+            else:
                 raise Exception("Screenshot file missing or too small")
         except Exception as e_ss:
-            print(f"   ⚠️ Element screenshot failed: {e_ss}. Using Full Page Crop fallback...")
-            
-            full_screenshot_path = "full_page_debug.png"
-            driver.save_screenshot(full_screenshot_path)
-            
-            image = Image.open(full_screenshot_path)
-            
-            # Use fixed crop if element location failed
+            # High-fidelity fallback 1: Canvas Base64 extraction directly from DOM memory
             try:
-                location = captcha_img.location
-                size = captcha_img.size
-                # Add padding to crop
-                left = location['x'] - 5
-                top = location['y'] - 5
-                right = location['x'] + size['width'] + 5
-                bottom = location['y'] + size['height'] + 5
-                image = image.crop((left, int(top), int(right), int(bottom)))
-            except:
-                print("   ⚠️ Dynamic crop failed. Using fixed fallback box.")
-                image = image.crop((700, 300, 900, 400)) # Guess coordinates
-            image.save(screenshot_path)
-            
-            # Clean up full page
-            try: os.remove(full_screenshot_path) 
-            except: pass
+                import base64
+                b64_str = driver.execute_script("""
+                    var img = arguments[0];
+                    if (!img) return null;
+                    var canvas = document.createElement('canvas');
+                    canvas.width = img.naturalWidth || img.width || 120;
+                    canvas.height = img.naturalHeight || img.height || 40;
+                    var ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    return canvas.toDataURL('image/png').split(',')[1];
+                """, captcha_img)
+                if b64_str:
+                    image_bytes = base64.b64decode(b64_str)
+                    with open(screenshot_path, "wb") as f:
+                        f.write(image_bytes)
+            except Exception as e_canvas:
+                image_bytes = None
+
+            if not image_bytes:
+                print(f"   ⚠️ Element screenshot failed: {e_ss}. Using Full Page Crop fallback...")
+                full_screenshot_path = "full_page_debug.png"
+                driver.save_screenshot(full_screenshot_path)
+                image = Image.open(full_screenshot_path)
+                try:
+                    location = captcha_img.location
+                    size = captcha_img.size
+                    left = location['x'] - 5
+                    top = location['y'] - 5
+                    right = location['x'] + size['width'] + 5
+                    bottom = location['y'] + size['height'] + 5
+                    image = image.crop((left, int(top), int(right), int(bottom)))
+                except:
+                    print("   ⚠️ Dynamic crop failed. Using fixed fallback box.")
+                    image = image.crop((700, 300, 900, 400))
+                image.save(screenshot_path)
+                try: os.remove(full_screenshot_path) 
+                except: pass
         
         if not has_ddddocr:
             print(f"   🖼️  Captcha saved to: {os.path.abspath(screenshot_path)}")
@@ -672,7 +688,7 @@ def login_to_portal(driver, portal_url, username, password, max_retries=12):
                     refresh_btns = driver.find_elements(By.ID, "refreshCaptcha")
                     if refresh_btns:
                         driver.execute_script("arguments[0].click();", refresh_btns[0])
-                        time.sleep(1.2)
+                        time.sleep(2.5)
                     else:
                         navigate_to_url_with_retry(driver, portal_url, max_retries=3, wait_time=4)
                         time.sleep(2)
