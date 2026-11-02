@@ -19,11 +19,19 @@ PROXY_SOURCES = [
     "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/countries/IN/data.txt",
     "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=8000&country=IN",
     "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=8000&country=IN&ssl=all&anonymity=all",
+    "https://raw.githubusercontent.com/prxchk/proxy-list/main/http.txt",
+    "https://raw.githubusercontent.com/prxchk/proxy-list/main/socks5.txt",
 ]
 
 # High-reliability Indian seed proxies (Oracle Cloud Mumbai / DigitalOcean BLR)
 PRIORITY_SEEDS = [
+    "socks4://140.238.243.61:1080",
     "socks5://140.238.243.61:1080",
+    "http://103.48.71.166:83",
+    "socks4://103.26.10.23:2080",
+    "socks4://103.37.82.134:39873",
+    "socks4://123.253.124.28:5678",
+    "socks4://202.179.88.233:51951",
     "socks5://144.24.111.128:1088",
     "http://139.59.0.200:3128",
     "http://150.107.253.62:1111",
@@ -83,33 +91,28 @@ def fetch_candidate_proxies():
 def verify_single_proxy(proxy_url):
     """
     Verifies a proxy by fetching the Assam Excise portal login page.
-    Performs a 2-step verification to confirm the proxy can sustain multiple connections.
+    Native support for SOCKS4, SOCKS5, and HTTP proxies via curl.
     """
     cmd = [
         "curl", "-k", "-s", "-L",
         "--connect-timeout", "4",
-        "-m", "7",
+        "-m", "8",
         "--proxy", proxy_url,
         PORTAL_URL
     ]
     try:
         t0 = time.time()
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=9)
         elapsed = time.time() - t0
         body = res.stdout.lower()
         if ("assam" in body or "excise" in body) and ("logincaptcha" in body or "loginform" in body or "username" in body):
-            # Double-check stability: second rapid request to confirm proxy is genuinely responsive and won't drop Chrome
-            time.sleep(0.3)
-            res2 = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
-            body2 = res2.stdout.lower()
-            if ("assam" in body2 or "excise" in body2) and ("logincaptcha" in body2 or "loginform" in body2 or "username" in body2):
-                return (proxy_url, elapsed)
+            return (proxy_url, elapsed)
     except Exception:
         pass
 
     return None
 
-def find_working_indian_proxy(max_candidates=150, max_workers=35):
+def find_working_indian_proxy(max_candidates=250, max_workers=40):
     candidates = fetch_candidate_proxies()
     
     # Shuffle candidate pool so concurrent GitHub runners distribute traffic across different proxies
@@ -121,7 +124,7 @@ def find_working_indian_proxy(max_candidates=150, max_workers=35):
     ordered_candidates = shuffled_seeds + [p for p in candidates if p not in PRIORITY_SEEDS]
 
     test_batch = ordered_candidates[:max_candidates]
-    print(f"⚡ Concurrently testing {len(test_batch)} Indian proxies against portal (timeout=7s, randomized pool)...")
+    print(f"⚡ Concurrently testing {len(test_batch)} Indian proxies against portal (timeout=8s, randomized pool)...")
     
     verified = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
