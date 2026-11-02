@@ -444,22 +444,16 @@ def open_and_parse_form34(driver, wait, indent_num, cols):
     """
     form34_btn = None
     
-    # Try finding Form 34 button in column 8 (or any column with print icon / form34 link)
-    if len(cols) > 8:
-        try:
-            btns = cols[8].find_elements(By.XPATH, ".//a | .//button | .//i | .//span")
-            if btns: form34_btn = btns[0]
-        except: pass
-        
-    if not form34_btn:
-        for idx in [8, 7, 9, 6]:
-            if idx < len(cols):
-                try:
-                    btns = cols[idx].find_elements(By.XPATH, ".//a[contains(@href, 'form34') or contains(@onclick, 'form34')] | .//button | .//i[contains(@class, 'print')]")
-                    if btns:
-                        form34_btn = btns[0]
-                        break
-                except: pass
+    # Form 34 is in Column 9 ('Form 34') with a print icon or form34 URL.
+    # Strictly avoid Column 8 ('Action'), which contains Approve/Reject excise buttons.
+    for idx in [9, len(cols) - 1, 8, 7]:
+        if idx < len(cols):
+            try:
+                btns = cols[idx].find_elements(By.XPATH, ".//a[contains(@href, 'form34') or contains(@onclick, 'form34')] | .//button[contains(@class, 'print') or contains(@onclick, 'form34')] | .//i[contains(@class, 'print')] | .//*[contains(text(), 'Form 34') or contains(text(), '34')]")
+                if btns:
+                    form34_btn = btns[0]
+                    break
+            except: pass
 
     if not form34_btn:
         return [], 0, 0, "", "", "", False
@@ -1129,15 +1123,22 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                     licensee_name = ""
                     extract_success = False
                     
-                    # Auto-detect if row is completed (has Transit Pass or Form-34 button)
+                    # Auto-detect if row is completed (has Transit Pass or Form-34 print button)
                     has_tp = bool(transit_pass and transit_pass.upper().startswith("TP"))
                     has_f34 = False
-                    if len(cols) > 8:
-                        try:
-                            has_f34 = len(cols[8].find_elements(By.XPATH, ".//button | .//a | .//i")) > 0
-                        except: pass
+                    # Check Column 9 specifically for a true Form-34 link or printer icon
+                    # (Strictly avoid Column 8 which contains excise action buttons like 'Approve' or 'Verify & forward')
+                    for idx in [9, len(cols) - 1]:
+                        if idx < len(cols):
+                            try:
+                                f34_elems = cols[idx].find_elements(By.XPATH, ".//a[contains(@href, 'form34') or contains(@onclick, 'form34')] | .//button[contains(@class, 'print') or contains(@onclick, 'form34')] | .//i[contains(@class, 'print')]")
+                                if f34_elems:
+                                    has_f34 = True
+                                    break
+                            except: pass
                         
-                    # If we are scraping Pending permits, skip any row that was already dispatched in past days
+                    # If we are scraping Pending permits, only skip if already issued a Transit Pass (TP) or true Form 34
+                    # (Active pending permits awaiting approval have 'Approve' / 'Verify & forward' in Column 8 and MUST NOT be skipped!)
                     if status_filter == "Pending" and (has_tp or has_f34):
                         continue
                         

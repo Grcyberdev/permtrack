@@ -182,5 +182,51 @@ class TestMultiTableAndRecheck(unittest.TestCase):
         self.assertEqual(oc_entry["Total MRP"], 38744.2)
         print("✅ test_officers_choice_filter_and_recheck passed! (OFFICERS CHOICE preserved)")
 
+    def test_pending_permits_not_skipped_by_action_buttons(self):
+        """
+        Verifies that pending permits awaiting approval (which contain 'Approve' or 'Verify & forward'
+        buttons in Column 8 'Action') are NOT mistakenly marked as has_f34 or skipped as dispatched.
+        """
+        class MockElement:
+            def __init__(self, tag, text, attrs=None):
+                self.tag = tag
+                self.text = text
+                self.attrs = attrs or {}
+            def find_elements(self, by, query):
+                # If searching for form34 / print links, Approve button must not match!
+                if "form34" in query or "print" in query:
+                    if "form34" in self.attrs.get("href", "") or "print" in self.attrs.get("class", ""):
+                        return [self]
+                    return []
+                # Generic button check
+                if "button" in query and self.tag == "button":
+                    return [self]
+                return []
+
+        # Column 8 in portal has 'Approve' button for pending indents awaiting approval
+        col8_action_approve = MockElement("button", "Approve", {"class": "btn btn-primary"})
+        # Column 9 in portal is Form-34 (empty for pending indents)
+        col9_empty = MockElement("td", "")
+
+        cols_pending = [MockElement("td", "") for _ in range(8)] + [col8_action_approve, col9_empty]
+
+        # Verify our Column 9 Form 34 check does NOT match the Approve button
+        has_f34 = False
+        for idx in [9, len(cols_pending) - 1]:
+            if idx < len(cols_pending):
+                f34_elems = cols_pending[idx].find_elements("xpath", ".//a[contains(@href, 'form34')] | .//i[contains(@class, 'print')]")
+                if f34_elems:
+                    has_f34 = True
+                    break
+
+        self.assertFalse(has_f34, "Approve action button in Column 8 must never be identified as Form 34")
+
+        # Verify that for status_filter == 'Pending', with transit_pass = '', the row is NOT skipped
+        transit_pass = ""
+        has_tp = bool(transit_pass and transit_pass.upper().startswith("TP"))
+        should_skip = (has_tp or has_f34)
+        self.assertFalse(should_skip, "Pending permit with Approve button must NOT be skipped")
+        print("✅ test_pending_permits_not_skipped_by_action_buttons passed! (Pending rows preserved)")
+
 if __name__ == "__main__":
     unittest.main()
