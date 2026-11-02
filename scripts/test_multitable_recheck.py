@@ -127,5 +127,60 @@ class TestMultiTableAndRecheck(unittest.TestCase):
         self.assertEqual(final_cases, 150)
         print("✅ test_upload_guard_against_degradation passed! (150 cs defended against regression)")
 
+    def test_absolut_vodka_200ml_bottle_math(self):
+        """
+        Tests bottle-to-case calculations for 200ml bottles (Absolut Vodka).
+        Pack Size 200/24 with 12 bottles MUST equal 0.5 cases Eq, NOT 0.25 cases.
+        """
+        from automation_utils import get_bottles_per_case
+        
+        # Test explicit Pack Size string
+        self.assertEqual(get_bottles_per_case("200/24"), 24)
+        self.assertEqual(get_bottles_per_case("200", pack_size="200/24"), 24)
+        
+        # Test 200ml standalone (spirits 200ml pints are 24 b/cs in Assam)
+        self.assertEqual(get_bottles_per_case(200), 24)
+        self.assertEqual(get_bottles_per_case("200"), 24)
+        
+        # 12 bottles of 200ml (24 b/cs) = 0.5 cs
+        cases_eq = 12 / get_bottles_per_case("200/24")
+        self.assertEqual(cases_eq, 0.5)
+        
+        # Other standard sizes
+        self.assertEqual(get_bottles_per_case("700/6"), 6)
+        self.assertEqual(get_bottles_per_case(750), 12)
+        self.assertEqual(get_bottles_per_case(375), 24)
+        self.assertEqual(get_bottles_per_case(180), 48)
+        self.assertEqual(get_bottles_per_case(90), 96)
+        print("✅ test_absolut_vodka_200ml_bottle_math passed! (12 b of 200ml = 0.5 cs)")
+
+    def test_officers_choice_filter_and_recheck(self):
+        """
+        Verifies that 'OFFICERS CHOICE PREMIUM WHISKY (PET)' is not filtered out
+        by signature/footer guards and is properly recovered by Form-34 recheck.
+        """
+        # Signature filter simulation
+        brand_name = "OFFICERS CHOICE PREMIUM WHISKY (PET)"
+        lower_p = brand_name.lower()
+        is_signature = any(k in lower_p for k in ["signature of", "issuing the transport pass", "granting the transport pass", "vide challan no"])
+        self.assertFalse(is_signature, "OFFICERS CHOICE must not be flagged as a signature line")
+        
+        # Verify merge_brand_data adds approved SKU missing from Form-34
+        f34_lines = [
+            {"Product Name": "SEAGRAM'S ROYAL STAG DELUXE WHISKY", "Size": "180", "Cases": 10, "Bottles": 0}
+        ]
+        modal_lines = [
+            {"Product Name": "SEAGRAM'S ROYAL STAG DELUXE WHISKY", "Size": "180", "Cases": 10, "Bottles": 0, "Total MRP": 64573.7},
+            {"Product Name": "OFFICERS CHOICE PREMIUM WHISKY (PET)", "Size": "180", "Cases": 10, "Bottles": 0, "Total MRP": 38744.2}
+        ]
+        
+        merged = merge_brand_data(f34_lines, modal_lines)
+        self.assertEqual(len(merged), 2)
+        self.assertEqual(sum(m["Cases"] for m in merged), 20)
+        oc_entry = next(m for m in merged if "OFFICERS CHOICE" in m["Product Name"])
+        self.assertEqual(oc_entry["Cases"], 10)
+        self.assertEqual(oc_entry["Total MRP"], 38744.2)
+        print("✅ test_officers_choice_filter_and_recheck passed! (OFFICERS CHOICE preserved)")
+
 if __name__ == "__main__":
     unittest.main()

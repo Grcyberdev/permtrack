@@ -585,8 +585,8 @@ async def get_godown_monthly_summary(request: Request):
         if date_key not in by_date or ts_val > by_date[date_key].get("ts", "") or (ts_val == by_date[date_key].get("ts", "") and mtime > by_date[date_key]["mtime"]):
             by_date[date_key] = {"filepath": filepath, "filename": basename, "mtime": mtime, "ts": ts_val}
 
-    def get_b_per_cs(size_val):
-        return automation_utils.get_bottles_per_case(size_val)
+    def get_b_per_cs(size_val, pack_size=None):
+        return automation_utils.get_bottles_per_case(size_val, pack_size=pack_size)
 
     def get_cat(item):
         b = (item.get("Bond Type") or "").upper()
@@ -735,8 +735,8 @@ async def get_godown_monthly_summary(request: Request):
             permits_count += 1
             c = float(rec.get("Cases") or 0)
             b = int(rec.get("Bottles") or 0)
-            pack_size = str(rec.get("Size") or rec.get("Pack Size") or "Unknown")
-            b_per_cs = automation_utils.get_bottles_per_case(pack_size)
+            pack_size = str(rec.get("Pack Size") or rec.get("Size") or "Unknown")
+            b_per_cs = automation_utils.get_bottles_per_case(rec.get("Size"), pack_size=pack_size)
             eq = (b / b_per_cs) if b_per_cs > 0 else 0.0
             tot_eq = c + eq
             mrp_val = float(rec.get("Total MRP") or 0)

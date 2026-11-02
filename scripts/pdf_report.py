@@ -85,7 +85,7 @@ def generate_report_pdf(data_json):
         cases = item.get("Cases", 0)
         bottles = item.get("Bottles", 0)
         mrp = item.get("Total MRP", 0.0)
-        b_per_cs = get_bottles_per_case(item.get("Size"))
+        b_per_cs = get_bottles_per_case(item.get("Size"), pack_size=item.get("Pack Size"))
         bottle_cs_eq = bottles / b_per_cs if b_per_cs > 0 else 0.0
         
         if pass_num:
@@ -204,7 +204,7 @@ def generate_report_pdf(data_json):
             continue
         size = item.get("Size", "")
         key = f"{prod}|{size}"
-        b_per_cs = get_bottles_per_case(size)
+        b_per_cs = get_bottles_per_case(size, pack_size=item.get("Pack Size"))
         bottles = item.get("Bottles", 0)
         cs_eq = bottles / b_per_cs if b_per_cs > 0 else 0.0
         
@@ -416,7 +416,7 @@ def generate_report_pdf(data_json):
                 grand_mrp_block = 0.0
                 
                 for b in details["brands"]:
-                    b_per_cs = get_bottles_per_case(b["size"])
+                    b_per_cs = get_bottles_per_case(b["size"], pack_size=b.get("pack_size"))
                     b_eq = b["bottles"] / b_per_cs if b_per_cs > 0 else 0.0
                     tot_b_eq = b["cases"] + b_eq
                     tot_b_eq_str = f"{tot_b_eq:,.2f}".rstrip('0').rstrip('.') if tot_b_eq % 1 != 0 else f"{int(tot_b_eq):,}"

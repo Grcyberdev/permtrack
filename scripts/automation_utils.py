@@ -169,17 +169,31 @@ def get_data_dir():
     os.makedirs(config_dir, exist_ok=True)
     return config_dir
 
-def get_bottles_per_case(size_val):
+def get_bottles_per_case(size_val, pack_size=None, *args, **kwargs):
     """
     Standard bottle-to-case pack size converter matching Assam excise rules.
-    650ml / 750ml / 1000ml -> 12 b/cs
-    330ml / 375ml / 500ml -> 24 b/cs
-    180ml / 200ml -> 48 b/cs
-    <180ml (60ml / 90ml) -> 96 b/cs
+    Extracts explicit packaging denominator from pack_size or size_val (e.g. '200/24' -> 24, '700/6' -> 6, '750/12' -> 12).
+    Otherwise defaults to volume-based thresholds:
+    >= 600ml (650ml / 750ml / 1000ml) -> 12 b/cs
+    >= 200ml (200ml / 275ml / 330ml / 375ml / 500ml) -> 24 b/cs
+    >= 180ml (180ml nips) -> 48 b/cs
+    < 180ml (60ml / 90ml pints/minis) -> 96 b/cs
     """
+    import re
+    # 1. Check for explicit denominator in pack_size or size_val (e.g. 200/24, 700/6, 750/12)
+    for candidate in [pack_size, size_val]:
+        if candidate:
+            cand_str = str(candidate).strip()
+            if "/" in cand_str:
+                parts = cand_str.split("/")
+                m = re.findall(r'\d+', parts[1])
+                if m:
+                    denom = int(m[0])
+                    if denom > 0:
+                        return denom
+
     if not size_val:
         return 12
-    import re
     digits = re.findall(r'\d+', str(size_val))
     if not digits:
         return 12
@@ -187,7 +201,7 @@ def get_bottles_per_case(size_val):
         s = int(digits[0])
         if s >= 600:
             return 12
-        if s >= 250:
+        if s >= 200:
             return 24
         if s >= 180:
             return 48

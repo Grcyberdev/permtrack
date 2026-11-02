@@ -1186,7 +1186,7 @@
                         <div style="background: var(--bg-surface-tint); padding: 1.25rem; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); font-size: 0.82rem; color: var(--text-secondary); line-height: 1.6;">
                             <h4 style="font-weight: 700; color: var(--text-primary); margin-bottom: 0.5rem;">Audit Rules & Reconciliation Protocol</h4>
                             <p>1. <strong>Cross-Day Lookback:</strong> Pending indents from past 7 days are cross-referenced using canonical indent numbers. When a pass is later issued, it is categorized as a fulfilled carry-over with turnaround days tracked.</p>
-                            <p style="margin-top: 0.35rem;">2. <strong>Bottle-to-Case Mathematics:</strong> Pack sizes $\ge 600\text{ml}\to 12\text{ b/cs}$, $\ge 350\text{ml}\to 24\text{ b/cs}$, $\ge 180\text{ml}\to 48\text{ b/cs}$, $<180\text{ml}\to 96\text{ b/cs}$. Total volume strictly equals $\text{Physical Cases} + \frac{\text{Loose Bottles}}{\text{Pack Bottles Per Case}}$.</p>
+                            <p style="margin-top: 0.35rem;">2. <strong>Bottle-to-Case Mathematics:</strong> Pack sizes $\ge 600\text{ml}\to 12\text{ b/cs}$, $\ge 200\text{ml}\to 24\text{ b/cs}$, $\ge 180\text{ml}\to 48\text{ b/cs}$, $<180\text{ml}\to 96\text{ b/cs}$, or explicit pack denominator (e.g. $200/24 \to 24\text{ b/cs}$, $700/6 \to 6\text{ b/cs}$). Total volume strictly equals $\text{Physical Cases} + \frac{\text{Loose Bottles}}{\text{Pack Bottles Per Case}}$.</p>
                         </div>
                     </div>
                 </div>
@@ -1649,14 +1649,19 @@
         // -------------------------------------------------------------
         // Bottle Math & Business Logic Rules
         // -------------------------------------------------------------
-        function getBottlesPerCase(sizeStr) {
-            if (!sizeStr) return 12;
-            const s = parseInt(String(sizeStr).replace(/\D/g, ''), 10);
+        function getBottlesPerCase(sizeStr, packSizeStr) {
+            const raw = String(packSizeStr || sizeStr || "").trim();
+            if (raw.includes("/")) {
+                const parts = raw.split("/");
+                const denom = parseInt(String(parts[1]).replace(/\D/g, ''), 10);
+                if (!isNaN(denom) && denom > 0) return denom;
+            }
+            const s = parseInt(String(sizeStr || "").replace(/\D/g, ''), 10);
             if (isNaN(s)) return 12;
             if (s >= 600) return 12;
-            if (s >= 250) return 24; // 330ml / 375ml / 500ml -> 24 b/cs
-            if (s >= 180) return 48; // 180ml / 200ml -> 48 b/cs
-            if (s < 180 && s > 0) return 96;
+            if (s >= 200) return 24; // 200ml, 275ml, 330ml, 375ml, 500ml -> 24 b/cs
+            if (s >= 180) return 48; // 180ml -> 48 b/cs
+            if (s < 180 && s > 0) return 96; // 60ml, 90ml -> 96 b/cs
             return 12;
         }
 
@@ -1725,7 +1730,7 @@
 
             lines.forEach(item => {
                 const cat = getProductCategory(item);
-                const bPerCs = getBottlesPerCase(item.Size);
+                const bPerCs = getBottlesPerCase(item.Size, item["Pack Size"] || item.PackSize);
                 const bottleCsEq = (item.Bottles || 0) / bPerCs;
                 const eqVal = (item.Cases || 0) + bottleCsEq;
 
@@ -2407,7 +2412,7 @@
                     if (item.extraction_error || item.Status === "EXTRACTION_FAILED") extractionWarnings++;
 
                     const itemCat = getProductCategory(item);
-                    const bPerCs = getBottlesPerCase(item.Size);
+                    const bPerCs = getBottlesPerCase(item.Size, item["Pack Size"] || item.PackSize);
                     const bottleCsEq = (item.Bottles || 0) / bPerCs;
                     const lineEqCases = (item.Cases || 0) + bottleCsEq;
                     const lineMRP = Number(item["Total MRP"] || item["Total Amount"] || item["MRP"] || 0) || 0;
@@ -3431,7 +3436,7 @@
 
                 filteredPermitsData.forEach(item => {
                     if (item.Status === 'PENDING') return;
-                    const bPerCs = getBottlesPerCase(item.Size);
+                    const bPerCs = getBottlesPerCase(item.Size, item["Pack Size"] || item.PackSize);
                     const bottleCsEq = (item.Bottles || 0) / bPerCs;
                     const lineEq = (item.Cases || 0) + bottleCsEq;
                     if (lineEq <= 0) return;
@@ -3679,7 +3684,7 @@
 
             allPendingRaw.forEach(item => {
                 const key = item["Indent Number"] || `${item["Retailer Name"]}_${item.Date}`;
-                const bPerCs = getBottlesPerCase(item.Size);
+                const bPerCs = getBottlesPerCase(item.Size, item["Pack Size"] || item.PackSize);
                 const bottleCsEq = (item.Bottles || 0) / bPerCs;
                 const lineEqCs = (item.Cases || 0) + bottleCsEq;
                 const aging = item.aging_days || 0;
@@ -3725,7 +3730,7 @@
             const pendingGroups = {};
             pendingItems.forEach(item => {
                 const key = item["Indent Number"] || `${item["Retailer Name"]}_${item.Date}`;
-                const bPerCs = getBottlesPerCase(item.Size);
+                const bPerCs = getBottlesPerCase(item.Size, item["Pack Size"] || item.PackSize);
                 const bottleCsEq = (item.Bottles || 0) / bPerCs;
                 const lineEqCs = (item.Cases || 0) + bottleCsEq;
 
@@ -4020,7 +4025,7 @@
             filteredPermitsData.forEach(item => {
                 if (item.Status === "PENDING") return;
                 const pName = item["Retailer Name"] || "Unknown Licensee";
-                const bPerCs = getBottlesPerCase(item.Size);
+                const bPerCs = getBottlesPerCase(item.Size, item["Pack Size"] || item.PackSize);
                 const bottleCsEq = (item.Bottles || 0) / bPerCs;
                 const permitKey = item["Transit Pass"] || item["Permit Number"] || item["Indent Number"] || 'P';
 
@@ -4193,7 +4198,7 @@
                 const bSize = item.Size || "Other";
                 const itemCat = getProductCategory(item);
                 const brandKey = `${bName}_${bSize}`;
-                const bPerCs = getBottlesPerCase(item.Size);
+                const bPerCs = getBottlesPerCase(item.Size, item["Pack Size"] || item.PackSize);
                 const bottleCsEq = (item.Bottles || 0) / bPerCs;
 
                 if (!summary[brandKey]) summary[brandKey] = { name: bName, size: bSize, cases: 0, bottles: 0, csEq: 0, mrp: 0, category: itemCat };
@@ -5324,7 +5329,7 @@
 
             group.lines.forEach(l => {
                 const itemCat = getProductCategory(l);
-                const bPerCs = getBottlesPerCase(l.Size);
+                const bPerCs = getBottlesPerCase(l.Size, l["Pack Size"] || l.PackSize);
                 const lineEq = (l.Cases || 0) + ((l.Bottles || 0) / bPerCs);
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
@@ -5347,7 +5352,7 @@
             const lines = [];
 
             permitsForParty.forEach(item => {
-                const bPerCs = getBottlesPerCase(item.Size);
+                const bPerCs = getBottlesPerCase(item.Size, item["Pack Size"] || item.PackSize);
                 const lineEq = (item.Cases || 0) + ((item.Bottles || 0) / bPerCs);
                 totCases += (item.Cases || 0);
                 totBottles += (item.Bottles || 0);
@@ -5684,7 +5689,7 @@
             ];
 
             const rows = datasetToExport.map(item => {
-                const bPerCs = getBottlesPerCase(item.Size);
+                const bPerCs = getBottlesPerCase(item.Size, item["Pack Size"] || item.PackSize);
                 const bottleEq = (item.Bottles || 0) / bPerCs;
                 const eqCs = (item.Cases || 0) + bottleEq;
                 const cat = getProductCategory(item);
