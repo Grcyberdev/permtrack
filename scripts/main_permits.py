@@ -18,6 +18,10 @@ from selenium.webdriver.support import expected_conditions as EC
 # Add scripts directory to path to import helpers
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import automation_utils
+try:
+    import find_indian_proxy
+except ImportError:
+    find_indian_proxy = None
 from reconciler import (
     reconcile_permits,
     get_reconciliation_summary,
@@ -1471,42 +1475,80 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
         
     return results, scrape_success, extraction_errors_count
 
+def ensure_active_proxy(force_refresh=False):
+    """
+    Verifies that the configured Indian proxy is alive and responsive to the Assam Excise portal.
+    If the proxy is dead or force_refresh is True, dynamically discovers and rotates to a fresh Indian proxy.
+    """
+    if os.environ.get("USE_INDIAN_PROXY") == "true" and find_indian_proxy:
+        current_proxy = os.environ.get("INDIAN_PROXY")
+        if current_proxy and not force_refresh:
+            try:
+                res = find_indian_proxy.verify_single_proxy(current_proxy)
+                if res:
+                    print(f"   🎯 Indian proxy is healthy ({current_proxy}, latency: {res[1]:.2f}s)")
+                    return current_proxy
+            except Exception: pass
+            print(f"   ⚠️ Current Indian proxy ({current_proxy}) is unresponsive or timed out.")
+
+        print("   🔄 Discovering fresh live Indian proxy...")
+        try:
+            new_proxy = find_indian_proxy.find_working_indian_proxy(max_candidates=150, max_workers=30)
+            if new_proxy:
+                os.environ["INDIAN_PROXY"] = new_proxy
+                print(f"   🏆 Rotated to fresh Indian proxy: {new_proxy}")
+                return new_proxy
+        except Exception as e_find:
+            print(f"   ⚠️ Proxy rotation error: {e_find}")
+            
+    return os.environ.get("INDIAN_PROXY")
+
 def run_scraper_for_credentials(username, password, target_date, bond_type, headless, lookback_days=7, dispatched_lookback=2):
-    """Runs scraper for a single credential user."""
+    """Runs scraper for a single credential user with automatic proxy rotation and retry recovery on network drop."""
     print(f"\n🚀 Running scraper for {bond_type} ({username})...")
-    
-    driver = automation_utils.setup_driver(headless=headless)
-    wait = WebDriverWait(driver, 15)
     
     pending_records = []
     completed_records = []
-    overall_success = True
+    overall_success = False
     total_extraction_errors = 0
     
-    try:
-        config = automation_utils.load_config()
-        portal_url = config.get("portal_url", "https://stateexcise.assam.gov.in/index.php/site/login")
-        
-        login_success = automation_utils.login_to_portal(driver, portal_url, username, password, max_retries=15)
-        if not login_success:
-            print(f"❌ Login failed for {bond_type} ({username}) after retries.")
-            return [], [], False, 0
+    max_attempts = 2
+    for attempt in range(1, max_attempts + 1):
+        if attempt > 1:
+            print(f"\n🔄 Retrying {bond_type} with a freshly rotated proxy (attempt {attempt}/{max_attempts})...")
+            ensure_active_proxy(force_refresh=True)
             
-        p_recs, p_ok, p_errs = scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pending", lookback_days=lookback_days)
-        c_recs, c_ok, c_errs = scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pass Issued", lookback_days=dispatched_lookback)
+        driver = automation_utils.setup_driver(headless=headless)
+        wait = WebDriverWait(driver, 15)
         
-        pending_records.extend(p_recs)
-        completed_records.extend(c_recs)
-        total_extraction_errors += (p_errs + c_errs)
-        
-        if not p_ok or not c_ok:
-            overall_success = False
+        try:
+            config = automation_utils.load_config()
+            portal_url = config.get("portal_url", "https://stateexcise.assam.gov.in/index.php/site/login")
             
-    except Exception as e:
-        print(f"❌ General scraper execution failure: {e}")
-        overall_success = False
-    finally:
-        driver.quit()
+            login_success = automation_utils.login_to_portal(driver, portal_url, username, password, max_retries=15)
+            if not login_success:
+                print(f"❌ Login failed for {bond_type} ({username}) on attempt {attempt}.")
+                try: driver.quit()
+                except: pass
+                continue
+                
+            p_recs, p_ok, p_errs = scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pending", lookback_days=lookback_days)
+            c_recs, c_ok, c_errs = scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pass Issued", lookback_days=dispatched_lookback)
+            
+            pending_records = p_recs
+            completed_records = c_recs
+            total_extraction_errors = (p_errs + c_errs)
+            
+            overall_success = (p_ok and c_ok)
+            try: driver.quit()
+            except: pass
+            break
+        except Exception as e:
+            print(f"❌ General scraper execution failure for {bond_type} on attempt {attempt}: {e}")
+            try: driver.quit()
+            except: pass
+            if attempt == max_attempts:
+                overall_success = False
         
     return pending_records, completed_records, overall_success, total_extraction_errors
 
@@ -1546,6 +1588,7 @@ def main():
     if args.bond in ["IMFL", "BOTH"]:
         imfl_attempted = True
         if imfl_user and imfl_pass:
+            ensure_active_proxy()
             p, c, ok, errs = run_scraper_for_credentials(imfl_user, imfl_pass, target_date, "IMFL", args.headless, lookback_days=args.lookback_days, dispatched_lookback=args.dispatched_lookback)
             all_pending.extend(p)
             all_completed.extend(c)
@@ -1562,6 +1605,7 @@ def main():
     if args.bond in ["CS", "BOTH"]:
         cs_attempted = True
         if cs_user and cs_pass:
+            ensure_active_proxy()
             p, c, ok, errs = run_scraper_for_credentials(cs_user, cs_pass, target_date, "CS", args.headless, lookback_days=args.lookback_days, dispatched_lookback=args.dispatched_lookback)
             all_pending.extend(p)
             all_completed.extend(c)

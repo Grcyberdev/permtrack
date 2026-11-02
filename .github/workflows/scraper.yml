@@ -65,7 +65,7 @@ jobs:
           BOND_TYPE="${{ github.event.client_payload.bond || github.event.client_payload.bond_type || github.event.inputs.bond || 'BOTH' }}"
           LOOKBACK_DAYS="${{ github.event.client_payload.lookback_days || github.event.inputs.lookback_days || '' }}"
           
-          CMD="python scripts/main_permits.py --headless"
+          CMD="python scripts/main_permits.py --headless --allow-partial"
           if [ -n "$TARGET_DATE" ]; then
             CMD="$CMD --date $TARGET_DATE"
           fi
