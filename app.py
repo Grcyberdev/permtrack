@@ -1294,7 +1294,9 @@ async def get_movement_analytics(
     # 3. Deduplicate completed dispatches across all backups
     completed_in_horizon: List[Tuple[Dict[str, Any], str]] = []
     completed_in_prev: List[Tuple[Dict[str, Any], str]] = []
+    completed_in_mtd: List[Tuple[Dict[str, Any], str]] = []
     unique_completed_pkeys = set()
+    anchor_ym = anchor_dt.strftime("%Y%m")
 
     for f_date_key, finfo in by_date.items():
         records = get_cached_backup_records(finfo["filepath"])
@@ -1316,6 +1318,36 @@ async def get_movement_analytics(
                 completed_in_horizon.append((rec, eff_k))
             elif prev_start_key <= eff_k <= prev_end_key:
                 completed_in_prev.append((rec, eff_k))
+
+            if eff_k.startswith(anchor_ym):
+                completed_in_mtd.append((rec, eff_k))
+
+    # Calculate Month-to-Date (MTD) totals
+    mtd_tot_cases = 0.0
+    mtd_tot_mrp = 0.0
+    mtd_days_set = set()
+    mtd_permits_set = set()
+
+    for rec, eff_k in completed_in_mtd:
+        c = float(rec.get("Cases") or 0)
+        b = int(rec.get("Bottles") or 0)
+        pack_size = str(rec.get("Pack Size") or rec.get("Size") or "Unknown")
+        bpc = automation_utils.get_bottles_per_case(rec.get("Size"), pack_size=pack_size)
+        eq = (b / bpc) if bpc > 0 else 0.0
+        tot_eq = c + eq
+        curr_mrp = float(rec.get("Total MRP") or 0)
+        if curr_mrp <= 0:
+            p_name = normalize_brand_key(rec.get("Product Name"))
+            sz = normalize_size(rec.get("Size"))
+            rate = sku_rates.get(f"{p_name}_{sz}") or sku_rates.get(p_name, 0.0)
+            if rate > 0 and c > 0:
+                curr_mrp = round(c * rate, 2)
+        mtd_tot_cases += tot_eq
+        mtd_tot_mrp += curr_mrp
+        mtd_days_set.add(eff_k)
+        p_id = rec.get("Permit Number") or rec.get("Transit Pass") or rec.get("Indent Number")
+        if p_id:
+            mtd_permits_set.add(p_id)
 
     # Backfill missing MRPs using SKU rates lookup
     for rec, _ in completed_in_horizon:
@@ -1834,7 +1866,12 @@ async def get_movement_analytics(
             "cases_per_day": round(summary_tot_cases / effective_days, 1) if effective_days > 0 else 0.0,
             "mrp_per_day": round(summary_mrp / effective_days, 1) if effective_days > 0 else 0.0,
             "godown_cases": round(godown_cases_sum, 2) if has_godown_entries else None,
-            "difference": net_godown_difference
+            "difference": net_godown_difference,
+            "mtd_cases": round(mtd_tot_cases, 2),
+            "mtd_mrp": round(mtd_tot_mrp, 2),
+            "mtd_active_days": len(mtd_days_set),
+            "mtd_permits_count": len(mtd_permits_set),
+            "mtd_label": anchor_dt.strftime("%b %Y") + (" MTD" if mode == "day" else "")
         },
         "previous_period_summary": {
             "total_cases": prev_tot_cases,

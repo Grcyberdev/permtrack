@@ -79,22 +79,20 @@ const WorkspacePulse = {
           </div>
         </div>
 
-        <!-- Card 4: Daily Velocity & Godown Audit -->
-        <div class="kpi-surface-card">
+        <!-- Card 4: Monthly Sales (MTD) -->
+        <div class="kpi-surface-card" style="cursor:pointer;" onclick="setHorizonMode('month')" title="Click to view full Month breakdown">
           <div class="kpi-header">
-            <span class="kpi-title">Daily Velocity & Audit</span>
-            <span class="kpi-counter">${s.active_days || 1} Operating Days</span>
+            <span class="kpi-title">${AppState.horizonMode === 'month' ? 'Monthly Total Sales' : 'Monthly Sales (MTD)'}</span>
+            <span class="kpi-counter">${s.mtd_label || (horizon.display_label || 'Month')}</span>
           </div>
           <div class="kpi-value-row">
-            <span class="kpi-value">${AppUtils.formatNumber(s.cases_per_day, 1)}</span>
-            <span class="kpi-unit">cs/day</span>
+            <span class="kpi-value">${AppUtils.formatNumber(s.mtd_cases || s.total_cases)}</span>
+            <span class="kpi-unit">cs</span>
           </div>
           <div class="kpi-subtitle">
-            ${s.difference !== null && s.difference !== undefined ? `
-              <span class="${s.difference === 0 ? 'var-matched' : (s.difference > 0 ? 'var-surplus' : 'var-deficit')}">
-                Variance: ${s.difference > 0 ? '+' : ''}${AppUtils.formatNumber(s.difference)} cs
-              </span>
-            ` : `<span style="color:var(--text-muted);">Godown unverified</span>`}
+            <span style="color:var(--accent-amber);font-weight:600;">${AppUtils.formatCurrencyINR(s.mtd_mrp || s.total_mrp, true)}</span>
+            <span class="sep-dot">•</span>
+            <span>${s.mtd_active_days || s.active_days || 1} Operating Days</span>
           </div>
         </div>
       </div>
@@ -245,12 +243,12 @@ const WorkspacePulse = {
                   <tbody>
                     ${pickList.map(item => `
                       <tr>
-                        <td style="font-weight:600;">${AppUtils.escapeHtml(item.brand)}</td>
+                        <td style="font-weight:600;">${AppUtils.escapeHtml(item.brand_name || item.brand)}</td>
                         <td><span class="pack-pill">${AppUtils.escapeHtml(item.pack_size)}</span></td>
                         <td class="cell-num" style="text-align:right;color:var(--status-warning);font-weight:700;">
-                          ${AppUtils.formatNumber(item.cases_needed)} cs
+                          ${AppUtils.formatNumber(item.total_cases_eq || item.cases_needed || item.cases)} cs
                         </td>
-                        <td class="cell-num" style="text-align:right;color:var(--text-muted);">${item.indents_waiting}</td>
+                        <td class="cell-num" style="text-align:right;color:var(--text-muted);">${item.permits_count || item.indents_waiting || 1} indents</td>
                       </tr>
                     `).join('')}
                   </tbody>
