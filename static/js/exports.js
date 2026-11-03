@@ -4,7 +4,21 @@
  */
 const AppExports = {
   /**
-   * 1-Click WhatsApp / Telegram Executive Digest
+   * Lazily loads SheetJS library on first export request (Fix 34)
+   */
+  async loadSheetJS() {
+    if (typeof XLSX !== 'undefined') return true;
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+      script.onload = () => resolve(true);
+      script.onerror = () => reject(new Error('Failed to load SheetJS library'));
+      document.head.appendChild(script);
+    });
+  },
+
+  /**
+   * 1-Click WhatsApp / Telegram Executive Digest (Fix 12: reflects category filter)
    */
   generateWhatsAppDigest() {
     const data = AppState.movementData;
@@ -23,10 +37,16 @@ const AppExports = {
     const topBrands = (data.brands_full || []).slice(0, 5);
 
     const deltaSign = prev.delta_cases_pct >= 0 ? '+' : '';
-    const deltaStr = prev.delta_cases_pct ? ` (${deltaSign}${prev.delta_cases_pct}% vs ${h.prev_display_label})` : '';
+    const deltaStr = prev.delta_cases_pct !== null && prev.delta_cases_pct !== undefined 
+      ? ` (${deltaSign}${prev.delta_cases_pct}% vs ${h.prev_display_label})` 
+      : '';
 
     let text = `🏛️ *BORGOHAIN ENTERPRISES — EXCISE DISPATCH DIGEST*\n`;
-    text += `📅 *Period:* ${h.display_label}\n\n`;
+    text += `📅 *Period:* ${h.display_label}\n`;
+    if (AppState.categoryFilter) {
+      text += `🔍 *Category Filter:* ${AppState.categoryFilter}\n`;
+    }
+    text += `\n`;
 
     text += `📦 *TOTAL DISPATCH:* *${AppUtils.formatNumber(s.total_cases)} Cases* (${AppUtils.formatCurrencyINR(s.total_mrp, true)})\n`;
     text += `📈 *Velocity:* ${AppUtils.formatNumber(s.cases_per_day, 1)} cs/day${deltaStr}\n`;
@@ -57,9 +77,9 @@ const AppExports = {
   },
 
   /**
-   * Multi-Tab Excel Workbook Export using SheetJS
+   * Multi-Tab Excel Workbook Export using SheetJS (Fix 12 & Fix 34)
    */
-  exportMultiSheetExcel() {
+  async exportMultiSheetExcel() {
     const data = AppState.movementData;
     if (!data) {
       AppUtils.showToast('No active data loaded to export', 'warning');
@@ -67,8 +87,13 @@ const AppExports = {
     }
 
     if (typeof XLSX === 'undefined') {
-      AppUtils.showToast('SheetJS library is still loading, please retry in 2 seconds...', 'warning');
-      return;
+      AppUtils.showToast('Loading Excel export engine...', 'info');
+      try {
+        await this.loadSheetJS();
+      } catch (err) {
+        AppUtils.showToast('Could not load Excel export library', 'danger');
+        return;
+      }
     }
 
     const wb = XLSX.utils.book_new();
@@ -80,6 +105,7 @@ const AppExports = {
     const summaryRows = [
       ["BORGOHAIN ENTERPRISES PRIVATE LIMITED - ASSAM EXCISE TERMINAL"],
       ["Time Horizon", h.display_label || ""],
+      ["Category Filter", AppState.categoryFilter || "All Categories"],
       ["Start Date", h.start_date || ""],
       ["End Date", h.end_date || ""],
       [],
@@ -213,21 +239,31 @@ const AppExports = {
     XLSX.utils.book_append_sheet(wb, wsGodown, "6_Godown_Reconciliation");
 
     // Export file
+    const filterSuffix = AppState.categoryFilter ? `_${AppState.categoryFilter}` : '';
     const cleanLabel = (h.display_label || 'Dispatch').replace(/[^a-zA-Z0-9_-]/g, '_');
-    XLSX.writeFile(wb, `PermTrack_Dispatch_${cleanLabel}.xlsx`);
-    AppUtils.showToast(`Exported 6-Sheet Workbook: PermTrack_Dispatch_${cleanLabel}.xlsx`, 'success');
+    XLSX.writeFile(wb, `PermTrack_Dispatch_${cleanLabel}${filterSuffix}.xlsx`);
+    AppUtils.showToast(`Exported 6-Sheet Workbook: PermTrack_Dispatch_${cleanLabel}${filterSuffix}.xlsx`, 'success');
   },
 
   /**
-   * Triggers Official PDF report download
+   * Triggers Official PDF report download (Fix 8)
    */
   downloadPDF() {
     const data = AppState.movementData;
-    const h = data ? data.horizon : {};
-    let dateParam = '';
-    if (h && h.end_date_key) {
-      dateParam = `?filename=backup_permits_${h.end_date_key}_000000.json`;
+    if (!data) {
+      AppUtils.showToast('No active data loaded to download PDF', 'warning');
+      return;
     }
+    const h = data.horizon || {};
+    const avail = h.available_dates || AppState.availableDates || [];
+    let targetKey = h.start_date_key;
+    if (AppState.horizonMode === 'day') {
+      targetKey = h.start_date_key || h.end_date_key;
+    } else {
+      const eligible = avail.filter(k => k <= h.end_date_key).sort();
+      targetKey = eligible.length > 0 ? eligible[eligible.length - 1] : h.end_date_key;
+    }
+    const dateParam = targetKey ? `?filename=backup_permits_${targetKey}_000000.json` : '';
     window.location.href = `/api/download-pdf${dateParam}`;
   }
 };

@@ -22,9 +22,43 @@ const WorkspacePulse = {
     const cat = data.category_breakdown || {};
     const horizon = data.horizon || {};
     const isSingleDay = (AppState.horizonMode === 'day') || ((data.daily_series || []).length <= 1);
+    const catFilter = AppState.categoryFilter || 'ALL';
+
+    // Fix 12: Category filter applied to Overview KPIs
+    let displayCases = s.total_cases;
+    let displayCasesOnly = s.cases_only;
+    let displayBottlesOnly = s.bottles_only;
+    let displayMRP = s.total_mrp;
+    let displayAvgCasePrice = s.avg_case_price;
+    let displayPendingCases = s.pending_cases;
+    let displayPendingMRP = s.pending_mrp;
+    let displayDispatchedPermits = s.permits_count;
+
+    if (catFilter !== 'ALL' && cat[catFilter]) {
+      const cinfo = cat[catFilter];
+      displayCases = cinfo.cases;
+      displayCasesOnly = cinfo.cases_only;
+      displayBottlesOnly = cinfo.bottles;
+      displayMRP = cinfo.mrp;
+      displayAvgCasePrice = cinfo.cases > 0 ? (cinfo.mrp / cinfo.cases) : 0;
+      displayPendingCases = cinfo.pending_cases || 0;
+      displayPendingMRP = cinfo.pending_mrp || 0;
+      displayDispatchedPermits = cinfo.permits || 0;
+    }
+
+    // Filter indicator chip (Fix 12)
+    const filterChipHTML = catFilter !== 'ALL' ? `
+      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:1rem;">
+        <span class="badge-filter-active">
+          Filtered: ${catFilter === 'BEER' ? 'Beer' : (catFilter === 'CS' ? 'Country Spirit' : 'IMFL Spirits')}
+          <button data-action="clear-category-filter" style="background:none;border:none;color:currentColor;cursor:pointer;padding:0 2px;margin-left:4px;font-weight:700;">✕</button>
+        </span>
+      </div>
+    ` : '';
 
     // 1. Top Executive Strip (4 Clean Cards)
     const kpiHTML = `
+      ${filterChipHTML}
       <div class="executive-kpi-grid">
         <!-- Card 1: Dispatched Volume -->
         <div class="kpi-surface-card">
@@ -33,13 +67,13 @@ const WorkspacePulse = {
             ${AppComponents.renderDeltaBadge(prev.delta_cases_pct, 'vs ' + (horizon.prev_display_label || 'prior'))}
           </div>
           <div class="kpi-value-row">
-            <span class="kpi-value">${AppUtils.formatNumber(s.total_cases)}</span>
+            <span class="kpi-value">${AppUtils.formatNumber(displayCases)}</span>
             <span class="kpi-unit">cs</span>
           </div>
           <div class="kpi-subtitle">
-            <span>${AppUtils.formatNumber(s.cases_only, 0)} Cases</span>
+            <span>${AppUtils.formatNumber(displayCasesOnly, 0)} Cases</span>
             <span class="sep-dot">•</span>
-            <span>${AppUtils.formatInteger(s.bottles_only)} Loose Btls</span>
+            <span>${AppUtils.formatInteger(displayBottlesOnly)} Loose Btls</span>
           </div>
         </div>
 
@@ -50,37 +84,37 @@ const WorkspacePulse = {
             ${AppComponents.renderDeltaBadge(prev.delta_mrp_pct, 'vs ' + (horizon.prev_display_label || 'prior'))}
           </div>
           <div class="kpi-value-row">
-            <span class="kpi-value">${AppUtils.formatCurrencyINR(s.total_mrp, true)}</span>
+            <span class="kpi-value">${AppUtils.formatCurrencyINR(displayMRP, true)}</span>
           </div>
           <div class="kpi-subtitle">
-            <span>Avg ₹${AppUtils.formatNumber(s.avg_case_price, 0)}/cs</span>
+            <span>Avg ₹${AppUtils.formatNumber(displayAvgCasePrice, 0)}/cs</span>
             <span class="sep-dot">•</span>
-            <span>Pending: ${AppUtils.formatCurrencyINR(s.pending_mrp, true)}</span>
+            <span>Pending: ${AppUtils.formatCurrencyINR(displayPendingMRP, true)}</span>
           </div>
         </div>
 
-        <!-- Card 3: Bond Indents & Pipeline -->
+        <!-- Card 3: Bond Indents & Pipeline (Fix 37: main value = dispatched permits, subtitle = +N pending) -->
         <div class="kpi-surface-card">
           <div class="kpi-header">
             <span class="kpi-title">Indents & Pipeline</span>
-            <span class="kpi-counter">${AppUtils.formatInteger(s.permits_count)} Dispatched</span>
+            <span class="kpi-counter">${AppUtils.formatInteger(s.permits_count + (s.pending_permits_count || 0))} Total</span>
           </div>
           <div class="kpi-value-row">
-            <span class="kpi-value">${AppUtils.formatInteger(s.permits_count + (s.pending_permits_count || 0))}</span>
-            <span class="kpi-unit">total</span>
+            <span class="kpi-value">${AppUtils.formatInteger(displayDispatchedPermits)}</span>
+            <span class="kpi-unit">dispatched</span>
           </div>
           <div class="kpi-subtitle">
             ${s.pending_permits_count > 0 ? `
-              <button class="kpi-pending-link" onclick="AppState.activeWorkspace='indents';AppState.indentStatusTab='PENDING';window.syncWorkspaceTabs();renderActiveWorkspace();">
+              <button class="kpi-pending-link" data-action="go-pending-indents">
                 <span class="status-dot dot-warning"></span>
-                <span>${s.pending_permits_count} Pending (${AppUtils.formatNumber(s.pending_cases)} cs)</span>
+                <span>+${s.pending_permits_count} pending (${AppUtils.formatNumber(displayPendingCases)} cs)</span>
               </button>
             ` : `<span style="color:var(--status-success);"><span class="status-dot dot-success"></span>All Indents Clear</span>`}
           </div>
         </div>
 
-        <!-- Card 4: Monthly Sales (MTD) -->
-        <div class="kpi-surface-card" style="cursor:pointer;" onclick="setHorizonMode('month')" title="Click to view full Month breakdown">
+        <!-- Card 4: Monthly Sales (MTD) / Monthly Total Sales -->
+        <div class="kpi-surface-card" style="cursor:pointer;" data-action="view-month" title="Click to view full Month breakdown">
           <div class="kpi-header">
             <span class="kpi-title">${AppState.horizonMode === 'month' ? 'Monthly Total Sales' : 'Monthly Sales (MTD)'}</span>
             <span class="kpi-counter">${s.mtd_label || (horizon.display_label || 'Month')}</span>
@@ -114,7 +148,7 @@ const WorkspacePulse = {
 
         <!-- 3 Interactive Category Columns -->
         <div class="cat-columns-grid">
-          <div class="cat-interactive-card ${AppState.categoryFilter === 'BEER' ? 'active-filter' : ''}" onclick="window.setCategoryFilter('${AppState.categoryFilter === 'BEER' ? 'ALL' : 'BEER'}')">
+          <div class="cat-interactive-card ${AppState.categoryFilter === 'BEER' ? 'active-filter' : ''}" data-action="filter-category" data-cat="BEER" style="cursor:pointer;">
             <div class="cat-col-header">
               <span class="cat-col-title"><span class="cat-dot dot-beer"></span>Beer</span>
               <span class="cat-col-share">${beer.share_pct || 0}%</span>
@@ -127,7 +161,7 @@ const WorkspacePulse = {
             </div>
           </div>
 
-          <div class="cat-interactive-card ${AppState.categoryFilter === 'IMFL' ? 'active-filter' : ''}" onclick="window.setCategoryFilter('${AppState.categoryFilter === 'IMFL' ? 'ALL' : 'IMFL'}')">
+          <div class="cat-interactive-card ${AppState.categoryFilter === 'IMFL' ? 'active-filter' : ''}" data-action="filter-category" data-cat="IMFL" style="cursor:pointer;">
             <div class="cat-col-header">
               <span class="cat-col-title"><span class="cat-dot dot-imfl"></span>IMFL Spirits</span>
               <span class="cat-col-share">${imfl.share_pct || 0}%</span>
@@ -140,7 +174,7 @@ const WorkspacePulse = {
             </div>
           </div>
 
-          <div class="cat-interactive-card ${AppState.categoryFilter === 'CS' ? 'active-filter' : ''}" onclick="window.setCategoryFilter('${AppState.categoryFilter === 'CS' ? 'ALL' : 'CS'}')">
+          <div class="cat-interactive-card ${AppState.categoryFilter === 'CS' ? 'active-filter' : ''}" data-action="filter-category" data-cat="CS" style="cursor:pointer;">
             <div class="cat-col-header">
               <span class="cat-col-title"><span class="cat-dot dot-cs"></span>Country Spirit</span>
               <span class="cat-col-share">${cs.share_pct || 0}%</span>
@@ -176,8 +210,10 @@ const WorkspacePulse = {
       `;
     } else {
       // Single-Day Mode: Show 2-Column Daily Operational Breakdown (Pack-Size Demand + Floor Bottlenecks)
-      const packSizes = (data.pack_sizes_full || []).slice(0, 6);
-      const totalPackCases = packSizes.reduce((acc, p) => acc + (p.cases || 0), 0) || 1;
+      // Fix 3: use p.size and compute percentages against total of ALL pack_sizes_full
+      const allPacks = data.pack_sizes_full || [];
+      const totalAllPackCases = allPacks.reduce((acc, p) => acc + (p.cases || 0), 0) || 1;
+      const packSizes = allPacks.slice(0, 6);
       const pickList = (data.pending_pick_list || []).slice(0, 6);
 
       visualSectionHTML = `
@@ -189,7 +225,7 @@ const WorkspacePulse = {
                 <div class="panel-title">Pack-Size Movement</div>
                 <div class="panel-subtitle">Volume distribution by bottle size for today</div>
               </div>
-              <a href="#" onclick="AppState.activeWorkspace='products';AppState.productSubView='packs';window.syncWorkspaceTabs();renderActiveWorkspace();return false;" class="panel-link">
+              <a href="#" data-action="go-packs" class="panel-link">
                 All Packs →
               </a>
             </div>
@@ -197,11 +233,12 @@ const WorkspacePulse = {
               ${packSizes.length === 0 ? `
                 <div style="text-align:center;padding:2rem;color:var(--text-muted);">No pack volume recorded</div>
               ` : packSizes.map(p => {
-                const pct = ((p.cases / totalPackCases) * 100).toFixed(1);
+                const packName = p.size || p.pack_size || 'Unknown';
+                const pct = ((p.cases / totalAllPackCases) * 100).toFixed(1);
                 return `
                   <div class="pack-demand-row">
                     <div class="pack-demand-label">
-                      <span class="pack-name">${AppUtils.escapeHtml(p.pack_size)}</span>
+                      <span class="pack-name">${AppUtils.escapeHtml(packName)}</span>
                       <span class="pack-cases">${AppUtils.formatNumber(p.cases)} cs (${pct}%)</span>
                     </div>
                     <div class="progress-track">
@@ -220,7 +257,7 @@ const WorkspacePulse = {
                 <div class="panel-title">Pending Loading Bottlenecks</div>
                 <div class="panel-subtitle">Products waiting to be loaded from warehouse floor</div>
               </div>
-              <a href="#" onclick="AppState.activeWorkspace='products';AppState.productSubView='picklist';window.syncWorkspaceTabs();renderActiveWorkspace();return false;" class="panel-link">
+              <a href="#" data-action="go-picklist" class="panel-link">
                 Pick-List →
               </a>
             </div>
@@ -246,9 +283,9 @@ const WorkspacePulse = {
                         <td style="font-weight:600;">${AppUtils.escapeHtml(item.brand_name || item.brand)}</td>
                         <td><span class="pack-pill">${AppUtils.escapeHtml(item.pack_size)}</span></td>
                         <td class="cell-num" style="text-align:right;color:var(--status-warning);font-weight:700;">
-                          ${AppUtils.formatNumber(item.total_cases_eq || item.cases_needed || item.cases)} cs
+                          ${AppUtils.formatNumber(item.total_cases_eq || item.cases)} cs
                         </td>
-                        <td class="cell-num" style="text-align:right;color:var(--text-muted);">${item.permits_count || item.indents_waiting || 1} indents</td>
+                        <td class="cell-num" style="text-align:right;color:var(--text-muted);">${item.permits_count || 1} indents</td>
                       </tr>
                     `).join('')}
                   </tbody>
@@ -261,7 +298,11 @@ const WorkspacePulse = {
     }
 
     // 4. Bottom Dual Tables: Top 10 Moving Brands vs Top 10 Ordering Retailers
-    const topBrands = (data.brands_full || []).slice(0, 10);
+    let brandsList = data.brands_full || [];
+    if (catFilter !== 'ALL') {
+      brandsList = brandsList.filter(b => b.category === catFilter);
+    }
+    const topBrands = brandsList.slice(0, 10);
     const topParties = (data.parties_full || []).slice(0, 10);
     const maxBrandCases = topBrands.length > 0 ? (topBrands[0].dispatched_cases || 1) : 1;
     const maxPartyCases = topParties.length > 0 ? (topParties[0].dispatched_cases || 1) : 1;
@@ -275,8 +316,8 @@ const WorkspacePulse = {
               <div class="panel-title">Top Moving Brands</div>
               <div class="panel-subtitle">By total dispatched volume</div>
             </div>
-            <a href="#" onclick="AppState.activeWorkspace='products';window.syncWorkspaceTabs();renderActiveWorkspace();return false;" class="panel-link">
-              View All (${data.brands_full ? data.brands_full.length : 0}) →
+            <a href="#" data-action="go-products" class="panel-link">
+              View All (${brandsList.length}) →
             </a>
           </div>
           <div class="panel-body" style="padding:0;">
@@ -297,7 +338,7 @@ const WorkspacePulse = {
                   ` : topBrands.map((b, i) => {
                     const barW = Math.max(4, Math.round((b.dispatched_cases / maxBrandCases) * 100));
                     return `
-                      <tr onclick="window.inspectBrand('${encodeURIComponent(b.name)}')">
+                      <tr data-action="inspect-brand" data-name="${AppUtils.escapeHtml(b.name)}" style="cursor:pointer;">
                         <td class="rank-num">${i + 1}</td>
                         <td class="brand-cell">
                           <div class="brand-name-main">${AppUtils.escapeHtml(b.name)}</div>
@@ -326,7 +367,7 @@ const WorkspacePulse = {
               <div class="panel-title">Top Ordering Retailers</div>
               <div class="panel-subtitle">By total purchased volume</div>
             </div>
-            <a href="#" onclick="AppState.activeWorkspace='parties';window.syncWorkspaceTabs();renderActiveWorkspace();return false;" class="panel-link">
+            <a href="#" data-action="go-parties" class="panel-link">
               View All (${data.parties_full ? data.parties_full.length : 0}) →
             </a>
           </div>
@@ -348,7 +389,7 @@ const WorkspacePulse = {
                   ` : topParties.map((p, i) => {
                     const barW = Math.max(4, Math.round((p.dispatched_cases / maxPartyCases) * 100));
                     return `
-                      <tr onclick="window.inspectParty('${encodeURIComponent(p.name)}')">
+                      <tr data-action="inspect-party" data-name="${AppUtils.escapeHtml(p.name)}" style="cursor:pointer;">
                         <td class="rank-num">${i + 1}</td>
                         <td class="brand-cell">
                           <div class="brand-name-main">${AppUtils.escapeHtml(p.name)}</div>
@@ -373,6 +414,55 @@ const WorkspacePulse = {
     `;
 
     container.innerHTML = kpiHTML + categoryStripHTML + visualSectionHTML + leaderboardsHTML;
+
+    // Delegated event listener for quote-safe click handling (Fix 5)
+    if (!container._delegatedPulseListener) {
+      container._delegatedPulseListener = true;
+      container.addEventListener('click', (e) => {
+        const target = e.target.closest('[data-action]');
+        if (!target) return;
+        const action = target.dataset.action;
+        if (action === 'inspect-brand') {
+          window.inspectBrand(target.dataset.name);
+        } else if (action === 'inspect-party') {
+          window.inspectParty(target.dataset.name);
+        } else if (action === 'filter-category') {
+          const c = target.dataset.cat;
+          window.setCategoryFilter(AppState.categoryFilter === c ? 'ALL' : c);
+        } else if (action === 'clear-category-filter') {
+          window.setCategoryFilter('ALL');
+        } else if (action === 'go-pending-indents') {
+          AppState.activeWorkspace = 'indents';
+          AppState.indentStatusTab = 'PENDING';
+          window.syncWorkspaceTabs();
+          renderActiveWorkspace();
+        } else if (action === 'view-month') {
+          setHorizonMode('month');
+        } else if (action === 'go-packs') {
+          e.preventDefault();
+          AppState.activeWorkspace = 'products';
+          AppState.productSubView = 'packs';
+          window.syncWorkspaceTabs();
+          renderActiveWorkspace();
+        } else if (action === 'go-picklist') {
+          e.preventDefault();
+          AppState.activeWorkspace = 'products';
+          AppState.productSubView = 'picklist';
+          window.syncWorkspaceTabs();
+          renderActiveWorkspace();
+        } else if (action === 'go-products') {
+          e.preventDefault();
+          AppState.activeWorkspace = 'products';
+          window.syncWorkspaceTabs();
+          renderActiveWorkspace();
+        } else if (action === 'go-parties') {
+          e.preventDefault();
+          AppState.activeWorkspace = 'parties';
+          window.syncWorkspaceTabs();
+          renderActiveWorkspace();
+        }
+      });
+    }
   }
 };
 

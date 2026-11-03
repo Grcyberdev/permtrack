@@ -101,16 +101,27 @@ const AppAPI = {
     return await resp.json();
   },
 
-  async saveGodownReconciliation(dateKey, godownCases) {
+  async saveGodownEntry(dateKey, godownCases, note = null) {
+    const payload = {
+      date_key: dateKey,
+      godown_cases: godownCases
+    };
+    if (note !== null && note !== undefined) {
+      payload.note = note;
+    }
     const resp = await this.fetchWithAuth('/api/godown/reconciliation', {
       method: 'POST',
-      body: JSON.stringify({
-        date_key: dateKey,
-        godown_cases: godownCases
-      })
+      body: JSON.stringify(payload)
     });
-    if (!resp.ok) throw new Error('Failed to save godown count');
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${resp.status}: Failed to save godown count`);
+    }
     return await resp.json();
+  },
+
+  async saveGodownReconciliation(dateKey, godownCases) {
+    return this.saveGodownEntry(dateKey, godownCases);
   },
 
   async triggerScraper(dateStr, bond = 'BOTH', lookback = 7) {
@@ -122,6 +133,11 @@ const AppAPI = {
         lookback_days: lookback
       })
     });
+    return await resp.json();
+  },
+
+  async cancelScraper() {
+    const resp = await this.fetchWithAuth('/api/scraper/cancel', { method: 'POST' });
     return await resp.json();
   },
 

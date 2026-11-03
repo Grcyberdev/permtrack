@@ -5,7 +5,6 @@
    Borgohain Enterprises Private Limited
    ========================================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
 
 :root {
   /* Obsidian & Amber Reserve (Dark Mode - Default) */
@@ -381,6 +380,12 @@ button {
   color: var(--text-primary);
 }
 
+.stepper-btn:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .stepper-label {
   padding: 0 6px;
   font-family: var(--font-mono);
@@ -425,11 +430,31 @@ button {
   width: 6px;
   height: 6px;
   border-radius: var(--radius-full);
-  background: #10B981;
+  background: var(--text-muted);
+  opacity: 0.6;
 }
 
 .sync-dot.live {
+  background: #10B981;
+  opacity: 1;
   box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+  animation: syncPulse 2s infinite ease-in-out;
+}
+
+.sync-dot.idle {
+  background: var(--text-muted);
+  opacity: 0.5;
+}
+
+.sync-dot.error {
+  background: var(--status-danger);
+  opacity: 1;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+}
+
+@keyframes syncPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
 }
 
 .dropdown-wrapper {
@@ -1261,6 +1286,34 @@ button {
   background: var(--status-success-bg);
 }
 
+.badge-mixed {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  font-size: 0.65rem;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.badge-filter-active {
+  display: inline-flex;
+  align-items: center;
+  background: var(--accent-amber-glow);
+  color: var(--accent-amber);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.active-filter {
+  outline: 2px solid var(--accent-amber);
+  outline-offset: -2px;
+}
+
 .aging-badge {
   font-size: 0.725rem;
   font-weight: 600;
@@ -1472,6 +1525,106 @@ button {
     padding-top: 0.75rem;
     border-top: 1px solid var(--border-hairline);
   }
+
+  /* Fix 28: Prevent iOS Safari auto-zoom on input focus */
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+
+  /* Fix 27: Responsive 2-Row Header (Row 1: Brand + Actions, Row 2: Horizon pills + stepper) */
+  .app-header {
+    height: auto;
+    min-height: var(--header-height);
+    padding: 0.5rem 0.75rem;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .header-left {
+    flex: 1;
+    gap: 0.5rem;
+  }
+
+  .header-right {
+    display: contents;
+  }
+
+  .header-right > .dropdown-wrapper { order: 2; }
+  .header-right > .btn-sync { order: 3; }
+  .header-right > .theme-toggle-btn { order: 4; }
+  .header-right > #user-profile-badge { order: 5; }
+
+  .header-right > .horizon-control-group {
+    order: 6;
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.35rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    margin-top: 0.25rem;
+    padding-top: 0.25rem;
+    border-top: 1px solid var(--border-hairline);
+  }
+
+  .header-right > .horizon-control-group::-webkit-scrollbar {
+    display: none;
+  }
+
+  .horizon-segmented {
+    flex-shrink: 0;
+  }
+
+  .horizon-pill {
+    padding: 4px 8px;
+    font-size: 0.75rem;
+  }
+
+  .horizon-stepper {
+    flex-shrink: 0;
+  }
+
+  .stepper-label {
+    font-size: 0.75rem;
+    padding: 0 4px;
+    max-width: 120px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Fix 26: Bottom-Sheet Drawer on Mobile */
+  .drawer-drag-handle {
+    display: block;
+    width: 36px;
+    height: 4px;
+    background: var(--text-muted);
+    opacity: 0.4;
+    border-radius: 2px;
+    margin: 8px auto 0 auto;
+    flex-shrink: 0;
+  }
+
+  .slide-drawer {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: 100%;
+    height: 88vh;
+    border-left: none;
+    border-top: 1px solid var(--border-strong);
+    border-radius: 16px 16px 0 0;
+    transform: translateY(100%);
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.4);
+  }
+
+  .slide-drawer.open {
+    transform: translateY(0);
+  }
 }
 
 /* ==========================================================================
@@ -1533,6 +1686,10 @@ button {
 }
 
 /* Slide-Over Drawer */
+.drawer-drag-handle {
+  display: none;
+}
+
 .slide-drawer {
   position: fixed;
   top: 0;

@@ -119,8 +119,9 @@ const AppUtils = {
       document.body.appendChild(container);
     }
     const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
-    const icon = type === 'success' ? '✓' : (type === 'warning' ? '⚠️' : '❌');
+    const toastType = type === 'error' ? 'danger' : type;
+    toast.className = `toast toast-${toastType}`;
+    const icon = toastType === 'success' ? '✓' : (toastType === 'warning' ? '⚠️' : (toastType === 'info' ? 'ℹ️' : '❌'));
     toast.innerHTML = `<span>${icon}</span><span>${this.escapeHtml(message)}</span>`;
     container.appendChild(toast);
     setTimeout(() => {

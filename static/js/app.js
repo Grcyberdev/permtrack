@@ -3,28 +3,40 @@
  * Minimal, Calm, Executive Precision Architecture
  */
 (function() {
+  let scraperStatusPollTimer = null;
+  let wsReconnectTimer = null;
+  let wsReconnectDelay = 2000;
+  let lastWsDataRefresh = 0;
+  let isWsHistoryReplay = true;
+
   window.addEventListener('DOMContentLoaded', async () => {
     // 1. Initialize Theme
     initTheme();
 
-    // 2. Check Auth Status
-    await checkInitialAuth();
-
-    // 3. Bind Global Shortcuts & Document Listeners
+    // 2. Bind Global Shortcuts & Document Listeners
     bindGlobalListeners();
 
-    // 4. Initial Data Load
-    await refreshCurrentHorizon();
-
-    // 5. Connect Scraper Live WebSocket in Background
-    initScraperWebSocket();
+    // 3. Check Auth Status (Fix 6: do NOT fetch data or start WS until auth succeeds)
+    const isAuthed = await checkInitialAuth();
+    if (isAuthed) {
+      await refreshCurrentHorizon();
+      initScraperWebSocket();
+    }
   });
 
   function initTheme() {
     const savedTheme = localStorage.getItem('permtrack_theme') || 'dark';
     document.documentElement.setAttribute('data-theme', savedTheme);
     AppState.theme = savedTheme;
+    updateThemeColorMeta(savedTheme);
     updateThemeToggleIcon();
+  }
+
+  function updateThemeColorMeta(theme) {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) {
+      meta.setAttribute('content', theme === 'dark' ? '#090B10' : '#F8FAFC');
+    }
   }
 
   window.toggleTheme = function() {
@@ -32,6 +44,7 @@
     AppState.theme = next;
     localStorage.setItem('permtrack_theme', next);
     document.documentElement.setAttribute('data-theme', next);
+    updateThemeColorMeta(next);
     updateThemeToggleIcon();
     AppUtils.showToast(`Switched to ${next === 'dark' ? 'Obsidian Reserve (Dark)' : 'Warm Alabaster (Light)'}`, 'info');
   };
@@ -40,26 +53,32 @@
     const btn = document.getElementById('theme-toggle-btn');
     if (!btn) return;
     if (AppState.theme === 'dark') {
-      // Sun icon
       btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`;
       btn.title = 'Switch to Light Theme';
     } else {
-      // Moon icon
       btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
       btn.title = 'Switch to Dark Theme';
     }
   }
+
+  // Fix 6 & 36: Auth overlay exposure and handling
+  window.renderAuthOverlay = function(show) {
+    showAuthModal(show);
+  };
 
   async function checkInitialAuth() {
     try {
       const auth = await AppAPI.checkAuthStatus();
       if (!auth.authenticated) {
         showAuthModal(true);
+        return false;
       } else {
         updateUserBadge();
+        return true;
       }
     } catch (e) {
       showAuthModal(true);
+      return false;
     }
   }
 
@@ -68,15 +87,16 @@
     if (el && AppState.user) {
       el.innerHTML = `
         <span style="font-weight:600;font-size:0.8rem;color:var(--text-primary);">${AppUtils.escapeHtml(AppState.user.name || AppState.user.username)}</span>
-        <button onclick="handleLogout()" style="margin-left:8px;font-size:0.75rem;color:var(--text-muted);text-decoration:underline;">Logout</button>
+        <button onclick="handleLogout()" style="margin-left:8px;font-size:0.75rem;color:var(--text-muted);text-decoration:underline;background:none;border:none;cursor:pointer;">Logout</button>
       `;
     }
   }
 
+  // Fix 6: Do not trim password; start WS and fetch data only after successful login
   window.handleLoginSubmit = async function(e) {
     if (e) e.preventDefault();
-    const u = document.getElementById('login-username').value.trim();
-    const p = document.getElementById('login-password').value.trim();
+    const u = (document.getElementById('login-username').value || '').trim();
+    const p = document.getElementById('login-password').value; // NOT trimmed
     const errEl = document.getElementById('login-error-msg');
     if (errEl) errEl.innerText = '';
 
@@ -86,13 +106,25 @@
       updateUserBadge();
       AppUtils.showToast('Terminal session authorized', 'success');
       await refreshCurrentHorizon();
+      initScraperWebSocket();
     } catch (err) {
       if (errEl) errEl.innerText = err.message || 'Login failed';
     }
   };
 
+  // Fix 6: Clear state, DOM and logs on logout
   window.handleLogout = async function() {
-    await AppAPI.logout();
+    if (AppState.scraperWs) {
+      try { AppState.scraperWs.close(); } catch (e) {}
+      AppState.scraperWs = null;
+    }
+    clearTimeout(wsReconnectTimer);
+    try {
+      await AppAPI.logout();
+    } catch (e) {}
+    AppState.movementData = null;
+    AppState.scraperLogs = [];
+    document.querySelectorAll('.workspace-view').forEach(v => v.innerHTML = '');
     showAuthModal(true);
   };
 
@@ -107,6 +139,8 @@
    * Main Horizon Loader & Workspace Synchronizer
    */
   window.refreshCurrentHorizon = async function(showLoadingToast = false) {
+    if (!AppState.isAuthenticated) return;
+
     const ind = document.getElementById('sync-status-indicator');
     if (ind) ind.innerText = 'Syncing...';
 
@@ -118,12 +152,11 @@
         AppState.customEndDate
       );
 
-      // Store available dates list
-      if (data.available_dates && Array.isArray(data.available_dates)) {
-        AppState.availableDates = data.available_dates;
+      if (data.horizon && data.horizon.available_dates) {
+        AppState.availableDates = data.horizon.available_dates;
       }
 
-      // Synchronize Header Time-Horizon Bar
+      // Synchronize Header Time-Horizon Bar & Bounds
       renderHeaderHorizonBar(data.horizon);
 
       // Render Active Workspace
@@ -153,11 +186,59 @@
     if (labelEl) {
       labelEl.innerText = horizon.display_label || 'Current Period';
     }
+
+    // Fix 17: Stepping bounds & disable buttons at bounds
+    const avail = AppState.availableDates || [];
+    const mode = AppState.horizonMode;
+    let canStepBack = true;
+    let canStepForward = true;
+
+    if (avail.length > 0) {
+      const earliestKey = avail[0];
+      const latestKey = avail[avail.length - 1];
+
+      if (mode === 'day') {
+        const curKey = horizon.start_date_key;
+        const curIdx = avail.indexOf(curKey);
+        if (curIdx <= 0) canStepBack = false;
+        if (curIdx >= avail.length - 1 || curIdx === -1) canStepForward = false;
+      } else if (mode === 'month') {
+        const curYM = horizon.start_date ? horizon.start_date.slice(0, 7).replace('-', '') : '';
+        const earliestYM = earliestKey.slice(0, 6);
+        const latestYM = latestKey.slice(0, 6);
+        if (curYM <= earliestYM) canStepBack = false;
+        if (curYM >= latestYM) canStepForward = false;
+      }
+    }
+
+    const btnBack = document.getElementById('stepper-btn-back');
+    const btnForward = document.getElementById('stepper-btn-forward');
+    if (btnBack) btnBack.disabled = !canStepBack;
+    if (btnForward) btnForward.disabled = !canStepForward;
+
+    // Fix 8: Update PDF menu item label
+    updatePdfExportLabel(horizon);
+  }
+
+  // Fix 8: "Download Daily PDF (DD-Mon-YYYY)"
+  function updatePdfExportLabel(horizon) {
+    const pdfLabel = document.getElementById('export-pdf-label');
+    if (!pdfLabel) return;
+
+    const avail = horizon.available_dates || AppState.availableDates || [];
+    let targetKey = horizon.start_date_key;
+    if (AppState.horizonMode === 'day') {
+      targetKey = horizon.start_date_key || horizon.end_date_key;
+    } else {
+      const eligible = avail.filter(k => k <= horizon.end_date_key).sort();
+      targetKey = eligible.length > 0 ? eligible[eligible.length - 1] : horizon.end_date_key;
+    }
+    const displayDate = AppUtils.formatDateKeyToDisplay(targetKey);
+    pdfLabel.innerText = `Download Daily PDF (${displayDate})`;
   }
 
   window.setHorizonMode = function(mode) {
     AppState.horizonMode = mode;
-    // When switching to 'day', reset anchorDate back to latest date
     if (mode === 'day') {
       AppState.anchorDate = null;
     }
@@ -165,63 +246,70 @@
   };
 
   /**
-   * Smart Period Stepping
-   * Day: 1 Day back/forward
-   * Week: 7 Days back/forward
-   * Month: 1 Calendar Month back/forward
-   * Range: Shift range by its span
+   * Smart Period Stepping (Fix 17: Clamped bounds, walk available_dates only for day, range shift by span+1)
    */
   window.stepPeriod = function(direction) {
     const data = AppState.movementData;
     if (!data || !data.horizon) return;
     const h = data.horizon;
     const mode = AppState.horizonMode;
+    const avail = AppState.availableDates || [];
+
+    if (avail.length === 0) return;
 
     if (mode === 'day') {
-      const avail = AppState.availableDates || [];
       const curKey = h.start_date_key;
-      let targetDateKey = null;
-
       const curIdx = avail.indexOf(curKey);
-      if (curIdx !== -1) {
+      if (curIdx === -1) {
+        if (direction < 0) {
+          AppState.anchorDate = AppUtils.formatDateKeyToInput(avail[avail.length - 1]);
+        }
+      } else {
         const nextIdx = curIdx + direction;
         if (nextIdx >= 0 && nextIdx < avail.length) {
-          targetDateKey = avail[nextIdx];
+          AppState.anchorDate = AppUtils.formatDateKeyToInput(avail[nextIdx]);
+        } else {
+          return; // Clamped at bound
         }
       }
-
-      if (!targetDateKey) {
-        const dt = new Date(h.start_date);
-        dt.setDate(dt.getDate() + direction);
-        targetDateKey = dt.toISOString().slice(0, 10);
-      } else {
-        targetDateKey = AppUtils.formatDateKeyToInput(targetDateKey);
-      }
-
-      AppState.anchorDate = targetDateKey;
       window.refreshCurrentHorizon();
     } else if (mode === 'week') {
-      // Step anchor date by 7 days
       const baseStr = AppState.anchorDate || h.end_date || h.start_date;
       const dt = new Date(baseStr);
       dt.setDate(dt.getDate() + (direction * 7));
-      AppState.anchorDate = dt.toISOString().slice(0, 10);
+      const targetStr = dt.toISOString().slice(0, 10);
+      const targetKey = targetStr.replace(/-/g, '');
+      const earliestKey = avail[0];
+      const latestKey = avail[avail.length - 1];
+
+      if (targetKey < earliestKey && direction < 0) return;
+      if (targetKey > latestKey && direction > 0) return;
+
+      AppState.anchorDate = targetStr;
       window.refreshCurrentHorizon();
     } else if (mode === 'month') {
-      // Step anchor date by 1 calendar month
       const baseStr = AppState.anchorDate || h.start_date;
       const dt = new Date(baseStr);
-      dt.setDate(1); // Set to 1st of month
+      dt.setDate(1);
       dt.setMonth(dt.getMonth() + direction);
-      AppState.anchorDate = dt.toISOString().slice(0, 10);
+      const targetStr = dt.toISOString().slice(0, 10);
+      const targetYM = targetStr.slice(0, 7).replace('-', '');
+      const earliestYM = avail[0].slice(0, 6);
+      const latestYM = avail[avail.length - 1].slice(0, 6);
+
+      if (targetYM < earliestYM && direction < 0) return;
+      if (targetYM > latestYM && direction > 0) return;
+
+      AppState.anchorDate = targetStr;
       window.refreshCurrentHorizon();
     } else if (mode === 'range') {
       if (h.start_date && h.end_date) {
         const dt1 = new Date(h.start_date);
         const dt2 = new Date(h.end_date);
-        const diffDays = Math.max(1, Math.round((dt2 - dt1) / (1000 * 60 * 60 * 24))) * direction;
-        dt1.setDate(dt1.getDate() + diffDays);
-        dt2.setDate(dt2.getDate() + diffDays);
+        const span = Math.max(1, Math.round((dt2 - dt1) / (1000 * 60 * 60 * 24))) + 1;
+        const shiftDays = span * direction;
+        dt1.setDate(dt1.getDate() + shiftDays);
+        dt2.setDate(dt2.getDate() + shiftDays);
         AppState.customStartDate = dt1.toISOString().slice(0, 10);
         AppState.customEndDate = dt2.toISOString().slice(0, 10);
         window.refreshCurrentHorizon();
@@ -236,7 +324,7 @@
   };
 
   /**
-   * Intuitive Period Picker Popover
+   * Intuitive Period Picker Popover (Fix 18: dynamic month list; Fix 19: rename button)
    */
   window.openPeriodPicker = function() {
     const modal = document.getElementById('period-picker-modal');
@@ -246,9 +334,12 @@
     const mode = AppState.horizonMode;
     const avail = AppState.availableDates || [];
     const curDateKey = (AppState.movementData && AppState.movementData.horizon) ? AppState.movementData.horizon.start_date_key : '';
+    const latestDateKey = avail.length > 0 ? avail[avail.length - 1] : '';
 
     if (mode === 'day') {
       const recentDates = avail.slice(-6).reverse();
+      const latestLabel = latestDateKey ? `Latest (${AppUtils.formatDateKeyToDisplay(latestDateKey)})` : 'Latest Date';
+
       body.innerHTML = `
         <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:1rem;">Select an operating day to inspect:</div>
         
@@ -258,10 +349,10 @@
         </div>
 
         <div style="margin-bottom:1.25rem;">
-          <div style="font-size:0.75rem;text-transform:uppercase;color:var(--text-muted);font-weight:600;margin-bottom:6px;">Recent Active Days</div>
+          <div style="font-size:0.75rem;text-transform:uppercase;color:var(--text-muted);font-weight:600;margin-bottom:6px;">Available Operating Dates</div>
           <div style="display:flex;flex-wrap:wrap;gap:6px;">
-            <button class="action-btn" style="padding:4px 8px;font-size:0.775rem;" onclick="setSpecificDate(null)">
-              Latest Today
+            <button class="action-btn" style="padding:4px 8px;font-size:0.775rem;background:var(--accent-amber-glow);color:var(--accent-amber);" onclick="setSpecificDate(null)">
+              ${AppUtils.escapeHtml(latestLabel)}
             </button>
             ${recentDates.map(dk => `
               <button class="action-btn ${dk === curDateKey ? 'active' : ''}" style="padding:4px 8px;font-size:0.775rem;" onclick="setSpecificDate('${dk}')">
@@ -277,19 +368,33 @@
         </div>
       `;
     } else if (mode === 'month') {
-      const months = [
-        { label: 'November 2026', key: '2026-11-01' },
-        { label: 'October 2026', key: '2026-10-01' },
-        { label: 'September 2026', key: '2026-09-01' },
-        { label: 'August 2026', key: '2026-08-01' }
-      ];
+      // Fix 18: Build dynamic month list from available_dates
+      const monthMap = {};
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+      avail.forEach(dk => {
+        const ym = `${dk.slice(0, 4)}-${dk.slice(4, 6)}`;
+        if (!monthMap[ym]) {
+          const mIdx = parseInt(dk.slice(4, 6), 10) - 1;
+          const y = dk.slice(0, 4);
+          monthMap[ym] = {
+            key: `${ym}-01`,
+            label: `${monthNames[mIdx]} ${y}`,
+            count: 0
+          };
+        }
+        monthMap[ym].count++;
+      });
+
+      const months = Object.keys(monthMap).sort().reverse().map(k => monthMap[k]);
 
       body.innerHTML = `
-        <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:1rem;">Select a monthly billing cycle:</div>
+        <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:1rem;">Select a monthly cycle:</div>
         <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:1.25rem;">
           ${months.map(m => `
-            <button class="action-btn" style="justify-content:flex-start;padding:8px 12px;font-size:0.85rem;" onclick="setSpecificMonth('${m.key}')">
-              ${m.label}
+            <button class="action-btn" style="justify-content:space-between;padding:8px 12px;font-size:0.85rem;" onclick="setSpecificMonth('${m.key}')">
+              <span style="font-weight:600;">${m.label}</span>
+              <span style="font-size:0.75rem;color:var(--text-muted);">${m.count} operating days</span>
             </button>
           `).join('')}
         </div>
@@ -385,42 +490,110 @@
   };
 
   /**
-   * Scraper Live Sync Modal & WebSocket
+   * Scraper Live Sync Modal, Polling & WebSocket (Fix 7, 20, 32, 33)
    */
   window.openSyncModal = function() {
     const modal = document.getElementById('sync-modal');
     if (modal) {
       modal.classList.add('open');
       updateModalLogs();
+      pollScraperJobStatus();
+      if (!scraperStatusPollTimer) {
+        scraperStatusPollTimer = setInterval(pollScraperJobStatus, 3000);
+      }
     }
   };
 
   window.closeSyncModal = function() {
     const modal = document.getElementById('sync-modal');
     if (modal) modal.classList.remove('open');
+    if (scraperStatusPollTimer) {
+      clearInterval(scraperStatusPollTimer);
+      scraperStatusPollTimer = null;
+    }
+  };
+
+  async function pollScraperJobStatus() {
+    try {
+      const status = await AppAPI.getScraperStatus();
+      updateSyncModalStatusUI(status);
+    } catch (e) {}
+  }
+
+  function updateSyncModalStatusUI(st) {
+    if (!st) return;
+    const dot = document.getElementById('sync-job-dot');
+    const stageEl = document.getElementById('sync-job-stage');
+    const detailsEl = document.getElementById('sync-job-details');
+    const prgEl = document.getElementById('sync-job-progress');
+    const cancelBtn = document.getElementById('sync-cancel-btn');
+
+    const isRunning = st.is_running || st.status === 'running';
+
+    if (dot) {
+      dot.className = `sync-dot ${isRunning ? 'live' : (st.success === false ? 'error' : 'idle')}`;
+    }
+    if (stageEl) {
+      stageEl.innerText = isRunning ? (st.stage || 'Scraping in progress...') : (st.error ? 'Error / Failed' : (st.status || 'Idle'));
+    }
+    if (detailsEl) {
+      const elapsed = st.elapsed_seconds ? `${Math.round(st.elapsed_seconds)}s elapsed` : '';
+      const dateTarget = st.date ? `Target: ${st.date}` : '';
+      detailsEl.innerText = [dateTarget, elapsed].filter(Boolean).join(' • ') || 'Standby';
+    }
+    if (prgEl) {
+      prgEl.innerText = isRunning ? `${st.progress || 0}%` : '';
+    }
+    if (cancelBtn) {
+      cancelBtn.style.display = isRunning ? 'inline-flex' : 'none';
+    }
+  }
+
+  window.cancelSyncJob = async function() {
+    if (!confirm('Cancel the active scraper job?')) return;
+    try {
+      await AppAPI.cancelScraper();
+      AppUtils.showToast('Scraper job cancelled', 'info');
+      pollScraperJobStatus();
+    } catch (e) {
+      AppUtils.showToast('Failed to cancel job: ' + e.message, 'danger');
+    }
   };
 
   window.triggerSyncNowFromModal = async function() {
     try {
       AppUtils.showToast('Triggering background scraper sync...', 'info');
       await AppAPI.triggerScraper();
-      appendScraperLog('🚀 Scraper job triggered from executive console.\nStreaming live feed...\n');
+      appendScraperLog('🚀 Scraper job triggered from executive console.\n');
+      pollScraperJobStatus();
     } catch (e) {
       AppUtils.showToast('Failed to trigger sync: ' + e.message, 'danger');
     }
   };
 
-  window.promptBackfillFromModal = async function() {
-    const cur = (AppState.movementData && AppState.movementData.horizon) ? AppUtils.formatDateKeyToDisplay(AppState.movementData.horizon.start_date_key) : '';
-    const dateInput = prompt('Enter backfill date (DD-MM-YYYY format):', cur || '02-11-2026');
-    if (!dateInput) return;
+  // Fix 7: Call triggerScraper(dateStr, 'BOTH', 7) with normalized DD-MM-YYYY
+  window.triggerBackfillFromInput = async function() {
+    const inp = document.getElementById('sync-backfill-date-input');
+    if (!inp || !inp.value) {
+      AppUtils.showToast('Please select a date for backfill', 'warning');
+      return;
+    }
+
+    // Convert YYYY-MM-DD input value to DD-MM-YYYY format
+    const parts = inp.value.split('-');
+    if (parts.length !== 3) {
+      AppUtils.showToast('Invalid date format', 'warning');
+      return;
+    }
+    const dateFormatted = `${parts[2]}-${parts[1]}-${parts[0]}`;
 
     try {
-      AppUtils.showToast(`Dispatching cloud backfill for ${dateInput}...`, 'info');
-      await AppAPI.triggerScraper(dateInput, 'BOTH', false, 7);
-      appendScraperLog(`🚀 Cloud backfill dispatched for ${dateInput}.\n`);
+      AppUtils.showToast(`Dispatching scraper backfill for ${dateFormatted}...`, 'info');
+      await AppAPI.triggerScraper(dateFormatted, 'BOTH', 7);
+      appendScraperLog(`🚀 Cloud backfill dispatched for ${dateFormatted}.\n`);
+      pollScraperJobStatus();
     } catch (e) {
-      AppUtils.showToast('Failed: ' + e.message, 'danger');
+      AppUtils.showToast('Failed to dispatch backfill: ' + e.message, 'danger');
     }
   };
 
@@ -434,15 +607,26 @@
     }
   }
 
-  function appendScraperLog(line) {
-    AppState.scraperLogs.push(line);
+  // Fix 20: Split incoming lines before storing to avoid doubled blank lines
+  function appendScraperLog(rawChunk) {
+    if (!rawChunk) return;
+    const lines = String(rawChunk).split('\n');
+    lines.forEach(l => {
+      const trimmed = l.trimEnd();
+      if (trimmed || AppState.scraperLogs[AppState.scraperLogs.length - 1] !== '') {
+        AppState.scraperLogs.push(trimmed);
+      }
+    });
     if (AppState.scraperLogs.length > 500) {
-      AppState.scraperLogs.shift();
+      AppState.scraperLogs = AppState.scraperLogs.slice(-500);
     }
     updateModalLogs();
   }
 
+  // Fix 20 & 33: WebSocket auth-first, exponential backoff (max 60s), stop on 1008, debounce refresh
   function initScraperWebSocket() {
+    if (!AppState.isAuthenticated) return;
+
     try {
       const loc = window.location;
       const wsProto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -451,37 +635,73 @@
 
       ws.onopen = () => {
         AppState.scraperWs = ws;
+        wsReconnectDelay = 2000;
+        isWsHistoryReplay = true;
       };
 
       ws.onmessage = (event) => {
-        appendScraperLog(event.data);
-        if (event.data.includes('COMPLETED') || event.data.includes('Webhook response received')) {
-          window.refreshCurrentHorizon(false);
+        const text = event.data || '';
+        appendScraperLog(text);
+
+        // Ignore replay of past history
+        if (isWsHistoryReplay) {
+          isWsHistoryReplay = false;
+          return;
+        }
+
+        // Trigger refresh only on exact server completion markers, debounced to >= 10s
+        const isCompletion = text.includes('SUCCESS: Permit scraping') || text.includes('Webhook received & saved');
+        if (isCompletion) {
+          const now = Date.now();
+          if (now - lastWsDataRefresh > 10000) {
+            lastWsDataRefresh = now;
+            window.refreshCurrentHorizon(false);
+          }
         }
       };
 
       ws.onerror = () => {};
-      ws.onclose = () => {
-        setTimeout(initScraperWebSocket, 10000);
+
+      ws.onclose = (event) => {
+        AppState.scraperWs = null;
+        // Stop retrying if unauthorized (1008) or logged out
+        if (event.code === 1008 || !AppState.isAuthenticated) {
+          return;
+        }
+        clearTimeout(wsReconnectTimer);
+        wsReconnectTimer = setTimeout(() => {
+          wsReconnectDelay = Math.min(60000, wsReconnectDelay * 1.5);
+          initScraperWebSocket();
+        }, wsReconnectDelay);
       };
     } catch (e) {}
   }
 
   /**
-   * Category Filter Handler
+   * Category Filter Handler (Fix 12: Updates active state across tabs & overview)
    */
   window.setCategoryFilter = function(cat) {
     AppState.categoryFilter = cat;
-    document.querySelectorAll('.chip-btn').forEach(b => {
-      b.classList.toggle('active', b.getAttribute('data-cat') === cat);
+    document.querySelectorAll('.cat-interactive-card').forEach(b => {
+      b.classList.toggle('active-filter', b.getAttribute('data-cat') === cat);
     });
     renderActiveWorkspace();
   };
 
   /**
-   * Workspace Switcher
+   * Workspace Switcher (Fix 31: Day mode switch to month when opening Godown)
    */
   window.switchWorkspace = function(ws) {
+    if (ws === 'godown' && AppState.horizonMode === 'day') {
+      const dayDateKey = (AppState.movementData && AppState.movementData.horizon)
+        ? AppState.movementData.horizon.start_date_key
+        : AppState.anchorDate;
+      AppState._godownMonthSwitchedFromDay = dayDateKey;
+      AppState.horizonMode = 'month';
+      AppState.anchorDate = dayDateKey ? AppUtils.formatDateKeyToInput(dayDateKey) : null;
+      window.refreshCurrentHorizon();
+    }
+
     AppState.activeWorkspace = ws;
     syncWorkspaceTabs();
     renderActiveWorkspace();
@@ -490,17 +710,14 @@
   window.syncWorkspaceTabs = function() {
     const ws = AppState.activeWorkspace;
 
-    // Desktop Nav Tabs
     document.querySelectorAll('.desktop-workspace-nav .nav-tab-btn').forEach(t => {
       t.classList.toggle('active', t.getAttribute('data-ws') === ws);
     });
 
-    // Mobile Bottom Nav Items
     document.querySelectorAll('.mobile-bottom-nav .mobile-nav-item').forEach(m => {
       m.classList.toggle('active', m.getAttribute('data-ws') === ws);
     });
 
-    // Workspace Content Views
     document.querySelectorAll('.workspace-view').forEach(v => {
       v.classList.toggle('active', v.id === `workspace-${ws}-content`);
     });
@@ -534,27 +751,27 @@
     const subEl = document.getElementById('drawer-subtitle');
     const bodyEl = document.getElementById('drawer-body');
 
-    titleEl.innerText = `Indent: ${g.permitNumber || g.indentNumber || 'Transit Pass'}`;
-    subEl.innerText = `Challan Date: ${g.challanDate} • Destination: ${g.district || 'Assam'}`;
+    titleEl.innerText = g.retailerName || g.licenseeName;
+    subEl.innerText = `Challan: ${g.challanDate} • Transit Pass: ${g.transitPass || 'Pending'}`;
 
     bodyEl.innerHTML = `
       <div class="drawer-section">
         <div class="drawer-section-title">Official Pass & Transport Identifiers</div>
         <div class="detail-key-value-grid">
-          <div class="kv-item"><span class="kv-key">Permit Number</span><span class="kv-val">${AppUtils.escapeHtml(g.permitNumber || 'Pending')}</span></div>
           <div class="kv-item"><span class="kv-key">Transit Pass #</span><span class="kv-val">${AppUtils.escapeHtml(g.transitPass || 'Pending')}</span></div>
-          <div class="kv-item"><span class="kv-key">Indent Number</span><span class="kv-val">${AppUtils.escapeHtml(g.indentNumber || '—')}</span></div>
-          <div class="kv-item"><span class="kv-key">Vehicle Number</span><span class="kv-val">${AppUtils.escapeHtml(g.vehicleNumber || '—')}</span></div>
+          <div class="kv-item"><span class="kv-key">Permit Number</span><span class="kv-val">${AppUtils.escapeHtml(g.permitNumber || '—')}</span></div>
           <div class="kv-item"><span class="kv-key">Licensee Name</span><span class="kv-val">${AppUtils.escapeHtml(g.licenseeName)}</span></div>
           <div class="kv-item"><span class="kv-key">Retailer Code</span><span class="kv-val">${AppUtils.escapeHtml(g.retailerCode || '—')}</span></div>
+          <div class="kv-item"><span class="kv-key">Destination District</span><span class="kv-val">${AppUtils.escapeHtml(g.district || 'Assam')}</span></div>
+          <div class="kv-item"><span class="kv-key">Vehicle Number</span><span class="kv-val">${AppUtils.escapeHtml(g.vehicleNumber || '—')}</span></div>
           <div class="kv-item"><span class="kv-key">Fulfillment Status</span><span class="kv-val">${g.status}</span></div>
           <div class="kv-item"><span class="kv-key">Bond Type</span><span class="kv-val">${g.bondType || 'IMFL'}</span></div>
         </div>
       </div>
 
       <div style="display:flex;gap:0.5rem;margin-bottom:1.5rem;">
-        <button class="action-btn" onclick="AppUtils.copyToClipboard('${AppUtils.escapeHtml(g.permitNumber)}', 'Copied Permit #')">
-          Copy Permit #
+        <button class="action-btn" onclick="AppUtils.copyToClipboard('${AppUtils.escapeHtml(g.transitPass || g.permitNumber)}', 'Copied Pass #')">
+          Copy Pass #
         </button>
         <button class="action-btn" onclick="AppUtils.copyToClipboard('${AppUtils.escapeHtml(g.vehicleNumber)}', 'Copied Vehicle #')">
           Copy Vehicle #
@@ -602,8 +819,8 @@
     openDrawer(true);
   };
 
-  window.inspectParty = function(partyNameEncoded) {
-    const partyName = decodeURIComponent(partyNameEncoded);
+  // Fix 5: Accepts decoded partyName directly
+  window.inspectParty = function(partyName) {
     const data = AppState.movementData;
     if (!data || !data.parties_full) return;
     const p = data.parties_full.find(item => item.name === partyName);
@@ -629,6 +846,7 @@
           <div class="kv-item"><span class="kv-key">IMFL Spirits</span><span class="kv-val" style="color:var(--brand-imfl);">${AppUtils.formatNumber(p.imfl_cases)} cs</span></div>
           <div class="kv-item"><span class="kv-key">Country Spirit</span><span class="kv-val" style="color:var(--brand-cs);">${AppUtils.formatNumber(p.cs_cases)} cs</span></div>
           <div class="kv-item"><span class="kv-key">Indents Placed</span><span class="kv-val">${p.indent_count} indents</span></div>
+          <div class="kv-item"><span class="kv-key">Active Order Days (30D)</span><span class="kv-val">${p.active_days} days</span></div>
           <div class="kv-item"><span class="kv-key">Last Order Date</span><span class="kv-val">${p.last_order_date || '—'}</span></div>
           <div class="kv-item"><span class="kv-key">Pending in Bond</span><span class="kv-val" style="color:var(--status-warning);">${AppUtils.formatNumber(p.pending_cases)} cs</span></div>
         </div>
@@ -638,7 +856,7 @@
         <div class="drawer-section-title">Top Purchased Brands</div>
         <div class="leaderboard-list">
           ${(p.brands_bought || []).map(b => `
-            <div class="leaderboard-item">
+            <div class="leaderboard-item" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border-hairline);">
               <span class="lb-name" style="font-weight:600;">${AppUtils.escapeHtml(b.name)}</span>
               <span class="lb-cases" style="color:var(--accent-amber);">${AppUtils.formatNumber(b.cases)} cs</span>
             </div>
@@ -650,8 +868,8 @@
     openDrawer(true);
   };
 
-  window.inspectBrand = function(brandNameEncoded) {
-    const brandName = decodeURIComponent(brandNameEncoded);
+  // Fix 5: Accepts decoded brandName directly
+  window.inspectBrand = function(brandName) {
     const data = AppState.movementData;
     if (!data || !data.brands_full) return;
     const b = data.brands_full.find(item => item.name === brandName);
@@ -684,7 +902,7 @@
         <div class="drawer-section-title">Top Retailers Buying This Brand</div>
         <div class="leaderboard-list">
           ${(b.top_buyers || []).map(byr => `
-            <div class="leaderboard-item">
+            <div class="leaderboard-item" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border-hairline);">
               <span class="lb-name">${AppUtils.escapeHtml(byr.name)}</span>
               <span class="lb-cases">${AppUtils.formatNumber(byr.cases)} cs (${AppUtils.formatCurrencyINR(byr.mrp, true)})</span>
             </div>
@@ -705,11 +923,27 @@
     }
   };
 
+  window.closeAllDrawers = function() {
+    window.openDrawer(false);
+  };
+
+  // Helper to focus active search input (Fix 29)
+  function focusActiveSearch() {
+    const ws = AppState.activeWorkspace;
+    const view = document.getElementById(`workspace-${ws}-content`);
+    if (view) {
+      const input = view.querySelector('.search-input');
+      if (input) {
+        input.focus();
+        input.select();
+      }
+    }
+  }
+
   /**
-   * Keyboard Shortcuts & Document Click Listeners
+   * Keyboard Shortcuts & Document Click Listeners (Fix 29)
    */
   function bindGlobalListeners() {
-    // Close export dropdown on click outside
     document.addEventListener('click', (e) => {
       const dropWrap = document.getElementById('export-dropdown-wrapper');
       if (dropWrap && !dropWrap.contains(e.target)) {
@@ -718,12 +952,28 @@
     });
 
     window.addEventListener('keydown', (e) => {
+      // 1. Allow ⌘K or Ctrl+K anytime to focus active search
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        focusActiveSearch();
+        return;
+      }
+
+      // If user is currently typing in an input, textarea, or select, do not trigger single-key shortcuts
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) {
         if (e.key === 'Escape') e.target.blur();
         return;
       }
 
-      if (e.key === '[') {
+      // 2. Ignore single-key shortcuts if meta, ctrl, or alt is pressed
+      if (e.metaKey || e.ctrlKey || e.altKey) {
+        return;
+      }
+
+      if (e.key === '/') {
+        e.preventDefault();
+        focusActiveSearch();
+      } else if (e.key === '[') {
         window.stepPeriod(-1);
       } else if (e.key === ']') {
         window.stepPeriod(1);
@@ -736,10 +986,6 @@
       } else if (['1', '2', '3', '4', '5'].includes(e.key)) {
         const mapping = { '1': 'pulse', '2': 'products', '3': 'indents', '4': 'parties', '5': 'godown' };
         window.switchWorkspace(mapping[e.key]);
-      } else if (e.key === '/' || (e.metaKey && e.key === 'k')) {
-        e.preventDefault();
-        const searchInput = document.querySelector('.search-input');
-        if (searchInput) searchInput.focus();
       } else if (e.key === 'Escape') {
         window.openDrawer(false);
         window.closePeriodPicker();

@@ -212,6 +212,109 @@ const AppComponents = {
   hideChartTooltip() {
     const tip = document.getElementById('chart-floating-tooltip');
     if (tip) tip.style.display = 'none';
+  },
+
+  /**
+   * Shared floor pick-list renderer for Products and Indents workspaces (Fix 2)
+   */
+  renderFloorPickList(list, options = {}) {
+    if (!list || list.length === 0) {
+      return `
+        <div class="empty-state-card" style="padding:3rem 1rem;text-align:center;">
+          <span class="status-dot dot-success" style="width:10px;height:10px;display:inline-block;margin-bottom:0.75rem;"></span>
+          <div style="font-weight:700;color:var(--text-primary);font-size:1.1rem;margin-bottom:0.25rem;">Warehouse Floor Clear</div>
+          <div style="color:var(--text-secondary);font-size:0.875rem;">No unfulfilled indents or bottlenecked SKUs pending loading.</div>
+        </div>
+      `;
+    }
+
+    const totalEqCases = list.reduce((sum, item) => sum + (Number(item.total_cases_eq) || 0), 0);
+    const totalCasesOnly = list.reduce((sum, item) => sum + (Number(item.cases) || 0), 0);
+    const totalBottlesOnly = list.reduce((sum, item) => sum + (Number(item.bottles) || 0), 0);
+    const totalIndents = list.reduce((sum, item) => sum + (Number(item.permits_count) || 0), 0);
+
+    const rowsHTML = list.map((item, idx) => {
+      const licenseesList = Array.isArray(item.licensees) ? item.licensees : [];
+      const licenseesTooltip = AppUtils.escapeHtml(licenseesList.join(', '));
+      const licenseesDisplay = licenseesList.length > 0 
+        ? (licenseesList.length === 1 
+            ? AppUtils.escapeHtml(licenseesList[0]) 
+            : `${AppUtils.escapeHtml(licenseesList[0])} <span class="badge-subtle">+${licenseesList.length - 1} more</span>`)
+        : '<span style="color:var(--text-muted);">—</span>';
+
+      return `
+        <tr>
+          <td style="color:var(--text-muted);font-family:var(--font-mono);font-size:0.75rem;width:36px;">${idx + 1}</td>
+          <td>
+            <div style="font-weight:600;color:var(--text-primary);">${AppUtils.escapeHtml(item.brand_name)}</div>
+            <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px;">
+              ${AppComponents.renderCategoryBadge(item.category)}
+            </div>
+          </td>
+          <td>
+            <span class="badge-pack">${AppUtils.escapeHtml(item.pack_size)}</span>
+          </td>
+          <td class="text-right" style="font-family:var(--font-mono);font-weight:600;color:var(--text-primary);">
+            ${AppUtils.formatInteger(item.cases)}
+          </td>
+          <td class="text-right" style="font-family:var(--font-mono);color:var(--text-secondary);">
+            ${AppUtils.formatInteger(item.bottles)}
+          </td>
+          <td class="text-right" style="font-family:var(--font-mono);font-weight:700;color:var(--accent-amber);">
+            ${AppUtils.formatNumber(item.total_cases_eq)} cs
+          </td>
+          <td class="text-center">
+            <span class="badge-count" style="font-weight:600;">${item.permits_count}</span>
+          </td>
+          <td style="font-size:0.8rem;max-width:220px;" title="${licenseesTooltip}">
+            ${licenseesDisplay}
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <div class="table-container">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:0.875rem 1.25rem;border-bottom:1px solid var(--border-hairline);background:var(--bg-surface-elevated);flex-wrap:wrap;gap:0.75rem;">
+          <div>
+            <span style="font-weight:700;color:var(--text-primary);font-size:0.95rem;">Warehouse Floor Loading Pick-List</span>
+            <span style="color:var(--text-secondary);font-size:0.8rem;margin-left:0.5rem;">(${list.length} SKUs awaiting loading)</span>
+          </div>
+          <div style="display:flex;gap:1.25rem;align-items:center;font-size:0.85rem;flex-wrap:wrap;">
+            <span>Cases to Load: <strong style="color:var(--text-primary);">${AppUtils.formatInteger(totalCasesOnly)} cs</strong></span>
+            <span>Loose: <strong style="color:var(--text-secondary);">${AppUtils.formatInteger(totalBottlesOnly)} btls</strong></span>
+            <span>Total Needed: <strong style="color:var(--accent-amber);">${AppUtils.formatNumber(totalEqCases)} cs</strong></span>
+          </div>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width:36px;">#</th>
+              <th>Product / Brand</th>
+              <th>Pack</th>
+              <th class="text-right">Cases to Load</th>
+              <th class="text-right">Loose Btls</th>
+              <th class="text-right">Total Eq Cases</th>
+              <th class="text-center">Indents Waiting</th>
+              <th>Waiting Retailers</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHTML}
+          </tbody>
+          <tfoot>
+            <tr style="font-weight:700;background:var(--bg-surface-elevated);border-top:2px solid var(--border-strong);">
+              <td colspan="3">Total Pending Dispatch Requirements</td>
+              <td class="text-right" style="font-family:var(--font-mono);">${AppUtils.formatInteger(totalCasesOnly)}</td>
+              <td class="text-right" style="font-family:var(--font-mono);">${AppUtils.formatInteger(totalBottlesOnly)}</td>
+              <td class="text-right" style="font-family:var(--font-mono);color:var(--accent-amber);">${AppUtils.formatNumber(totalEqCases)} cs</td>
+              <td class="text-center" style="font-family:var(--font-mono);">${totalIndents}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    `;
   }
 };
 

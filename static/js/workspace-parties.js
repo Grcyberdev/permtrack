@@ -3,6 +3,8 @@
  * Minimal, Calm, Executive Precision with Responsive Mobile Cards
  */
 const WorkspaceParties = {
+  _debounceTimer: null,
+
   setSort(col) {
     if (AppState.partySortCol === col) {
       AppState.partySortDir = AppState.partySortDir === 'desc' ? 'asc' : 'desc';
@@ -10,7 +12,7 @@ const WorkspaceParties = {
       AppState.partySortCol = col;
       AppState.partySortDir = 'desc';
     }
-    this.render();
+    this.renderResultsOnly();
   },
 
   renderSortIndicator(col) {
@@ -18,6 +20,56 @@ const WorkspaceParties = {
       return `<span class="sort-icon-neutral">↕</span>`;
     }
     return `<span class="sort-icon-active">${AppState.partySortDir === 'desc' ? '↓' : '↑'}</span>`;
+  },
+
+  getFilteredParties(data) {
+    const d = data || AppState.movementData;
+    if (!d || !d.parties_full) return [];
+
+    let parties = d.parties_full || [];
+    const q = (AppState.partySearchQuery || '').toLowerCase().trim();
+    if (q) {
+      parties = parties.filter(p =>
+        p.name.toLowerCase().includes(q) ||
+        (p.district && p.district.toLowerCase().includes(q))
+      );
+    }
+
+    // Fix 12: Category filter in Retailers — use category cases as volume metric
+    const catFilter = AppState.categoryFilter || 'ALL';
+    if (catFilter !== 'ALL') {
+      const volProp = catFilter === 'BEER' ? 'beer_cases' : (catFilter === 'CS' ? 'cs_cases' : 'imfl_cases');
+      parties = parties
+        .map(p => ({
+          ...p,
+          filteredVolume: p[volProp] || 0.0
+        }))
+        .filter(p => p.filteredVolume > 0 || (p.pending_cases > 0));
+    } else {
+      parties = parties.map(p => ({
+        ...p,
+        filteredVolume: p.dispatched_cases || 0.0
+      }));
+    }
+
+    const sortCol = AppState.partySortCol || 'dispatched_cases';
+    const sortDir = AppState.partySortDir || 'desc';
+    const mult = sortDir === 'asc' ? 1 : -1;
+
+    return [...parties].sort((a, b) => {
+      let valA = a[sortCol];
+      let valB = b[sortCol];
+      if (sortCol === 'dispatched_cases' && catFilter !== 'ALL') {
+        valA = a.filteredVolume;
+        valB = b.filteredVolume;
+      }
+      if (typeof valA === 'string') {
+        return (valA || '').localeCompare(valB || '') * mult;
+      }
+      valA = Number(valA || 0);
+      valB = Number(valB || 0);
+      return (valA - valB) * mult;
+    });
   },
 
   render() {
@@ -30,35 +82,6 @@ const WorkspaceParties = {
       return;
     }
 
-    let parties = data.parties_full || [];
-    const q = (AppState.partySearchQuery || '').toLowerCase().trim();
-    if (q) {
-      parties = parties.filter(p =>
-        p.name.toLowerCase().includes(q) ||
-        (p.district && p.district.toLowerCase().includes(q))
-      );
-    }
-
-    // Apply Sorting
-    const sortCol = AppState.partySortCol || 'dispatched_cases';
-    const sortDir = AppState.partySortDir || 'desc';
-    const mult = sortDir === 'asc' ? 1 : -1;
-
-    parties = [...parties].sort((a, b) => {
-      let valA = a[sortCol];
-      let valB = b[sortCol];
-      if (typeof valA === 'string') {
-        return (valA || '').localeCompare(valB || '') * mult;
-      }
-      valA = Number(valA || 0);
-      valB = Number(valB || 0);
-      return (valA - valB) * mult;
-    });
-
-    const totalCases = parties.reduce((acc, p) => acc + (p.dispatched_cases || 0), 0);
-    const totalMRP = parties.reduce((acc, p) => acc + (p.mrp || 0), 0);
-    const totalPending = parties.reduce((acc, p) => acc + (p.pending_cases || 0), 0);
-
     const toolbarHTML = `
       <div class="table-toolbar">
         <div class="search-box-wrap">
@@ -66,17 +89,50 @@ const WorkspaceParties = {
             <circle cx="11" cy="11" r="8"></circle>
             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
           </svg>
-          <input type="text" class="search-input" placeholder="Search retailer name, shop or district..." value="${AppUtils.escapeHtml(AppState.partySearchQuery)}" oninput="AppState.partySearchQuery=this.value;WorkspaceParties.render();" />
+          <input
+            type="text"
+            id="parties-search-input"
+            class="search-input"
+            placeholder="Search retailer name, shop or district..."
+            value="${AppUtils.escapeHtml(AppState.partySearchQuery)}"
+          />
         </div>
         <div style="display:flex;align-items:center;gap:0.75rem;">
-          <span class="table-stats-badge">
-            ${parties.length} Retailers • ${AppUtils.formatNumber(totalCases)} cs • ${AppUtils.formatCurrencyINR(totalMRP, true)}
+          <span class="table-stats-badge" id="parties-stats-badge">
+            Loading...
           </span>
         </div>
       </div>
+      <div id="parties-results-container"></div>
     `;
 
-    // Mobile Cards View (< 768px)
+    container.innerHTML = toolbarHTML;
+    this.attachDelegatedListeners(container);
+    this.renderPartiesResults(data);
+  },
+
+  renderResultsOnly() {
+    const data = AppState.movementData;
+    if (!data) return;
+    this.renderPartiesResults(data);
+  },
+
+  renderPartiesResults(data) {
+    const resultsContainer = document.getElementById('parties-results-container');
+    const statsBadge = document.getElementById('parties-stats-badge');
+    if (!resultsContainer) return;
+
+    const parties = this.getFilteredParties(data);
+    const catFilter = AppState.categoryFilter || 'ALL';
+    const totalCases = parties.reduce((acc, p) => acc + (p.filteredVolume || 0), 0);
+    const totalMRP = parties.reduce((acc, p) => acc + (p.mrp || 0), 0);
+    const totalPending = parties.reduce((acc, p) => acc + (p.pending_cases || 0), 0);
+
+    if (statsBadge) {
+      statsBadge.innerText = `${parties.length} Retailers • ${AppUtils.formatNumber(totalCases)} cs • ${AppUtils.formatCurrencyINR(totalMRP, true)}`;
+    }
+
+    // Responsive Mobile Cards View (< 768px)
     const mobileCardsHTML = `
       <div class="mobile-cards-view">
         ${parties.length === 0 ? `
@@ -88,7 +144,7 @@ const WorkspaceParties = {
           const csPct = Math.round(((p.cs_cases || 0) / tot) * 100);
 
           return `
-            <div class="mobile-entity-card" onclick="window.inspectParty('${encodeURIComponent(p.name)}')">
+            <div class="mobile-entity-card" data-action="inspect-party" data-name="${AppUtils.escapeHtml(p.name)}" style="cursor:pointer;">
               <div class="mobile-card-header">
                 <div class="mobile-card-title-wrap">
                   <div class="mobile-card-title">${AppUtils.escapeHtml(p.name)}</div>
@@ -98,7 +154,7 @@ const WorkspaceParties = {
                   </div>
                 </div>
                 <div class="mobile-card-stat">
-                  <div class="mobile-stat-primary">${AppUtils.formatNumber(p.dispatched_cases)} cs</div>
+                  <div class="mobile-stat-primary">${AppUtils.formatNumber(p.filteredVolume)} cs</div>
                   <div class="mobile-stat-secondary">${AppUtils.formatCurrencyINR(p.mrp, true)}</div>
                 </div>
               </div>
@@ -121,7 +177,7 @@ const WorkspaceParties = {
                 </div>
                 <div>
                   <span class="m-metric-label">Status</span>
-                  <span class="m-metric-val">${p.cadence_status === 'regular' ? 'Regular' : 'Active'}</span>
+                  <span class="m-metric-val">${p.cadence_status === 'regular' ? 'Regular' : (p.cadence_status === 'dormant' ? 'Dormant' : 'Active')}</span>
                 </div>
               </div>
 
@@ -142,6 +198,8 @@ const WorkspaceParties = {
     `;
 
     // Desktop Data Table View (>= 768px)
+    const volumeHeaderLabel = catFilter === 'ALL' ? 'Dispatched (cs)' : `Dispatched (${catFilter} cs)`;
+
     const tableHTML = `
       <div class="data-table-container desktop-table-view">
         <div class="data-table-wrapper">
@@ -149,21 +207,21 @@ const WorkspaceParties = {
             <thead>
               <tr>
                 <th style="width:36px;">#</th>
-                <th class="th-sortable" onclick="WorkspaceParties.setSort('name')">
+                <th class="th-sortable" data-action="sort" data-col="name">
                   Licensee / Retail Shop Name ${this.renderSortIndicator('name')}
                 </th>
                 <th>District</th>
-                <th class="th-sortable" style="text-align:right;" onclick="WorkspaceParties.setSort('dispatched_cases')">
-                  Dispatched (cs) ${this.renderSortIndicator('dispatched_cases')}
+                <th class="th-sortable" style="text-align:right;" data-action="sort" data-col="dispatched_cases">
+                  ${volumeHeaderLabel} ${this.renderSortIndicator('dispatched_cases')}
                 </th>
                 <th style="text-align:center;width:140px;">Category Mix</th>
-                <th class="th-sortable" style="text-align:right;" onclick="WorkspaceParties.setSort('pending_cases')">
+                <th class="th-sortable" style="text-align:right;" data-action="sort" data-col="pending_cases">
                   Pending in Bond ${this.renderSortIndicator('pending_cases')}
                 </th>
-                <th class="th-sortable" style="text-align:right;" onclick="WorkspaceParties.setSort('mrp')">
+                <th class="th-sortable" style="text-align:right;" data-action="sort" data-col="mrp">
                   Total Turnover (₹) ${this.renderSortIndicator('mrp')}
                 </th>
-                <th class="th-sortable" style="text-align:center;" onclick="WorkspaceParties.setSort('last_order_date')">
+                <th class="th-sortable" style="text-align:center;" data-action="sort" data-col="last_order_date">
                   Cadence & Last Order ${this.renderSortIndicator('last_order_date')}
                 </th>
                 <th>Top Brands Bought</th>
@@ -179,7 +237,7 @@ const WorkspaceParties = {
                 const csPct = Math.round(((p.cs_cases || 0) / tot) * 100);
 
                 const topBrandsList = (p.brands_bought || []).slice(0, 2).map(b =>
-                  `<span class="pack-pill" title="${b.name}: ${AppUtils.formatNumber(b.cases)} cs">${AppUtils.escapeHtml(b.name)} (${AppUtils.formatNumber(b.cases, 0)}cs)</span>`
+                  `<span class="pack-pill" title="${AppUtils.escapeHtml(b.name)}: ${AppUtils.formatNumber(b.cases)} cs">${AppUtils.escapeHtml(b.name)} (${AppUtils.formatNumber(b.cases, 0)}cs)</span>`
                 ).join('');
 
                 let cadenceBadge = `<span class="party-cadence-badge cadence-active">Active</span>`;
@@ -190,16 +248,16 @@ const WorkspaceParties = {
                 }
 
                 return `
-                  <tr style="cursor:pointer;" onclick="window.inspectParty('${encodeURIComponent(p.name)}')">
+                  <tr style="cursor:pointer;" data-action="inspect-party" data-name="${AppUtils.escapeHtml(p.name)}">
                     <td class="num-tabular" style="color:var(--text-muted);font-size:0.75rem;">${idx + 1}</td>
                     <td style="font-weight:600;">
-                      <a href="#" onclick="event.stopPropagation();window.inspectParty('${encodeURIComponent(p.name)}');return false;" class="table-entity-link">
+                      <a href="#" data-action="inspect-party" data-name="${AppUtils.escapeHtml(p.name)}" class="table-entity-link">
                         ${AppUtils.escapeHtml(p.name)}
                       </a>
                     </td>
                     <td><span class="pack-pill">${AppUtils.escapeHtml(p.district || 'Assam')}</span></td>
                     <td class="cell-num" style="text-align:right;font-weight:700;">
-                      ${AppUtils.formatNumber(p.dispatched_cases)}
+                      ${AppUtils.formatNumber(p.filteredVolume)}
                     </td>
                     <td>
                       <div class="proportional-bar-container" style="height:5px;" title="Beer: ${AppUtils.formatNumber(p.beer_cases, 0)} cs (${beerPct}%) | IMFL: ${AppUtils.formatNumber(p.imfl_cases, 0)} cs (${imflPct}%) | CS: ${AppUtils.formatNumber(p.cs_cases, 0)} cs (${csPct}%)">
@@ -246,7 +304,37 @@ const WorkspaceParties = {
       </div>
     `;
 
-    container.innerHTML = toolbarHTML + mobileCardsHTML + tableHTML;
+    resultsContainer.innerHTML = mobileCardsHTML + tableHTML;
+  },
+
+  attachDelegatedListeners(container) {
+    if (container._delegatedPartyListener) return;
+    container._delegatedPartyListener = true;
+
+    // Delegated click handler (Fix 5: quote-safe inspection)
+    container.addEventListener('click', (e) => {
+      const target = e.target.closest('[data-action]');
+      if (!target) return;
+      const action = target.dataset.action;
+
+      if (action === 'inspect-party') {
+        e.preventDefault();
+        window.inspectParty(target.dataset.name);
+      } else if (action === 'sort') {
+        WorkspaceParties.setSort(target.dataset.col);
+      }
+    });
+
+    // Debounced input handler for search (Fix 4)
+    container.addEventListener('input', (e) => {
+      if (e.target.id === 'parties-search-input') {
+        AppState.partySearchQuery = e.target.value;
+        clearTimeout(WorkspaceParties._debounceTimer);
+        WorkspaceParties._debounceTimer = setTimeout(() => {
+          WorkspaceParties.renderPartiesResults();
+        }, 150);
+      }
+    });
   }
 };
 

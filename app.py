@@ -629,25 +629,100 @@ def get_cached_backup_records(filepath: str) -> List[Dict[str, Any]]:
     return recs
 
 _CACHED_SKU_RATES: Optional[Dict[str, float]] = None
+_CACHED_SKU_RATES_MTIME: float = 0.0
+_CACHED_SKU_RATES_LAST_CHECK: float = 0.0
 
 def get_cached_sku_rates(config_dir: str) -> Dict[str, float]:
     """
     Returns historical SKU case rates, preferring cached config/sku_rates.json if available.
+    Invalidates when the newest backup's mtime changes or after 10 minutes.
     """
-    global _CACHED_SKU_RATES
+    global _CACHED_SKU_RATES, _CACHED_SKU_RATES_MTIME, _CACHED_SKU_RATES_LAST_CHECK
+    now = time.time()
+    
+    max_mtime = 0.0
+    backup_files = glob.glob(os.path.join(config_dir, "backup_permits_*.json"))
+    for bf in backup_files:
+        if "latest.json" in bf:
+            continue
+        try:
+            mt = os.path.getmtime(bf)
+            if mt > max_mtime:
+                max_mtime = mt
+        except Exception:
+            pass
+
     if _CACHED_SKU_RATES is not None:
-        return _CACHED_SKU_RATES
+        if max_mtime <= _CACHED_SKU_RATES_MTIME and (now - _CACHED_SKU_RATES_LAST_CHECK < 600):
+            return _CACHED_SKU_RATES
+
     sku_file = os.path.join(config_dir, "sku_rates.json")
     if os.path.exists(sku_file):
         try:
             with open(sku_file, "r", encoding="utf-8") as sf:
-                _CACHED_SKU_RATES = json.load(sf)
-                if isinstance(_CACHED_SKU_RATES, dict) and _CACHED_SKU_RATES:
+                rates = json.load(sf)
+                if isinstance(rates, dict) and rates:
+                    _CACHED_SKU_RATES = rates
+                    _CACHED_SKU_RATES_MTIME = max_mtime
+                    _CACHED_SKU_RATES_LAST_CHECK = now
                     return _CACHED_SKU_RATES
         except Exception:
             pass
+
     _CACHED_SKU_RATES = build_historical_sku_rates(config_dir)
+    _CACHED_SKU_RATES_MTIME = max_mtime
+    _CACHED_SKU_RATES_LAST_CHECK = now
     return _CACHED_SKU_RATES
+
+_RECONCILED_PENDING_CACHE: Dict[Tuple[str, float], List[Dict[str, Any]]] = {}
+
+def get_cached_reconciled_pending(
+    target_recon_date_key: str,
+    config_dir: str,
+    by_date: Dict[str, Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """
+    Small in-memory cache for reconciled pending snapshot per
+    (target_date_key, max_mtime_of_8_relevant_backups).
+    Results are byte-identical to the uncached path.
+    """
+    global _RECONCILED_PENDING_CACHE
+    if target_recon_date_key not in by_date:
+        return []
+
+    try:
+        t_dt = datetime.strptime(target_recon_date_key, "%Y%m%d")
+        t_date_only = t_dt.date()
+        min_date_only = t_date_only - timedelta(days=7)
+    except Exception:
+        t_dt = None
+        t_date_only = None
+        min_date_only = None
+
+    relevant_mtimes = [by_date[target_recon_date_key].get("mtime", 0.0)]
+    if t_date_only and min_date_only:
+        for dk, finfo in by_date.items():
+            try:
+                b_dt = datetime.strptime(dk, "%Y%m%d").date()
+                if min_date_only <= b_dt < t_date_only:
+                    relevant_mtimes.append(finfo.get("mtime", 0.0))
+            except Exception:
+                pass
+
+    cache_key = (target_recon_date_key, max(relevant_mtimes) if relevant_mtimes else 0.0)
+    if cache_key in _RECONCILED_PENDING_CACHE:
+        return [dict(r) for r in _RECONCILED_PENDING_CACHE[cache_key]]
+
+    t_finfo = by_date[target_recon_date_key]
+    raw_target_records = get_cached_backup_records(t_finfo["filepath"])
+    t_date_str = t_dt.strftime("%d-%b-%Y") if t_dt else None
+    reconciled_target = reconcile_permits(raw_target_records, t_date_str, config_dir, lookback_days=7)
+    pending_list = [r for r in reconciled_target if str(r.get("Status") or "").strip().upper() == "PENDING"]
+
+    if len(_RECONCILED_PENDING_CACHE) > 50:
+        _RECONCILED_PENDING_CACHE.clear()
+    _RECONCILED_PENDING_CACHE[cache_key] = pending_list
+    return [dict(r) for r in pending_list]
 
 def parse_flexible_date(date_str: Optional[str]) -> Optional[datetime]:
     """
@@ -663,6 +738,22 @@ def parse_flexible_date(date_str: Optional[str]) -> Optional[datetime]:
             return datetime.strptime(s, fmt).replace(tzinfo=IST)
         except Exception:
             pass
+    return None
+
+def find_prev_operating_date(sorted_available_dates: List[str], before_key: str, by_date: Dict[str, Any]) -> Optional[str]:
+    """
+    Finds the latest available date strictly before before_key that has at least one completed TP dispatch.
+    """
+    for dk in reversed([k for k in sorted_available_dates if k < before_key]):
+        finfo = by_date.get(dk)
+        if not finfo:
+            continue
+        recs = get_cached_backup_records(finfo["filepath"])
+        for r in recs:
+            if str(r.get("Status") or "").strip().upper() == "COMPLETED":
+                tp = str(r.get("Transit Pass") or "").strip().upper()
+                if tp.startswith("TP") and "VERIFIED DISPATCH BALANCE" not in str(r.get("Product Name") or "").upper():
+                    return dk
     return None
 
 def get_product_category(item: Dict[str, Any]) -> str:
@@ -1250,9 +1341,15 @@ async def get_movement_analytics(
     if mode == "day":
         h_start_dt = anchor_dt
         h_end_dt = anchor_dt
-        p_end_dt = h_start_dt - timedelta(days=1)
-        p_start_dt = p_end_dt
         display_label = h_start_dt.strftime("%d-%b-%Y")
+        anchor_key = anchor_dt.strftime("%Y%m%d")
+        prior_op_key = find_prev_operating_date(sorted_available_dates, anchor_key, by_date)
+        if prior_op_key:
+            p_start_dt = parse_flexible_date(prior_op_key) or (h_start_dt - timedelta(days=1))
+            p_end_dt = p_start_dt
+        else:
+            p_end_dt = h_start_dt - timedelta(days=1)
+            p_start_dt = p_end_dt
         prev_display_label = p_start_dt.strftime("%d-%b-%Y")
     elif mode == "week":
         # 7-day rolling period ending on anchor_dt
@@ -1266,10 +1363,31 @@ async def get_movement_analytics(
         h_start_dt = anchor_dt.replace(day=1)
         next_m = (h_start_dt.replace(day=28) + timedelta(days=4)).replace(day=1)
         h_end_dt = next_m - timedelta(days=1)
-        p_end_dt = h_start_dt - timedelta(days=1)
-        p_start_dt = p_end_dt.replace(day=1)
-        display_label = h_start_dt.strftime("%B %Y")
-        prev_display_label = p_start_dt.strftime("%B %Y")
+        last_day_of_month = h_end_dt.day
+
+        anchor_ym = anchor_dt.strftime("%Y%m")
+        latest_ym = latest_avail_key[:6]
+        prev_m_end = h_start_dt - timedelta(days=1)
+        prev_m_start = prev_m_end.replace(day=1)
+
+        is_partial = False
+        elapsed_days = last_day_of_month
+        if anchor_ym >= latest_ym:
+            latest_day = int(latest_avail_key[6:8])
+            if latest_day < last_day_of_month:
+                is_partial = True
+                elapsed_days = min(latest_day, anchor_dt.day)
+
+        if is_partial:
+            p_start_dt = prev_m_start
+            p_end_dt = min(prev_m_end, prev_m_start + timedelta(days=elapsed_days - 1))
+            display_label = h_start_dt.strftime("%B %Y")
+            prev_display_label = f"vs {p_start_dt.day}–{p_end_dt.day} {p_start_dt.strftime('%b')}"
+        else:
+            p_start_dt = prev_m_start
+            p_end_dt = prev_m_end
+            display_label = h_start_dt.strftime("%B %Y")
+            prev_display_label = p_start_dt.strftime("%B %Y")
     else:  # range
         parsed_s = parse_flexible_date(start_date)
         parsed_e = parse_flexible_date(end_date)
@@ -1290,37 +1408,50 @@ async def get_movement_analytics(
     end_key = h_end_dt.strftime("%Y%m%d")
     prev_start_key = p_start_dt.strftime("%Y%m%d")
     prev_end_key = p_end_dt.strftime("%Y%m%d")
+    month_start_key = anchor_dt.strftime("%Y%m01")
+    anchor_key = anchor_dt.strftime("%Y%m%d")
+    c30_start_key = (h_end_dt - timedelta(days=29)).strftime("%Y%m%d")
+    c14_start_key = (h_end_dt - timedelta(days=13)).strftime("%Y%m%d")
 
     # 3. Deduplicate completed dispatches across all backups
     completed_in_horizon: List[Tuple[Dict[str, Any], str]] = []
     completed_in_prev: List[Tuple[Dict[str, Any], str]] = []
     completed_in_mtd: List[Tuple[Dict[str, Any], str]] = []
+    party_cadence_map: Dict[str, Dict[str, Any]] = {}
     unique_completed_pkeys = set()
-    anchor_ym = anchor_dt.strftime("%Y%m")
 
     for f_date_key, finfo in by_date.items():
         records = get_cached_backup_records(finfo["filepath"])
-        for rec in records:
-            if str(rec.get("Status") or "").strip().upper() != "COMPLETED":
+        for raw_rec in records:
+            if str(raw_rec.get("Status") or "").strip().upper() != "COMPLETED":
                 continue
-            tp = str(rec.get("Transit Pass") or "").strip().upper()
+            tp = str(raw_rec.get("Transit Pass") or "").strip().upper()
             if not tp.startswith("TP"):
                 continue
-            pname = str(rec.get("Product Name") or "").upper()
+            pname = str(raw_rec.get("Product Name") or "").upper()
             if "VERIFIED DISPATCH BALANCE" in pname:
                 continue
-            pkey = get_unique_permit_key(rec)
+            pkey = get_unique_permit_key(raw_rec)
             if pkey in unique_completed_pkeys:
                 continue
             unique_completed_pkeys.add(pkey)
-            eff_k = get_record_effective_date_key(rec, default_date_key=f_date_key)
+            eff_k = get_record_effective_date_key(raw_rec, default_date_key=f_date_key)
+            rec = dict(raw_rec)
             if start_key <= eff_k <= end_key:
                 completed_in_horizon.append((rec, eff_k))
             elif prev_start_key <= eff_k <= prev_end_key:
                 completed_in_prev.append((rec, eff_k))
 
-            if eff_k.startswith(anchor_ym):
+            if month_start_key <= eff_k <= anchor_key:
                 completed_in_mtd.append((rec, eff_k))
+
+            if c30_start_key <= eff_k <= end_key:
+                pt_name = rec.get("Retailer Name") or rec.get("Licensee Name") or "Unknown Licensee"
+                if pt_name not in party_cadence_map:
+                    party_cadence_map[pt_name] = {"days": set(), "last_order": ""}
+                party_cadence_map[pt_name]["days"].add(eff_k)
+                if eff_k > party_cadence_map[pt_name]["last_order"]:
+                    party_cadence_map[pt_name]["last_order"] = eff_k
 
     # Calculate Month-to-Date (MTD) totals
     mtd_tot_cases = 0.0
@@ -1361,23 +1492,13 @@ async def get_movement_analytics(
                 rec["Total MRP"] = round(cs * rate, 2)
                 rec["MRP_Estimated"] = True
 
-    # 4. Handle Pending indents in the current horizon
+    # 4. Handle Pending indents in the current horizon (Fix 42: in-memory cache)
     pending_in_horizon: List[Dict[str, Any]] = []
     target_recon_date_key = end_key if end_key in by_date else (
         max([k for k in sorted_available_dates if k <= end_key], default=latest_avail_key)
     )
     if target_recon_date_key in by_date:
-        t_finfo = by_date[target_recon_date_key]
-        raw_target_records = get_cached_backup_records(t_finfo["filepath"])
-        try:
-            t_dt = datetime.strptime(target_recon_date_key, "%Y%m%d")
-            t_date_str = t_dt.strftime("%d-%b-%Y")
-        except Exception:
-            t_date_str = None
-        reconciled_target = reconcile_permits(raw_target_records, t_date_str, config_dir, lookback_days=7)
-        for r in reconciled_target:
-            if str(r.get("Status") or "").strip().upper() == "PENDING":
-                pending_in_horizon.append(r)
+        pending_in_horizon = get_cached_reconciled_pending(target_recon_date_key, config_dir, by_date)
 
     # 5. Build daily series across all calendar days in [start_key, end_key]
     cur_date = h_start_dt.date()
@@ -1525,12 +1646,13 @@ async def get_movement_analytics(
         bm["top_buyers_dict"][p_name]["cases"] += tot_eq
         bm["top_buyers_dict"][p_name]["mrp"] += mrp_val
 
-        # Global pack size tracking
-        if s_clean not in pack_map:
-            pack_map[s_clean] = {"size": s_clean, "category": cat, "cases": 0.0, "bottles": 0, "mrp": 0.0}
-        pack_map[s_clean]["cases"] += tot_eq
-        pack_map[s_clean]["bottles"] += b
-        pack_map[s_clean]["mrp"] += mrp_val
+        # Global pack size tracking (Fix 22: key by (s_clean, cat))
+        pack_key = (s_clean, cat)
+        if pack_key not in pack_map:
+            pack_map[pack_key] = {"size": s_clean, "category": cat, "cases": 0.0, "bottles": 0, "mrp": 0.0}
+        pack_map[pack_key]["cases"] += tot_eq
+        pack_map[pack_key]["bottles"] += b
+        pack_map[pack_key]["mrp"] += mrp_val
 
         # Global party / retailer tracking
         if p_name not in party_map:
@@ -1749,12 +1871,13 @@ async def get_movement_analytics(
         })
     brands_full.sort(key=lambda x: (x["dispatched_cases"], x["pending_cases"]), reverse=True)
 
-    # Finalize pack_sizes_full
+    # Finalize pack_sizes_full (Fix 22: keyed by (size, category))
     pack_sizes_full = []
-    for s_clean, sinfo in pack_map.items():
+    for (s_clean, pcat), sinfo in pack_map.items():
         scs = round(sinfo["cases"], 2)
         pack_sizes_full.append({
-            "size": s_clean,
+            "size": sinfo["size"],
+            "pack_size": sinfo["size"],
             "category": sinfo["category"],
             "cases": scs,
             "bottles": sinfo["bottles"],
@@ -1763,7 +1886,7 @@ async def get_movement_analytics(
         })
     pack_sizes_full.sort(key=lambda x: x["cases"], reverse=True)
 
-    # Finalize parties_full
+    # Finalize parties_full (Fix 21: 30-day lookback cadence)
     parties_full = []
     for p_name, pinfo in party_map.items():
         pcs = round(pinfo["dispatched_cases"], 2)
@@ -1772,14 +1895,25 @@ async def get_movement_analytics(
             {"name": k, "cases": round(v, 2)}
             for k, v in sorted(pinfo["brands_dict"].items(), key=lambda x: x[1], reverse=True)[:4]
         ]
-        act_cnt = len(pinfo["active_days_set"])
-        cadence = "regular" if act_cnt >= 2 else ("active" if pcs > 0 else "dormant")
+        cad_info = party_cadence_map.get(p_name, {"days": set(), "last_order": ""})
+        act_cnt = len(cad_info["days"])
+        last_ord_key = cad_info["last_order"] or pinfo.get("last_order_date", "")
+
+        if not last_ord_key or act_cnt == 0:
+            cadence = "dormant"
+        elif last_ord_key < c14_start_key:
+            cadence = "dormant"
+        elif act_cnt >= 4:
+            cadence = "regular"
+        else:
+            cadence = "active"
+
         last_ord_str = ""
-        if pinfo["last_order_date"]:
+        if last_ord_key:
             try:
-                last_ord_str = datetime.strptime(pinfo["last_order_date"], "%Y%m%d").strftime("%d-%b-%Y")
+                last_ord_str = datetime.strptime(last_ord_key, "%Y%m%d").strftime("%d-%b-%Y")
             except Exception:
-                last_ord_str = pinfo["last_order_date"]
+                last_ord_str = last_ord_key
 
         parties_full.append({
             "name": p_name,
@@ -1825,9 +1959,10 @@ async def get_movement_analytics(
 
     prev_tot_cases = round(prev_tot_cases, 2)
     prev_tot_mrp = round(prev_tot_mrp, 2)
-    delta_cases_pct = round(((summary_tot_cases - prev_tot_cases) / prev_tot_cases) * 100, 1) if prev_tot_cases > 0 else 0.0
-    delta_mrp_pct = round(((summary_mrp - prev_tot_mrp) / prev_tot_mrp) * 100, 1) if prev_tot_mrp > 0 else 0.0
-    delta_permits_pct = round(((len(permits_set) - len(prev_permits_set)) / len(prev_permits_set)) * 100, 1) if len(prev_permits_set) > 0 else 0.0
+    # Fix 10: return None (null in JSON) if previous period value is 0
+    delta_cases_pct = round(((summary_tot_cases - prev_tot_cases) / prev_tot_cases) * 100, 1) if prev_tot_cases > 0 else None
+    delta_mrp_pct = round(((summary_mrp - prev_tot_mrp) / prev_tot_mrp) * 100, 1) if prev_tot_mrp > 0 else None
+    delta_permits_pct = round(((len(permits_set) - len(prev_permits_set)) / len(prev_permits_set)) * 100, 1) if len(prev_permits_set) > 0 else None
 
     # 10. Compile raw permit items for ledger
     all_permits_raw = [r for r, _ in completed_in_horizon] + pending_in_horizon
@@ -1871,7 +2006,7 @@ async def get_movement_analytics(
             "mtd_mrp": round(mtd_tot_mrp, 2),
             "mtd_active_days": len(mtd_days_set),
             "mtd_permits_count": len(mtd_permits_set),
-            "mtd_label": anchor_dt.strftime("%b %Y") + (" MTD" if mode == "day" else "")
+            "mtd_label": anchor_dt.strftime("%B %Y") if mode == "month" else (anchor_dt.strftime("%b %Y") + " MTD")
         },
         "previous_period_summary": {
             "total_cases": prev_tot_cases,
@@ -1910,9 +2045,18 @@ async def upload_results(request: Request):
     try:
         payload = await request.json()
         secret = payload.get("secret")
-        expected_secret = os.environ.get("WEBHOOK_SECRET")
-        
-        if expected_secret and secret != expected_secret:
+        expected_secret = os.environ.get("WEBHOOK_SECRET") or os.environ.get("CRON_SECRET")
+        if not expected_secret:
+            cron_secret_file = os.path.join(automation_utils.get_data_dir(), ".cron_secret")
+            if os.path.exists(cron_secret_file):
+                try:
+                    with open(cron_secret_file, "r") as cf:
+                        k = cf.read().strip()
+                        if k: expected_secret = k
+                except Exception: pass
+        if not expected_secret:
+            return JSONResponse(status_code=503, content={"error": "Webhook secret not configured"})
+        if secret != expected_secret:
             return JSONResponse(status_code=403, content={"error": "Invalid webhook secret authorization"})
         
         records = payload.get("records", [])
@@ -2364,11 +2508,7 @@ async def cron_trigger(request: Request, key: str = None):
     """
     secret = (key or request.query_params.get("key") or request.headers.get("x-cron-secret") or "").strip()
     
-    valid_keys = {
-        "permtrack_cron_2026",
-        "PermTrack@2026",
-        "permtrack2026"
-    }
+    valid_keys = set()
     cron_env = os.environ.get("CRON_SECRET", "").strip()
     webhook_env = os.environ.get("WEBHOOK_SECRET", "").strip()
     if cron_env: valid_keys.add(cron_env)
@@ -2383,6 +2523,8 @@ async def cron_trigger(request: Request, key: str = None):
         except Exception: pass
         
     valid_keys = {k for k in valid_keys if k}
+    if not valid_keys:
+        return JSONResponse(status_code=503, content={"error": "Cron secret not configured"})
     
     if secret not in valid_keys:
         return JSONResponse(status_code=401, content={"error": "Invalid or missing cron key"})
@@ -2457,7 +2599,17 @@ async def admin_sync_seed_data(request: Request):
     """
     user = auth.get_current_user(request)
     secret = request.query_params.get("secret") or request.headers.get("x-cron-secret")
-    expected_secret = os.environ.get("WEBHOOK_SECRET") or "PermTrack@2026"
+    expected_secret = (os.environ.get("WEBHOOK_SECRET") or os.environ.get("CRON_SECRET") or "").strip()
+    if not expected_secret:
+        cron_secret_file = os.path.join(automation_utils.get_data_dir(), ".cron_secret")
+        if os.path.exists(cron_secret_file):
+            try:
+                with open(cron_secret_file, "r") as cf:
+                    k = cf.read().strip()
+                    if k: expected_secret = k
+            except Exception: pass
+    if not user and not expected_secret:
+        return JSONResponse(status_code=503, content={"error": "Admin sync secret not configured"})
     if not user and secret != expected_secret:
         return JSONResponse(status_code=401, content={"error": "Authentication required"})
     force = request.query_params.get("force", "").lower() in ["true", "1", "yes"]
