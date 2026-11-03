@@ -546,14 +546,10 @@ def open_and_parse_form34(driver, wait, indent_num, cols):
         if not candidate_tables and tables:
             candidate_tables = [t for t in tables if "my-table-sorter" not in (t.get_attribute("id") or "").lower()]
             
-        # CRITICAL FIX: Form-34 printable layout renders two identical copies (Original & Duplicate Counterfoil).
-        # We must only parse the primary (first) candidate table to avoid doubling the volume!
-        if len(candidate_tables) > 1:
-            candidate_tables = candidate_tables[:1]
-            
         table_official_cases = 0
         table_official_bottles = 0
         found_any_total_row = False
+        seen_table_fingerprints = set()
         
         for form_table in candidate_tables:
             rows = form_table.find_elements(By.XPATH, ".//tr")
@@ -582,6 +578,11 @@ def open_and_parse_form34(driver, wait, indent_num, cols):
                         elif "bl" in t or "bulk" in t: col_bl = idx
                         elif "lpl" in t: col_lpl = idx
 
+            table_lines = []
+            curr_table_cases = 0
+            curr_table_bottles = 0
+            curr_table_has_total = False
+
             for r in rows:
                 cols_r = r.find_elements(By.TAG_NAME, "td")
                 if not cols_r: continue
@@ -594,13 +595,13 @@ def open_and_parse_form34(driver, wait, indent_num, cols):
                         c_text = cell.get_attribute("innerText").strip().replace(',', '')
                         if (c_idx == col_cases or (col_cases >= len(cols_r) and c_idx == 1)) and c_text.replace('.', '').isdigit():
                             try:
-                                table_official_cases += int(float(c_text))
-                                found_any_total_row = True
+                                curr_table_cases = int(float(c_text))
+                                curr_table_has_total = True
                             except: pass
                         elif (c_idx == col_bottles or (col_bottles >= len(cols_r) and c_idx == 2)) and c_text.replace('.', '').isdigit():
                             try:
-                                table_official_bottles += int(float(c_text))
-                                found_any_total_row = True
+                                curr_table_bottles = int(float(c_text))
+                                curr_table_has_total = True
                             except: pass
                     continue
                     
@@ -635,7 +636,7 @@ def open_and_parse_form34(driver, wait, indent_num, cols):
                 try: lpl = float(cols_r[col_lpl].get_attribute("innerText").strip().replace(',', '')) if col_lpl < len(cols_r) else 0.0
                 except: lpl = 0.0
                 
-                brand_lines.append({
+                table_lines.append({
                     "Product Name": prod_name,
                     "Category": category,
                     "Size": size_ml,
@@ -646,6 +647,19 @@ def open_and_parse_form34(driver, wait, indent_num, cols):
                     "LPL": lpl,
                     "Total MRP": 0.0
                 })
+                
+            # Counterfoil duplicate guard: fingerprint table items
+            if table_lines:
+                table_fp = tuple(sorted((l["Product Name"].strip().upper(), l["Size"].strip(), l["Cases"], l["Bottles"]) for l in table_lines))
+                if table_fp in seen_table_fingerprints:
+                    # Identical duplicate counterfoil copy - skip to avoid double counting
+                    continue
+                seen_table_fingerprints.add(table_fp)
+                brand_lines.extend(table_lines)
+                if curr_table_has_total:
+                    table_official_cases += curr_table_cases
+                    table_official_bottles += curr_table_bottles
+                    found_any_total_row = True
                 
         # Check if page_text has document-level grand total or category footnotes
         doc_cases = None
