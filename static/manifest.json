@@ -1,0 +1,22 @@
+{
+  "name": "PermTrack Enterprise — Assam Excise Terminal",
+  "short_name": "PermTrack",
+  "description": "High-precision liquor bond excise revenue, indents, and transit pass tracking terminal for Borgohain Enterprises.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#090B10",
+  "background_color": "#090B10",
+  "icons": [
+    {
+      "src": "/static/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/static/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

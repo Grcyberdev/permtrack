@@ -4,6 +4,8 @@ import json
 import glob
 import asyncio
 import argparse
+import re
+from typing import Optional, Dict, Any, List, Tuple, Set
 from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -26,7 +28,10 @@ from reconciler import (
     parse_date_str,
     get_unique_permit_key,
     get_unique_indent_id,
-    get_record_effective_date_key
+    get_record_effective_date_key,
+    normalize_brand_key,
+    normalize_size,
+    build_historical_sku_rates
 )
 import automation_utils
 import auth
@@ -546,6 +551,140 @@ async def get_backups(request: Request):
         }
     )
 
+GODOWN_RECON_FILE = "godown_reconciliation.json"
+
+def normalize_recon_date_key(key: Any) -> str:
+    """
+    Standardizes any date key (e.g. 'backup_permits_20261003_000000.json' or '20261003')
+    into a clean 8-digit YYYYMMDD string.
+    """
+    if not key:
+        return ""
+    s = str(key).strip()
+    m = re.search(r"(\d{8})", s)
+    if m:
+        return m.group(1)
+    return s.replace(".json", "").strip()
+
+def load_normalized_godown_recon(config_dir: str) -> Dict[str, Any]:
+    """
+    Loads godown_reconciliation.json, safely migrating legacy keys to 8-digit YYYYMMDD format
+    without losing any saved counts or notes.
+    """
+    recon_filepath = os.path.join(config_dir, GODOWN_RECON_FILE)
+    if not os.path.exists(recon_filepath):
+        return {}
+    try:
+        with open(recon_filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return {}
+        normalized = {}
+        has_legacy = False
+        for k, v in data.items():
+            norm_k = normalize_recon_date_key(k)
+            if norm_k != k:
+                has_legacy = True
+            if norm_k not in normalized:
+                normalized[norm_k] = v
+            else:
+                existing = normalized[norm_k]
+                if v.get("godown_cases") is not None and existing.get("godown_cases") is None:
+                    normalized[norm_k] = v
+                elif str(v.get("updated_at", "")) > str(existing.get("updated_at", "")):
+                    normalized[norm_k] = v
+        if has_legacy:
+            try:
+                with open(recon_filepath, "w", encoding="utf-8") as wf:
+                    json.dump(normalized, wf, indent=2)
+            except Exception:
+                pass
+        return normalized
+    except Exception:
+        return {}
+
+_FILE_RECORDS_CACHE: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
+
+def get_cached_backup_records(filepath: str) -> List[Dict[str, Any]]:
+    """
+    Caches parsed JSON records in memory, reloading only when the file's mtime changes.
+    """
+    try:
+        mtime = os.path.getmtime(filepath)
+    except Exception:
+        mtime = 0
+    if filepath in _FILE_RECORDS_CACHE and _FILE_RECORDS_CACHE[filepath][0] == mtime:
+        return _FILE_RECORDS_CACHE[filepath][1]
+    recs = []
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            bdata = json.load(f)
+        if isinstance(bdata, list):
+            recs = bdata
+        elif isinstance(bdata, dict):
+            recs = (bdata.get("completed") or []) + (bdata.get("pending") or [])
+    except Exception:
+        recs = []
+    _FILE_RECORDS_CACHE[filepath] = (mtime, recs)
+    return recs
+
+_CACHED_SKU_RATES: Optional[Dict[str, float]] = None
+
+def get_cached_sku_rates(config_dir: str) -> Dict[str, float]:
+    """
+    Returns historical SKU case rates, preferring cached config/sku_rates.json if available.
+    """
+    global _CACHED_SKU_RATES
+    if _CACHED_SKU_RATES is not None:
+        return _CACHED_SKU_RATES
+    sku_file = os.path.join(config_dir, "sku_rates.json")
+    if os.path.exists(sku_file):
+        try:
+            with open(sku_file, "r", encoding="utf-8") as sf:
+                _CACHED_SKU_RATES = json.load(sf)
+                if isinstance(_CACHED_SKU_RATES, dict) and _CACHED_SKU_RATES:
+                    return _CACHED_SKU_RATES
+        except Exception:
+            pass
+    _CACHED_SKU_RATES = build_historical_sku_rates(config_dir)
+    return _CACHED_SKU_RATES
+
+def parse_flexible_date(date_str: Optional[str]) -> Optional[datetime]:
+    """
+    Parses flexible date formats (YYYY-MM-DD, YYYYMMDD, DD-MM-YYYY, DD-Mon-YYYY) into IST datetime.
+    """
+    if not date_str:
+        return None
+    s = str(date_str).strip()
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d", "%Y%m%d", "%d-%m-%Y", "%d-%b-%Y", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(s, fmt).replace(tzinfo=IST)
+        except Exception:
+            pass
+    return None
+
+def get_product_category(item: Dict[str, Any]) -> str:
+    """
+    Canonical liquor category classification preserving exact rules.
+    """
+    b = (item.get("Bond Type") or "").upper()
+    c = (item.get("Category") or "").upper()
+    p = (item.get("Product Name") or "").upper()
+    if b == "CS" or "COUNTRY" in c or "MASTI" in p or "CS " in p:
+        return "CS"
+    beer_keywords = ["BEER", "DRAUGHT", "LAGER", "ALE", "STOUT", "PILSNER", "CIDER", "WHEAT",
+                     "BIRA", "KINGFISHER", "TUBORG", "CARLSBERG", "BUDWEISER", "HE-MAN",
+                     "GODFATHER", "SIMBA", "CORONA", "HEINEKEN", "FOSTERS", "BREEZER",
+                     "BACARDI BREEZER", "HAYWARDS 5000", "KNOCK OUT", "KALYANI", "BLACK FORT",
+                     "ROYAL CHALLENGE BEER", "STERREN", "HUNTER", "BROCODE", "WHITE RHINO",
+                     "LONE WOLF", "SIX FIELDS", "MACH 11", "HOEGAARDEN", "STELLA", "MILLER",
+                     "SUPER STRONG BEER", "PREMIUM LAGER"]
+    if any(k in c or k in p for k in beer_keywords):
+        return "BEER"
+    return "IMFL"
+
 @app.get("/api/godown/monthly-summary")
 async def get_godown_monthly_summary(request: Request):
     """
@@ -557,14 +696,7 @@ async def get_godown_monthly_summary(request: Request):
         return JSONResponse(status_code=401, content={"error": "Authentication required"})
         
     config_dir = automation_utils.get_data_dir()
-    recon_filepath = os.path.join(config_dir, GODOWN_RECON_FILE)
-    recon_data = {}
-    if os.path.exists(recon_filepath):
-        try:
-            with open(recon_filepath, "r", encoding="utf-8") as f:
-                recon_data = json.load(f)
-        except Exception:
-            pass
+    recon_data = load_normalized_godown_recon(config_dir)
 
     backup_files = glob.glob(os.path.join(config_dir, "backup_permits_*.json"))
     backup_files = [f for f in backup_files if "latest.json" not in f]
@@ -589,21 +721,7 @@ async def get_godown_monthly_summary(request: Request):
         return automation_utils.get_bottles_per_case(size_val, pack_size=pack_size)
 
     def get_cat(item):
-        b = (item.get("Bond Type") or "").upper()
-        c = (item.get("Category") or "").upper()
-        p = (item.get("Product Name") or "").upper()
-        if b == "CS" or "COUNTRY" in c or "MASTI" in p or "CS " in p:
-            return "CS"
-        beer_keywords = ["BEER", "DRAUGHT", "LAGER", "ALE", "STOUT", "PILSNER", "CIDER", "WHEAT",
-                         "BIRA", "KINGFISHER", "TUBORG", "CARLSBERG", "BUDWEISER", "HE-MAN",
-                         "GODFATHER", "SIMBA", "CORONA", "HEINEKEN", "FOSTERS", "BREEZER",
-                         "BACARDI BREEZER", "HAYWARDS 5000", "KNOCK OUT", "KALYANI", "BLACK FORT",
-                         "ROYAL CHALLENGE BEER", "STERREN", "HUNTER", "BROCODE", "WHITE RHINO",
-                         "LONE WOLF", "SIX FIELDS", "MACH 11", "HOEGAARDEN", "STELLA", "MILLER",
-                         "SUPER STRONG BEER", "PREMIUM LAGER"]
-        if any(k in c or k in p for k in beer_keywords):
-            return "BEER"
-        return "IMFL"
+        return get_product_category(item)
 
     # Extract and deduplicate completed records across all latest backup files,
     # mapping each to its true operational effective date (Challan Date -> Transit Pass -> File Date)
@@ -611,39 +729,32 @@ async def get_godown_monthly_summary(request: Request):
     for f_date_key, finfo in by_date.items():
         fpath = finfo["filepath"]
         try:
-            with open(fpath, "r", encoding="utf-8") as f:
-                bdata = json.load(f)
-                records = []
-                if isinstance(bdata, list):
-                    records = bdata
-                elif isinstance(bdata, dict):
-                    records = (bdata.get("completed") or []) + (bdata.get("pending") or [])
-
-                for rec in records:
-                    status = str(rec.get("Status") or "").strip().upper()
-                    if status != "COMPLETED":
-                        continue
-                    # Strict validation: Only officially approved Transit Passes (TP...) count toward sales
-                    tp = str(rec.get("Transit Pass") or "").strip().upper()
-                    if not tp.startswith("TP"):
-                        continue
-                    pname = str(rec.get("Product Name") or "").upper()
-                    if "VERIFIED DISPATCH BALANCE" in pname:
-                        continue
-                    pkey = get_unique_permit_key(rec)
-                    if pkey not in unique_completed_records:
-                        eff_k = get_record_effective_date_key(rec, default_date_key=f_date_key)
-                        compact_rec = {
-                            "Cases": float(rec.get("Cases") or 0),
-                            "Bottles": int(rec.get("Bottles") or 0),
-                            "Size": str(rec.get("Size") or rec.get("Pack Size") or "Unknown"),
-                            "Total MRP": float(rec.get("Total MRP") or 0),
-                            "Bond Type": str(rec.get("Bond Type") or ""),
-                            "Category": str(rec.get("Category") or ""),
-                            "Product Name": str(rec.get("Product Name") or "Unknown Brand"),
-                            "Retailer Name": str(rec.get("Retailer Name") or "Unknown Licensee")
-                        }
-                        unique_completed_records[pkey] = (compact_rec, eff_k, finfo["filename"])
+            records = get_cached_backup_records(fpath)
+            for rec in records:
+                status = str(rec.get("Status") or "").strip().upper()
+                if status != "COMPLETED":
+                    continue
+                # Strict validation: Only officially approved Transit Passes (TP...) count toward sales
+                tp = str(rec.get("Transit Pass") or "").strip().upper()
+                if not tp.startswith("TP"):
+                    continue
+                pname = str(rec.get("Product Name") or "").upper()
+                if "VERIFIED DISPATCH BALANCE" in pname:
+                    continue
+                pkey = get_unique_permit_key(rec)
+                if pkey not in unique_completed_records:
+                    eff_k = get_record_effective_date_key(rec, default_date_key=f_date_key)
+                    compact_rec = {
+                        "Cases": float(rec.get("Cases") or 0),
+                        "Bottles": int(rec.get("Bottles") or 0),
+                        "Size": str(rec.get("Size") or rec.get("Pack Size") or "Unknown"),
+                        "Total MRP": float(rec.get("Total MRP") or 0),
+                        "Bond Type": str(rec.get("Bond Type") or ""),
+                        "Category": str(rec.get("Category") or ""),
+                        "Product Name": str(rec.get("Product Name") or "Unknown Brand"),
+                        "Retailer Name": str(rec.get("Retailer Name") or "Unknown Licensee")
+                    }
+                    unique_completed_records[pkey] = (compact_rec, eff_k, finfo["filename"])
         except Exception:
             pass
 
@@ -921,9 +1032,9 @@ async def get_godown_monthly_summary(request: Request):
         mdata["totals"]["reconciled_days"] = reconciled_count
         mdata["totals"]["coverage_pct"] = round((reconciled_count / op_days) * 100) if op_days > 0 else 0
 
-        # Sort top 15 brands with deep SKU metrics
-        top_brands_sorted = sorted(mdata["brand_totals"].items(), key=lambda x: x[1]["cases"], reverse=True)[:15]
-        mdata["top_brands"] = [
+        # Sort all brands with deep SKU metrics (untruncated full array + top 15)
+        all_brands_sorted = sorted(mdata["brand_totals"].items(), key=lambda x: x[1]["cases"], reverse=True)
+        mdata["brands_full"] = [
             {
                 "name": k,
                 "cases": round(v["cases"], 2),
@@ -932,12 +1043,13 @@ async def get_godown_monthly_summary(request: Request):
                 "category": v["category"],
                 "share_pct": round((v["cases"] / tot_cs) * 100, 1) if tot_cs > 0 else 0.0
             }
-            for k, v in top_brands_sorted
+            for k, v in all_brands_sorted
         ]
+        mdata["top_brands"] = mdata["brands_full"][:15]
 
-        # Sort top 15 parties with permit counts and MRP
-        top_parties_sorted = sorted(mdata["party_totals"].items(), key=lambda x: x[1]["cases"], reverse=True)[:15]
-        mdata["top_parties"] = [
+        # Sort all parties with permit counts and MRP (untruncated full array + top 15)
+        all_parties_sorted = sorted(mdata["party_totals"].items(), key=lambda x: x[1]["cases"], reverse=True)
+        mdata["parties_full"] = [
             {
                 "name": k,
                 "cases": round(v["cases"], 2),
@@ -946,8 +1058,9 @@ async def get_godown_monthly_summary(request: Request):
                 "permits": v["permits"],
                 "share_pct": round((v["cases"] / tot_cs) * 100, 1) if tot_cs > 0 else 0.0
             }
-            for k, v in top_parties_sorted
+            for k, v in all_parties_sorted
         ]
+        mdata["top_parties"] = mdata["parties_full"][:15]
 
         # Retailer concentration Pareto
         all_party_cases = sorted([v["cases"] for v in mdata["party_totals"].values()], reverse=True)
@@ -1004,21 +1117,14 @@ GODOWN_RECON_FILE = "godown_reconciliation.json"
 @app.get("/api/godown/reconciliation")
 async def get_godown_reconciliation(request: Request, date_key: str = None):
     """
-    Returns saved physical godown counts for reconciliation across devices.
+    Returns saved physical godown counts for reconciliation across devices with normalized YYYYMMDD keys.
     """
     user = auth.get_current_user(request)
     if not user:
         return JSONResponse(status_code=401, content={"error": "Authentication required"})
     
     config_dir = automation_utils.get_data_dir()
-    filepath = os.path.join(config_dir, GODOWN_RECON_FILE)
-    recon_data = {}
-    if os.path.exists(filepath):
-        try:
-            with open(filepath, "r", encoding="utf-8") as f:
-                recon_data = json.load(f)
-        except Exception:
-            pass
+    recon_data = load_normalized_godown_recon(config_dir)
             
     no_cache_headers = {
         "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
@@ -1027,8 +1133,8 @@ async def get_godown_reconciliation(request: Request, date_key: str = None):
     }
 
     if date_key:
-        clean_key = date_key.replace(".json", "").strip()
-        item = recon_data.get(clean_key, {})
+        clean_key = normalize_recon_date_key(date_key)
+        item = recon_data.get(clean_key) or recon_data.get(date_key.replace(".json", "").strip(), {})
         return JSONResponse(content={"date_key": clean_key, "data": item}, headers=no_cache_headers)
         
     return JSONResponse(content=recon_data, headers=no_cache_headers)
@@ -1036,7 +1142,7 @@ async def get_godown_reconciliation(request: Request, date_key: str = None):
 @app.post("/api/godown/reconciliation")
 async def save_godown_reconciliation(request: Request):
     """
-    Saves or clears physical godown count for a specific date dataset.
+    Saves or clears physical godown count for a specific date dataset using normalized 8-digit YYYYMMDD keys.
     """
     user = auth.get_current_user(request)
     if not user:
@@ -1047,7 +1153,8 @@ async def save_godown_reconciliation(request: Request):
     except Exception:
         return JSONResponse(status_code=400, content={"error": "Invalid JSON body"})
         
-    date_key = str(body.get("date_key", "")).replace(".json", "").strip()
+    raw_date_key = str(body.get("date_key", "")).strip()
+    date_key = normalize_recon_date_key(raw_date_key)
     val = body.get("godown_cases")
     
     if not date_key:
@@ -1056,16 +1163,12 @@ async def save_godown_reconciliation(request: Request):
     config_dir = automation_utils.get_data_dir()
     os.makedirs(config_dir, exist_ok=True)
     filepath = os.path.join(config_dir, GODOWN_RECON_FILE)
-    recon_data = {}
-    if os.path.exists(filepath):
-        try:
-            with open(filepath, "r", encoding="utf-8") as f:
-                recon_data = json.load(f)
-        except Exception:
-            recon_data = {}
+    recon_data = load_normalized_godown_recon(config_dir)
             
     if val is None or str(val).strip() == "":
         recon_data.pop(date_key, None)
+        if raw_date_key != date_key:
+            recon_data.pop(raw_date_key, None)
     else:
         try:
             val_float = float(val)
@@ -1074,6 +1177,8 @@ async def save_godown_reconciliation(request: Request):
                 "updated_at": get_now_ist().strftime("%d-%b-%Y %I:%M %p"),
                 "updated_by": user.get("name") or user.get("username") or "Supervisor"
             }
+            if raw_date_key != date_key:
+                recon_data.pop(raw_date_key, None)
         except ValueError:
             return JSONResponse(status_code=400, content={"error": "Invalid godown cases number"})
             
@@ -1088,6 +1193,674 @@ async def save_godown_reconciliation(request: Request):
         "date_key": date_key,
         "entry": recon_data.get(date_key)
     })
+
+@app.get("/api/analytics/movement")
+async def get_movement_analytics(
+    request: Request,
+    mode: str = "day",
+    date: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None
+):
+    """
+    Unified multi-horizon (Day / Week / Month / Custom Range) product and sales movement engine.
+    Calculates exact bottle-to-case volumes, MRPs, brand SKUs, pack formats, party sales,
+    and period-over-period trend deltas with zero mathematical mutation.
+    """
+    user = auth.get_current_user(request)
+    if not user:
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+
+    config_dir = automation_utils.get_data_dir()
+    recon_data = load_normalized_godown_recon(config_dir)
+    sku_rates = get_cached_sku_rates(config_dir)
+
+    # 1. Index all latest backups by date
+    backup_files = glob.glob(os.path.join(config_dir, "backup_permits_*.json"))
+    backup_files = [f for f in backup_files if "latest.json" not in f]
+
+    by_date: Dict[str, Dict[str, Any]] = {}
+    for filepath in backup_files:
+        basename = os.path.basename(filepath)
+        ts = basename.replace("backup_permits_", "").replace(".json", "")
+        date_key = ts.split("_")[0]
+        if not date_key.isdigit() or len(date_key) != 8 or date_key < "20260101":
+            continue
+        try:
+            mtime = os.path.getmtime(filepath)
+        except Exception:
+            mtime = 0
+
+        ts_val = ts
+        if date_key not in by_date or ts_val > by_date[date_key].get("ts", "") or (ts_val == by_date[date_key].get("ts", "") and mtime > by_date[date_key]["mtime"]):
+            by_date[date_key] = {"filepath": filepath, "filename": basename, "mtime": mtime, "ts": ts_val}
+
+    sorted_available_dates = sorted(by_date.keys())
+    latest_avail_key = sorted_available_dates[-1] if sorted_available_dates else get_now_ist().strftime("%Y%m%d")
+
+    # 2. Determine target anchor and horizon ranges
+    mode = (mode or "day").lower().strip()
+    if mode not in ("day", "week", "month", "range"):
+        mode = "day"
+
+    anchor_dt = parse_flexible_date(date)
+    if not anchor_dt:
+        anchor_dt = parse_flexible_date(latest_avail_key) or get_now_ist()
+
+    if mode == "day":
+        h_start_dt = anchor_dt
+        h_end_dt = anchor_dt
+        p_end_dt = h_start_dt - timedelta(days=1)
+        p_start_dt = p_end_dt
+        display_label = h_start_dt.strftime("%d-%b-%Y")
+        prev_display_label = p_start_dt.strftime("%d-%b-%Y")
+    elif mode == "week":
+        # 7-day rolling period ending on anchor_dt
+        h_end_dt = anchor_dt
+        h_start_dt = h_end_dt - timedelta(days=6)
+        p_end_dt = h_start_dt - timedelta(days=1)
+        p_start_dt = p_end_dt - timedelta(days=6)
+        display_label = f"{h_start_dt.strftime('%d-%b')} – {h_end_dt.strftime('%d-%b-%Y')} (7D)"
+        prev_display_label = f"{p_start_dt.strftime('%d-%b')} – {p_end_dt.strftime('%d-%b-%Y')}"
+    elif mode == "month":
+        h_start_dt = anchor_dt.replace(day=1)
+        next_m = (h_start_dt.replace(day=28) + timedelta(days=4)).replace(day=1)
+        h_end_dt = next_m - timedelta(days=1)
+        p_end_dt = h_start_dt - timedelta(days=1)
+        p_start_dt = p_end_dt.replace(day=1)
+        display_label = h_start_dt.strftime("%B %Y")
+        prev_display_label = p_start_dt.strftime("%B %Y")
+    else:  # range
+        parsed_s = parse_flexible_date(start_date)
+        parsed_e = parse_flexible_date(end_date)
+        if not parsed_s or not parsed_e:
+            parsed_e = anchor_dt
+            parsed_s = parsed_e - timedelta(days=6)
+        if parsed_s > parsed_e:
+            parsed_s, parsed_e = parsed_e, parsed_s
+        h_start_dt = parsed_s
+        h_end_dt = parsed_e
+        span = (h_end_dt.date() - h_start_dt.date()).days + 1
+        p_end_dt = h_start_dt - timedelta(days=1)
+        p_start_dt = p_end_dt - timedelta(days=max(0, span - 1))
+        display_label = f"{h_start_dt.strftime('%d-%b-%Y')} – {h_end_dt.strftime('%d-%b-%Y')}"
+        prev_display_label = f"{p_start_dt.strftime('%d-%b-%Y')} – {p_end_dt.strftime('%d-%b-%Y')}"
+
+    start_key = h_start_dt.strftime("%Y%m%d")
+    end_key = h_end_dt.strftime("%Y%m%d")
+    prev_start_key = p_start_dt.strftime("%Y%m%d")
+    prev_end_key = p_end_dt.strftime("%Y%m%d")
+
+    # 3. Deduplicate completed dispatches across all backups
+    completed_in_horizon: List[Tuple[Dict[str, Any], str]] = []
+    completed_in_prev: List[Tuple[Dict[str, Any], str]] = []
+    unique_completed_pkeys = set()
+
+    for f_date_key, finfo in by_date.items():
+        records = get_cached_backup_records(finfo["filepath"])
+        for rec in records:
+            if str(rec.get("Status") or "").strip().upper() != "COMPLETED":
+                continue
+            tp = str(rec.get("Transit Pass") or "").strip().upper()
+            if not tp.startswith("TP"):
+                continue
+            pname = str(rec.get("Product Name") or "").upper()
+            if "VERIFIED DISPATCH BALANCE" in pname:
+                continue
+            pkey = get_unique_permit_key(rec)
+            if pkey in unique_completed_pkeys:
+                continue
+            unique_completed_pkeys.add(pkey)
+            eff_k = get_record_effective_date_key(rec, default_date_key=f_date_key)
+            if start_key <= eff_k <= end_key:
+                completed_in_horizon.append((rec, eff_k))
+            elif prev_start_key <= eff_k <= prev_end_key:
+                completed_in_prev.append((rec, eff_k))
+
+    # Backfill missing MRPs using SKU rates lookup
+    for rec, _ in completed_in_horizon:
+        curr_mrp = float(rec.get("Total MRP") or 0)
+        if curr_mrp <= 0:
+            p_name = normalize_brand_key(rec.get("Product Name"))
+            sz = normalize_size(rec.get("Size"))
+            rate = sku_rates.get(f"{p_name}_{sz}") or sku_rates.get(p_name, 0.0)
+            cs = float(rec.get("Cases") or 0)
+            if rate > 0 and cs > 0:
+                rec["Total MRP"] = round(cs * rate, 2)
+                rec["MRP_Estimated"] = True
+
+    # 4. Handle Pending indents in the current horizon
+    pending_in_horizon: List[Dict[str, Any]] = []
+    target_recon_date_key = end_key if end_key in by_date else (
+        max([k for k in sorted_available_dates if k <= end_key], default=latest_avail_key)
+    )
+    if target_recon_date_key in by_date:
+        t_finfo = by_date[target_recon_date_key]
+        raw_target_records = get_cached_backup_records(t_finfo["filepath"])
+        try:
+            t_dt = datetime.strptime(target_recon_date_key, "%Y%m%d")
+            t_date_str = t_dt.strftime("%d-%b-%Y")
+        except Exception:
+            t_date_str = None
+        reconciled_target = reconcile_permits(raw_target_records, t_date_str, config_dir, lookback_days=7)
+        for r in reconciled_target:
+            if str(r.get("Status") or "").strip().upper() == "PENDING":
+                pending_in_horizon.append(r)
+
+    # 5. Build daily series across all calendar days in [start_key, end_key]
+    cur_date = h_start_dt.date()
+    end_date_obj = h_end_dt.date()
+    daily_series_map: Dict[str, Dict[str, Any]] = {}
+    while cur_date <= end_date_obj:
+        dk = cur_date.strftime("%Y%m%d")
+        daily_series_map[dk] = {
+            "date_key": dk,
+            "date_str": cur_date.strftime("%d-%b-%Y"),
+            "day": cur_date.strftime("%A"),
+            "cases": 0.0,
+            "cases_only": 0.0,
+            "bottles_only": 0,
+            "beer_cases": 0.0,
+            "imfl_cases": 0.0,
+            "cs_cases": 0.0,
+            "mrp": 0.0,
+            "beer_mrp": 0.0,
+            "imfl_mrp": 0.0,
+            "cs_mrp": 0.0,
+            "permits_count": 0,
+            "pending_count": 0,
+            "godown_cases": recon_data.get(dk, {}).get("godown_cases"),
+            "difference": None,
+            "is_closed": True
+        }
+        cur_date += timedelta(days=1)
+
+    # 6. Aggregate completed dispatches
+    summary_tot_cases = 0.0
+    summary_cases_only = 0.0
+    summary_bottles_only = 0
+    summary_dispatched_cs_eq = 0.0
+    summary_mrp = 0.0
+    summary_bl = 0.0
+    summary_lpl = 0.0
+
+    cat_breakdown = {
+        "BEER": {"cases": 0.0, "cases_only": 0.0, "bottles": 0, "pending_cases": 0.0, "mrp": 0.0, "pending_mrp": 0.0, "bulk_litres": 0.0, "lpl": 0.0, "permits": 0},
+        "IMFL": {"cases": 0.0, "cases_only": 0.0, "bottles": 0, "pending_cases": 0.0, "mrp": 0.0, "pending_mrp": 0.0, "bulk_litres": 0.0, "lpl": 0.0, "permits": 0},
+        "CS":   {"cases": 0.0, "cases_only": 0.0, "bottles": 0, "pending_cases": 0.0, "mrp": 0.0, "pending_mrp": 0.0, "bulk_litres": 0.0, "lpl": 0.0, "permits": 0}
+    }
+
+    brand_map: Dict[str, Dict[str, Any]] = {}
+    pack_map: Dict[str, Dict[str, Any]] = {}
+    party_map: Dict[str, Dict[str, Any]] = {}
+    permits_set = set()
+
+    for rec, eff_k in completed_in_horizon:
+        c = float(rec.get("Cases") or 0)
+        b = int(rec.get("Bottles") or 0)
+        pack_size = str(rec.get("Pack Size") or rec.get("Size") or "Unknown")
+        bpc = automation_utils.get_bottles_per_case(rec.get("Size"), pack_size=pack_size)
+        eq = (b / bpc) if bpc > 0 else 0.0
+        tot_eq = c + eq
+        mrp_val = float(rec.get("Total MRP") or 0)
+        bl_val = float(rec.get("Bulk Litres") or 0)
+        lpl_val = float(rec.get("LPL") or 0)
+        cat = get_product_category(rec)
+        b_name = rec.get("Product Name") or "Unknown Brand"
+        p_name = rec.get("Retailer Name") or rec.get("Licensee Name") or "Unknown Licensee"
+        dist = rec.get("District") or rec.get("Destination District") or ""
+
+        summary_tot_cases += tot_eq
+        summary_cases_only += c
+        summary_bottles_only += b
+        summary_dispatched_cs_eq += eq
+        summary_mrp += mrp_val
+        summary_bl += bl_val
+        summary_lpl += lpl_val
+
+        p_id = rec.get("Permit Number") or rec.get("Transit Pass") or rec.get("Indent Number")
+        if p_id:
+            permits_set.add(p_id)
+
+        # Update daily series
+        if eff_k in daily_series_map:
+            ds = daily_series_map[eff_k]
+            ds["cases"] = round(ds["cases"] + tot_eq, 2)
+            ds["cases_only"] = round(ds["cases_only"] + c, 2)
+            ds["bottles_only"] += b
+            ds["mrp"] = round(ds["mrp"] + mrp_val, 2)
+            ds["permits_count"] += 1
+            ds["is_closed"] = False
+            if cat == "BEER":
+                ds["beer_cases"] = round(ds["beer_cases"] + tot_eq, 2)
+                ds["beer_mrp"] = round(ds["beer_mrp"] + mrp_val, 2)
+            elif cat == "CS":
+                ds["cs_cases"] = round(ds["cs_cases"] + tot_eq, 2)
+                ds["cs_mrp"] = round(ds["cs_mrp"] + mrp_val, 2)
+            else:
+                ds["imfl_cases"] = round(ds["imfl_cases"] + tot_eq, 2)
+                ds["imfl_mrp"] = round(ds["imfl_mrp"] + mrp_val, 2)
+
+        # Update category breakdown
+        if cat in cat_breakdown:
+            cb = cat_breakdown[cat]
+            cb["cases"] += tot_eq
+            cb["cases_only"] += c
+            cb["bottles"] += b
+            cb["mrp"] += mrp_val
+            cb["bulk_litres"] += bl_val
+            cb["lpl"] += lpl_val
+            cb["permits"] += 1
+
+        # Update brand map
+        if b_name not in brand_map:
+            brand_map[b_name] = {
+                "name": b_name,
+                "category": cat,
+                "dispatched_cases": 0.0,
+                "cases_only": 0.0,
+                "bottles": 0,
+                "pending_cases": 0.0,
+                "pending_bottles": 0,
+                "total_mrp": 0.0,
+                "bulk_litres": 0.0,
+                "lpl": 0.0,
+                "pack_breakdown": {},
+                "top_buyers_dict": {},
+                "daily_cases": {dk: 0.0 for dk in daily_series_map.keys()}
+            }
+        bm = brand_map[b_name]
+        bm["dispatched_cases"] += tot_eq
+        bm["cases_only"] += c
+        bm["bottles"] += b
+        bm["total_mrp"] += mrp_val
+        bm["bulk_litres"] += bl_val
+        bm["lpl"] += lpl_val
+        if eff_k in bm["daily_cases"]:
+            bm["daily_cases"][eff_k] += tot_eq
+
+        # Pack breakdown under brand
+        s_clean = f"{pack_size} ML" if pack_size.isdigit() else pack_size
+        if s_clean not in bm["pack_breakdown"]:
+            bm["pack_breakdown"][s_clean] = {"cases": 0.0, "bottles": 0, "mrp": 0.0}
+        bm["pack_breakdown"][s_clean]["cases"] += tot_eq
+        bm["pack_breakdown"][s_clean]["bottles"] += b
+        bm["pack_breakdown"][s_clean]["mrp"] += mrp_val
+
+        # Top buyers under brand
+        if p_name not in bm["top_buyers_dict"]:
+            bm["top_buyers_dict"][p_name] = {"cases": 0.0, "mrp": 0.0}
+        bm["top_buyers_dict"][p_name]["cases"] += tot_eq
+        bm["top_buyers_dict"][p_name]["mrp"] += mrp_val
+
+        # Global pack size tracking
+        if s_clean not in pack_map:
+            pack_map[s_clean] = {"size": s_clean, "category": cat, "cases": 0.0, "bottles": 0, "mrp": 0.0}
+        pack_map[s_clean]["cases"] += tot_eq
+        pack_map[s_clean]["bottles"] += b
+        pack_map[s_clean]["mrp"] += mrp_val
+
+        # Global party / retailer tracking
+        if p_name not in party_map:
+            party_map[p_name] = {
+                "name": p_name,
+                "district": dist,
+                "dispatched_cases": 0.0,
+                "pending_cases": 0.0,
+                "beer_cases": 0.0,
+                "imfl_cases": 0.0,
+                "cs_cases": 0.0,
+                "mrp": 0.0,
+                "indent_count": 0,
+                "dispatched_permits": 0,
+                "pending_permits": 0,
+                "active_days_set": set(),
+                "last_order_date": eff_k,
+                "brands_dict": {}
+            }
+        pm = party_map[p_name]
+        pm["dispatched_cases"] += tot_eq
+        pm["mrp"] += mrp_val
+        pm["dispatched_permits"] += 1
+        pm["indent_count"] += 1
+        pm["active_days_set"].add(eff_k)
+        if not pm["district"] and dist:
+            pm["district"] = dist
+        if eff_k > pm["last_order_date"]:
+            pm["last_order_date"] = eff_k
+        if cat == "BEER":
+            pm["beer_cases"] += tot_eq
+        elif cat == "CS":
+            pm["cs_cases"] += tot_eq
+        else:
+            pm["imfl_cases"] += tot_eq
+        if b_name not in pm["brands_dict"]:
+            pm["brands_dict"][b_name] = 0.0
+        pm["brands_dict"][b_name] += tot_eq
+
+    # 7. Aggregate pending indents
+    summary_pending_cases = 0.0
+    summary_pending_bottles = 0
+    summary_pending_mrp = 0.0
+    pending_permits_set = set()
+    pending_pick_dict: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+
+    for prec in pending_in_horizon:
+        c = float(prec.get("Cases") or 0)
+        b = int(prec.get("Bottles") or 0)
+        pack_size = str(prec.get("Pack Size") or prec.get("Size") or "Unknown")
+        bpc = automation_utils.get_bottles_per_case(prec.get("Size"), pack_size=pack_size)
+        eq = (b / bpc) if bpc > 0 else 0.0
+        tot_eq = c + eq
+        mrp_val = float(prec.get("Total MRP") or 0)
+        cat = get_product_category(prec)
+        b_name = prec.get("Product Name") or "Unknown Brand"
+        p_name = prec.get("Retailer Name") or prec.get("Licensee Name") or "Unknown Licensee"
+        dist = prec.get("District") or prec.get("Destination District") or ""
+
+        summary_pending_cases += tot_eq
+        summary_pending_bottles += b
+        summary_pending_mrp += mrp_val
+
+        p_id = prec.get("Permit Number") or prec.get("Indent Number")
+        if p_id:
+            pending_permits_set.add(p_id)
+
+        if cat in cat_breakdown:
+            cat_breakdown[cat]["pending_cases"] += tot_eq
+            cat_breakdown[cat]["pending_mrp"] += mrp_val
+
+        # Update brand pending
+        if b_name not in brand_map:
+            brand_map[b_name] = {
+                "name": b_name,
+                "category": cat,
+                "dispatched_cases": 0.0,
+                "cases_only": 0.0,
+                "bottles": 0,
+                "pending_cases": 0.0,
+                "pending_bottles": 0,
+                "total_mrp": 0.0,
+                "bulk_litres": 0.0,
+                "lpl": 0.0,
+                "pack_breakdown": {},
+                "top_buyers_dict": {},
+                "daily_cases": {dk: 0.0 for dk in daily_series_map.keys()}
+            }
+        brand_map[b_name]["pending_cases"] += tot_eq
+        brand_map[b_name]["pending_bottles"] += b
+
+        # Update party pending
+        if p_name not in party_map:
+            party_map[p_name] = {
+                "name": p_name,
+                "district": dist,
+                "dispatched_cases": 0.0,
+                "pending_cases": 0.0,
+                "beer_cases": 0.0,
+                "imfl_cases": 0.0,
+                "cs_cases": 0.0,
+                "mrp": 0.0,
+                "indent_count": 0,
+                "dispatched_permits": 0,
+                "pending_permits": 0,
+                "active_days_set": set(),
+                "last_order_date": "",
+                "brands_dict": {}
+            }
+        party_map[p_name]["pending_cases"] += tot_eq
+        party_map[p_name]["pending_permits"] += 1
+        party_map[p_name]["indent_count"] += 1
+
+        # Warehouse pick-list aggregation
+        s_clean = f"{pack_size} ML" if pack_size.isdigit() else pack_size
+        pick_k = (b_name, s_clean, cat)
+        if pick_k not in pending_pick_dict:
+            pending_pick_dict[pick_k] = {
+                "brand_name": b_name,
+                "pack_size": s_clean,
+                "category": cat,
+                "cases": 0.0,
+                "bottles": 0,
+                "total_cases_eq": 0.0,
+                "permits_count": 0,
+                "licensees_set": set()
+            }
+        pp = pending_pick_dict[pick_k]
+        pp["cases"] += c
+        pp["bottles"] += b
+        pp["total_cases_eq"] += tot_eq
+        pp["permits_count"] += 1
+        pp["licensees_set"].add(p_name)
+
+    # Convert pending pick-list to sorted list
+    pending_pick_list = []
+    for (b_name, s_clean, cat), pinfo in pending_pick_dict.items():
+        pending_pick_list.append({
+            "brand_name": b_name,
+            "pack_size": s_clean,
+            "category": cat,
+            "cases": round(pinfo["cases"], 2),
+            "bottles": pinfo["bottles"],
+            "total_cases_eq": round(pinfo["total_cases_eq"], 2),
+            "permits_count": pinfo["permits_count"],
+            "licensees": sorted(list(pinfo["licensees_set"]))
+        })
+    pending_pick_list.sort(key=lambda x: x["total_cases_eq"], reverse=True)
+
+    # 8. Compute active days and daily velocity
+    daily_series = sorted(daily_series_map.values(), key=lambda d: d["date_key"])
+    active_days_count = sum(1 for d in daily_series if not d["is_closed"])
+    effective_days = max(1, active_days_count)
+
+    # Update godown variance per day
+    for d in daily_series:
+        if d["godown_cases"] is not None:
+            try:
+                diff_val = float(d["godown_cases"]) - d["cases"]
+                d["difference"] = round(diff_val, 2)
+            except Exception:
+                d["difference"] = None
+
+    # Totals for physical godown
+    godown_cases_sum = 0.0
+    has_godown_entries = False
+    for d in daily_series:
+        if d["godown_cases"] is not None:
+            has_godown_entries = True
+            godown_cases_sum += float(d["godown_cases"])
+
+    net_godown_difference = round(godown_cases_sum - summary_tot_cases, 2) if has_godown_entries else None
+
+    # Finalize category breakdown
+    for cat_k, cinfo in cat_breakdown.items():
+        cinfo["cases"] = round(cinfo["cases"], 2)
+        cinfo["cases_only"] = round(cinfo["cases_only"], 2)
+        cinfo["pending_cases"] = round(cinfo["pending_cases"], 2)
+        cinfo["mrp"] = round(cinfo["mrp"], 2)
+        cinfo["pending_mrp"] = round(cinfo["pending_mrp"], 2)
+        cinfo["bulk_litres"] = round(cinfo["bulk_litres"], 2)
+        cinfo["lpl"] = round(cinfo["lpl"], 2)
+        cinfo["share_pct"] = round((cinfo["cases"] / summary_tot_cases) * 100, 1) if summary_tot_cases > 0 else 0.0
+        cinfo["velocity_per_day"] = round(cinfo["cases"] / effective_days, 1) if effective_days > 0 else 0.0
+
+    # Finalize brands_full
+    brands_full = []
+    for b_name, binfo in brand_map.items():
+        c_eq = round(binfo["dispatched_cases"], 2)
+        p_eq = round(binfo["pending_cases"], 2)
+        top_buyers_list = [
+            {"name": k, "cases": round(v["cases"], 2), "mrp": round(v["mrp"], 2)}
+            for k, v in sorted(binfo["top_buyers_dict"].items(), key=lambda x: x[1]["cases"], reverse=True)[:5]
+        ]
+        pack_bd_formatted = {
+            k: {"cases": round(v["cases"], 2), "bottles": v["bottles"], "mrp": round(v["mrp"], 2)}
+            for k, v in binfo["pack_breakdown"].items()
+        }
+        sparkline = [round(binfo["daily_cases"][d["date_key"]], 1) for d in daily_series]
+        brands_full.append({
+            "name": b_name,
+            "category": binfo["category"],
+            "dispatched_cases": c_eq,
+            "cases_only": round(binfo["cases_only"], 2),
+            "bottles": binfo["bottles"],
+            "pending_cases": p_eq,
+            "pending_bottles": binfo["pending_bottles"],
+            "total_mrp": round(binfo["total_mrp"], 2),
+            "bulk_litres": round(binfo["bulk_litres"], 2),
+            "lpl": round(binfo["lpl"], 2),
+            "velocity_per_day": round(c_eq / effective_days, 1) if effective_days > 0 else 0.0,
+            "share_pct": round((c_eq / summary_tot_cases) * 100, 1) if summary_tot_cases > 0 else 0.0,
+            "pack_breakdown": pack_bd_formatted,
+            "top_buyers": top_buyers_list,
+            "daily_sparkline": sparkline
+        })
+    brands_full.sort(key=lambda x: (x["dispatched_cases"], x["pending_cases"]), reverse=True)
+
+    # Finalize pack_sizes_full
+    pack_sizes_full = []
+    for s_clean, sinfo in pack_map.items():
+        scs = round(sinfo["cases"], 2)
+        pack_sizes_full.append({
+            "size": s_clean,
+            "category": sinfo["category"],
+            "cases": scs,
+            "bottles": sinfo["bottles"],
+            "mrp": round(sinfo["mrp"], 2),
+            "share_pct": round((scs / summary_tot_cases) * 100, 1) if summary_tot_cases > 0 else 0.0
+        })
+    pack_sizes_full.sort(key=lambda x: x["cases"], reverse=True)
+
+    # Finalize parties_full
+    parties_full = []
+    for p_name, pinfo in party_map.items():
+        pcs = round(pinfo["dispatched_cases"], 2)
+        p_pending = round(pinfo["pending_cases"], 2)
+        top_brands_bought = [
+            {"name": k, "cases": round(v, 2)}
+            for k, v in sorted(pinfo["brands_dict"].items(), key=lambda x: x[1], reverse=True)[:4]
+        ]
+        act_cnt = len(pinfo["active_days_set"])
+        cadence = "regular" if act_cnt >= 2 else ("active" if pcs > 0 else "dormant")
+        last_ord_str = ""
+        if pinfo["last_order_date"]:
+            try:
+                last_ord_str = datetime.strptime(pinfo["last_order_date"], "%Y%m%d").strftime("%d-%b-%Y")
+            except Exception:
+                last_ord_str = pinfo["last_order_date"]
+
+        parties_full.append({
+            "name": p_name,
+            "district": pinfo["district"] or "ASSAM",
+            "dispatched_cases": pcs,
+            "pending_cases": p_pending,
+            "beer_cases": round(pinfo["beer_cases"], 2),
+            "imfl_cases": round(pinfo["imfl_cases"], 2),
+            "cs_cases": round(pinfo["cs_cases"], 2),
+            "mrp": round(pinfo["mrp"], 2),
+            "indent_count": pinfo["indent_count"],
+            "dispatched_permits": pinfo["dispatched_permits"],
+            "pending_permits": pinfo["pending_permits"],
+            "active_days": act_cnt,
+            "last_order_date": last_ord_str,
+            "cadence_status": cadence,
+            "brands_bought": top_brands_bought
+        })
+    parties_full.sort(key=lambda x: (x["dispatched_cases"], x["pending_cases"]), reverse=True)
+
+    # 9. Compute Previous Period Summary and Delta Badges
+    prev_tot_cases = 0.0
+    prev_tot_mrp = 0.0
+    prev_permits_set = set()
+    prev_parties_set = set()
+
+    for prec, _ in completed_in_prev:
+        c = float(prec.get("Cases") or 0)
+        b = int(prec.get("Bottles") or 0)
+        pack_size = str(prec.get("Pack Size") or prec.get("Size") or "Unknown")
+        bpc = automation_utils.get_bottles_per_case(prec.get("Size"), pack_size=pack_size)
+        eq = (b / bpc) if bpc > 0 else 0.0
+        tot_eq = c + eq
+        mrp_val = float(prec.get("Total MRP") or 0)
+        prev_tot_cases += tot_eq
+        prev_tot_mrp += mrp_val
+        p_id = prec.get("Permit Number") or prec.get("Transit Pass") or prec.get("Indent Number")
+        if p_id:
+            prev_permits_set.add(p_id)
+        pt_name = prec.get("Retailer Name") or prec.get("Licensee Name")
+        if pt_name:
+            prev_parties_set.add(pt_name)
+
+    prev_tot_cases = round(prev_tot_cases, 2)
+    prev_tot_mrp = round(prev_tot_mrp, 2)
+    delta_cases_pct = round(((summary_tot_cases - prev_tot_cases) / prev_tot_cases) * 100, 1) if prev_tot_cases > 0 else 0.0
+    delta_mrp_pct = round(((summary_mrp - prev_tot_mrp) / prev_tot_mrp) * 100, 1) if prev_tot_mrp > 0 else 0.0
+    delta_permits_pct = round(((len(permits_set) - len(prev_permits_set)) / len(prev_permits_set)) * 100, 1) if len(prev_permits_set) > 0 else 0.0
+
+    # 10. Compile raw permit items for ledger
+    all_permits_raw = [r for r, _ in completed_in_horizon] + pending_in_horizon
+
+    result_payload = {
+        "horizon": {
+            "mode": mode,
+            "anchor_date": anchor_dt.strftime("%Y-%m-%d"),
+            "start_date": h_start_dt.strftime("%Y-%m-%d"),
+            "end_date": h_end_dt.strftime("%Y-%m-%d"),
+            "start_date_key": start_key,
+            "end_date_key": end_key,
+            "display_label": display_label,
+            "prev_start_date": p_start_dt.strftime("%Y-%m-%d"),
+            "prev_end_date": p_end_dt.strftime("%Y-%m-%d"),
+            "prev_display_label": prev_display_label,
+            "available_dates": sorted_available_dates
+        },
+        "summary": {
+            "total_cases": round(summary_tot_cases, 2),
+            "cases_only": round(summary_cases_only, 2),
+            "bottles_only": summary_bottles_only,
+            "dispatched_cs_eq": round(summary_dispatched_cs_eq, 2),
+            "pending_cases": round(summary_pending_cases, 2),
+            "pending_bottles": summary_pending_bottles,
+            "pending_permits_count": len(pending_permits_set),
+            "permits_count": len(permits_set),
+            "active_parties_count": len(party_map),
+            "total_mrp": round(summary_mrp, 2),
+            "pending_mrp": round(summary_pending_mrp, 2),
+            "bulk_litres": round(summary_bl, 2),
+            "lpl": round(summary_lpl, 2),
+            "avg_case_price": round(summary_mrp / summary_tot_cases, 2) if summary_tot_cases > 0 else 0.0,
+            "active_days": active_days_count,
+            "total_days": len(daily_series),
+            "cases_per_day": round(summary_tot_cases / effective_days, 1) if effective_days > 0 else 0.0,
+            "mrp_per_day": round(summary_mrp / effective_days, 1) if effective_days > 0 else 0.0,
+            "godown_cases": round(godown_cases_sum, 2) if has_godown_entries else None,
+            "difference": net_godown_difference
+        },
+        "previous_period_summary": {
+            "total_cases": prev_tot_cases,
+            "total_mrp": prev_tot_mrp,
+            "permits_count": len(prev_permits_set),
+            "active_parties_count": len(prev_parties_set),
+            "delta_cases_pct": delta_cases_pct,
+            "delta_mrp_pct": delta_mrp_pct,
+            "delta_permits_pct": delta_permits_pct
+        },
+        "category_breakdown": cat_breakdown,
+        "brands_full": brands_full,
+        "pack_sizes_full": pack_sizes_full,
+        "parties_full": parties_full,
+        "daily_series": daily_series,
+        "pending_pick_list": pending_pick_list,
+        "permits": all_permits_raw
+    }
+
+    no_cache_headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0"
+    }
+
+    return JSONResponse(content=result_payload, headers=no_cache_headers)
 
 LATEST_WEBHOOK_DATA = None
 
