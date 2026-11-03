@@ -4,6 +4,7 @@ import pytest
 from datetime import datetime
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from reconciler import get_record_effective_date_key, parse_effective_date
 
 def test_effective_date_priority_challan():
@@ -129,5 +130,61 @@ def test_sync_bundled_data_repairs_truncated(tmp_path, monkeypatch):
     # Target should now be repaired with 10 records
     repaired = json.loads((target / "backup_permits_99990101_000000.json").read_text())
     assert len(repaired) == 10
+
+def test_forward_cross_day_attribution_and_pending_purge(tmp_path, monkeypatch):
+    import json
+    from starlette.testclient import TestClient
+    from app import app
+    import scripts.auth as auth
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+
+    # Pre-populate 02-Nov backup with 1 completed and 2 pending
+    nov2_initial = [
+        {"Indent Number": "IND_NOV2_A", "Transit Pass": "TP3097021126001", "Challan Date": "02-Nov-2026", "Status": "COMPLETED", "Cases": 50, "Total MRP": 50000, "Date": "02-Nov-2026"},
+        {"Indent Number": "IND_NOV2_B", "Transit Pass": "", "Challan Date": "", "Status": "PENDING", "Cases": 20, "Total MRP": 20000, "Date": "02-Nov-2026", "Application Date": "02-Nov-2026"},
+        {"Indent Number": "IND_NOV2_TRULY_PENDING", "Transit Pass": "", "Challan Date": "", "Status": "PENDING", "Cases": 10, "Total MRP": 10000, "Date": "02-Nov-2026", "Application Date": "02-Nov-2026"}
+    ]
+    (data_dir / "backup_permits_20261102_000000.json").write_text(json.dumps(nov2_initial))
+
+    monkeypatch.setattr("app.automation_utils.get_data_dir", lambda: str(data_dir))
+    monkeypatch.setattr("scripts.automation_utils.get_data_dir", lambda: str(data_dir))
+
+    client = TestClient(app)
+    # Simulate scraper run for 02-Nov that finds IND_NOV2_B was approved on 03-Nov with Form-34 Challan Date = 03-Nov-2026
+    upload_payload = {
+        "secret": "test_secret",
+        "date": "02-11-2026",
+        "has_errors": False,
+        "failed_bonds": [],
+        "records": [
+            {"Indent Number": "IND_NOV2_A", "Transit Pass": "TP3097021126001", "Challan Date": "02-Nov-2026", "Status": "COMPLETED", "Cases": 50, "Total MRP": 50000, "Date": "02-Nov-2026"},
+            {"Indent Number": "IND_NOV2_B", "Transit Pass": "TP3097031126002", "Challan Date": "03-Nov-2026", "Status": "COMPLETED", "Cases": 20, "Total MRP": 20000, "Date": "02-Nov-2026"},
+            {"Indent Number": "IND_NOV2_TRULY_PENDING", "Transit Pass": "", "Challan Date": "", "Status": "PENDING", "Cases": 10, "Total MRP": 10000, "Date": "02-Nov-2026", "Application Date": "02-Nov-2026"}
+        ]
+    }
+    monkeypatch.setenv("WEBHOOK_SECRET", "test_secret")
+    resp = client.post("/api/upload-results", json=upload_payload)
+    assert resp.status_code == 200
+
+    # Verify 02-Nov backup: IND_NOV2_B must NOT be pending and must NOT be completed in 02-Nov!
+    # Only IND_NOV2_A (completed on 02-Nov) and IND_NOV2_TRULY_PENDING (truly pending) should be in 02-Nov!
+    nov2_after = json.loads((data_dir / "backup_permits_20261102_000000.json").read_text())
+    nov2_iids = {r["Indent Number"] for r in nov2_after}
+    assert nov2_iids == {"IND_NOV2_A", "IND_NOV2_TRULY_PENDING"}
+    
+    nov2_statuses = {r["Indent Number"]: r["Status"] for r in nov2_after}
+    assert nov2_statuses["IND_NOV2_A"] == "COMPLETED"
+    assert nov2_statuses["IND_NOV2_TRULY_PENDING"] == "PENDING"
+
+    # Verify forward attribution: 03-Nov backup MUST exist and contain IND_NOV2_B as COMPLETED!
+    assert (data_dir / "backup_permits_20261103_000000.json").exists()
+    nov3_data = json.loads((data_dir / "backup_permits_20261103_000000.json").read_text())
+    assert len(nov3_data) == 1
+    assert nov3_data[0]["Indent Number"] == "IND_NOV2_B"
+    assert nov3_data[0]["Status"] == "COMPLETED"
+    assert nov3_data[0]["Challan Date"] == "03-Nov-2026"
+
 
 

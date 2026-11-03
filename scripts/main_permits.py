@@ -1720,53 +1720,61 @@ def main():
         print(f"   • Fulfilled Carry-Overs Today: {recon_summary['fulfilled_carry_overs_count']} lines")
         
     try:
+        target_date_key = target_date.strftime("%Y%m%d")
+        from reconciler import get_record_effective_date_key, get_unique_indent_id
+        target_records_to_save = [
+            r for r in reconciled_records
+            if str(r.get("Status", "")).upper() == "PENDING" or get_record_effective_date_key(r, default_date_key=target_date_key) == target_date_key
+        ]
         with open(os.path.join(backup_dir, timestamp_file), "w") as f:
-            json.dump(reconciled_records, f, indent=4)
+            json.dump(target_records_to_save, f, indent=4)
         with open(os.path.join(backup_dir, latest_file), "w") as f:
-            json.dump(reconciled_records, f, indent=4)
+            json.dump(target_records_to_save, f, indent=4)
             
         print(f"💾 Reconciled data backed up locally to {backup_dir}.")
     except Exception as e:
         print(f"⚠️ Failed to save local backup files: {e}")
         
-    # Cross-day attribution: if scraped run contains completed dispatches belonging to prior dates
-    # (e.g. issued after cutoff or via lookback), update prior backup files so they reflect actual sales and purge stale pending entries!
+    # Cross-day attribution: if scraped run contains completed dispatches belonging to other dates
+    # (e.g. issued after cutoff with prior day's Challan Date, or indents applied earlier but approved on a later date),
+    # update respective backup files so they reflect actual sales and purge stale pending entries!
     try:
         target_date_key = target_date.strftime("%Y%m%d")
-        prior_date_completed = {}
+        cross_date_completed = {}
         for r in all_completed:
-            if str(r.get("Status", "")).upper() == "COMPLETED":
+            if str(r.get("Status", "")).upper() == "COMPLETED" or str(r.get("Transit Pass", "")).upper().startswith("TP"):
                 from reconciler import get_record_effective_date_key, get_unique_indent_id
                 eff_k = get_record_effective_date_key(r, default_date_key=target_date_key)
-                if eff_k and eff_k < target_date_key:
-                    prior_date_completed.setdefault(eff_k, []).append(r)
+                if eff_k and eff_k != target_date_key:
+                    cross_date_completed.setdefault(eff_k, []).append(r)
                     
-        for p_date, p_recs in prior_date_completed.items():
+        for p_date, p_recs in cross_date_completed.items():
             p_filename = f"backup_permits_{p_date}_000000.json"
             p_path = os.path.join(backup_dir, p_filename)
+            p_data = []
             if os.path.exists(p_path):
                 try:
                     with open(p_path, "r", encoding="utf-8") as pf:
                         p_data = json.load(pf) or []
-                    p_keys = {get_unique_permit_key(it) for it in p_data}
-                    p_completed_iids = {get_unique_indent_id(it) for it in p_recs}
-                    # Filter out any stale pending entries for indents that are now completed!
-                    p_data = [it for it in p_data if not (str(it.get("Status", "")).upper() == "PENDING" and get_unique_indent_id(it) in p_completed_iids)]
-                    p_updated = False
-                    for nr in p_recs:
-                        nr_key = get_unique_permit_key(nr)
-                        if nr_key not in p_keys:
-                            p_data.append(nr)
-                            p_keys.add(nr_key)
-                            p_updated = True
-                    if p_updated:
-                        p_dt = parse_date_str(p_date)
-                        cleaned_p = reconcile_permits(p_data, p_dt, backup_dir, lookback_days=args.lookback_days)
-                        with open(p_path, "w", encoding="utf-8") as pf:
-                            json.dump(cleaned_p, pf, indent=4)
-                        print(f"🔄 Backfilled & updated prior backup {p_filename} with {len(p_recs)} crossover dispatches (purged stale pending).")
-                except Exception as e_p:
-                    print(f"⚠️ Error backfilling prior backup {p_filename}: {e_p}")
+                except Exception:
+                    p_data = []
+            p_keys = {get_unique_permit_key(it) for it in p_data}
+            p_completed_iids = {get_unique_indent_id(it) for it in p_recs}
+            # Filter out any stale pending entries for indents that are now completed!
+            p_data = [it for it in p_data if not (str(it.get("Status", "")).upper() == "PENDING" and get_unique_indent_id(it) in p_completed_iids)]
+            p_updated = False
+            for nr in p_recs:
+                nr_key = get_unique_permit_key(nr)
+                if nr_key not in p_keys:
+                    p_data.append(nr)
+                    p_keys.add(nr_key)
+                    p_updated = True
+            if p_updated:
+                from reconciler import clean_permit_records
+                cleaned_p = clean_permit_records(p_data, config_dir=backup_dir)
+                with open(p_path, "w", encoding="utf-8") as pf:
+                    json.dump(cleaned_p, pf, indent=4)
+                print(f"🔄 Cross-day sync: Updated {p_filename} with {len(p_recs)} crossover dispatches (eff_k={p_date}, purged completed pending).")
     except Exception as e_cross:
         print(f"⚠️ Cross-day backfill error: {e_cross}")
         

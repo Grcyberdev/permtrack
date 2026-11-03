@@ -24,6 +24,7 @@ sys.path.append(os.path.join(PROJECT_ROOT, "scripts"))
 from pdf_report import generate_report_pdf
 from reconciler import (
     reconcile_permits,
+    clean_permit_records,
     get_reconciliation_summary,
     parse_date_str,
     get_unique_permit_key,
@@ -339,9 +340,25 @@ async def get_today_permits(request: Request, filename: str = None, lookback_day
     pending = []
     completed = []
     
+    all_completed_indents_global = set()
+    for bf in glob.glob(os.path.join(config_dir, "backup_permits_*.json")):
+        if "latest.json" in bf:
+            continue
+        try:
+            with open(bf, "r", encoding="utf-8") as fp:
+                bdata = json.load(fp) or []
+            for it in bdata:
+                if str(it.get("Status", "")).upper() == "COMPLETED" or str(it.get("Transit Pass", "")).upper().startswith("TP"):
+                    all_completed_indents_global.add(get_unique_indent_id(it))
+        except Exception:
+            pass
+
     for item in reconciled_data:
         status = item.get("Status", "").upper()
+        iid = get_unique_indent_id(item)
         if status == "PENDING":
+            if iid in all_completed_indents_global:
+                continue
             pending.append(item)
         elif status == "COMPLETED":
             # Strict date partition guard: completed dispatches must strictly match target date
@@ -717,7 +734,22 @@ def get_cached_reconciled_pending(
     raw_target_records = get_cached_backup_records(t_finfo["filepath"])
     t_date_str = t_dt.strftime("%d-%b-%Y") if t_dt else None
     reconciled_target = reconcile_permits(raw_target_records, t_date_str, config_dir, lookback_days=7)
-    pending_list = [r for r in reconciled_target if str(r.get("Status") or "").strip().upper() == "PENDING"]
+    
+    # Pre-collect all completed indents across all available backups
+    all_completed_iids = set()
+    for _, finfo in by_date.items():
+        recs = get_cached_backup_records(finfo["filepath"])
+        for it in recs:
+            st = str(it.get("Status") or "").strip().upper()
+            tp = str(it.get("Transit Pass") or "").strip().upper()
+            if st == "COMPLETED" or tp.startswith("TP"):
+                all_completed_iids.add(get_unique_indent_id(it))
+
+    pending_list = [
+        r for r in reconciled_target
+        if str(r.get("Status") or "").strip().upper() == "PENDING"
+        and get_unique_indent_id(r) not in all_completed_iids
+    ]
 
     if len(_RECONCILED_PENDING_CACHE) > 50:
         _RECONCILED_PENDING_CACHE.clear()
@@ -2167,12 +2199,54 @@ async def upload_results(request: Request):
         # Reconcile merged records with 7-day backups
         reconciled_records = reconcile_permits(records_to_reconcile, target_dt, config_dir, lookback_days=7)
         
-        # Partition target date records vs prior-date completed records
-        # canonical_filename MUST ONLY hold pending records + completed records whose effective date matches parsed_date!
-        canonical_records = [
-            r for r in reconciled_records
-            if str(r.get("Status", "")).upper() == "PENDING" or get_record_effective_date_key(r, default_date_key=parsed_date) == parsed_date
-        ]
+        # Partition target date records vs cross-date completed records
+        # Completed records are strictly grouped by eff_k = get_record_effective_date_key(r)
+        completed_by_date: Dict[str, List[Dict[str, Any]]] = {}
+        pending_records: List[Dict[str, Any]] = []
+
+        for r in reconciled_records:
+            st = str(r.get("Status", "")).strip().upper()
+            tp = str(r.get("Transit Pass", "")).strip().upper()
+            is_comp = (st == "COMPLETED" or tp.startswith("TP"))
+            
+            if is_comp:
+                r["Status"] = "COMPLETED"
+                eff_k = get_record_effective_date_key(r, default_date_key=parsed_date)
+                if not eff_k or len(eff_k) != 8:
+                    eff_k = parsed_date
+                completed_by_date.setdefault(eff_k, []).append(r)
+            elif st == "PENDING":
+                pending_records.append(r)
+
+        # Global completed indent index: newly completed + all existing in config_dir
+        all_completed_iids_global = {get_unique_indent_id(r) for recs in completed_by_date.values() for r in recs}
+        for bf in glob.glob(os.path.join(config_dir, "backup_permits_*.json")):
+            if "latest.json" in bf:
+                continue
+            try:
+                with open(bf, "r", encoding="utf-8") as fp:
+                    bdata = json.load(fp) or []
+                for it in bdata:
+                    if str(it.get("Status", "")).upper() == "COMPLETED" or str(it.get("Transit Pass", "")).upper().startswith("TP"):
+                        all_completed_iids_global.add(get_unique_indent_id(it))
+            except Exception:
+                pass
+
+        # Valid pending: drop any indent that is completed anywhere
+        valid_pending = [r for r in pending_records if get_unique_indent_id(r) not in all_completed_iids_global]
+
+        # For canonical_records (the target parsed_date file):
+        # 1. Completed dispatches whose effective date strictly matches parsed_date
+        target_completed = completed_by_date.get(parsed_date, [])
+        # 2. Truly pending indents whose Application Date matches parsed_date
+        canonical_pending = []
+        for r in valid_pending:
+            app_d = parse_date_str(r.get("Application Date") or r.get("Date"))
+            app_k = app_d.strftime("%Y%m%d") if app_d else parsed_date
+            if app_k == parsed_date:
+                canonical_pending.append(r)
+
+        canonical_records = clean_permit_records(canonical_pending + target_completed, config_dir=config_dir)
         LATEST_WEBHOOK_DATA = canonical_records
             
         with open(os.path.join(config_dir, canonical_filename), "w") as f:
@@ -2180,44 +2254,58 @@ async def upload_results(request: Request):
         with open(os.path.join(config_dir, latest_filename), "w") as f:
             json.dump(canonical_records, f, indent=4)
             
-        # Cross-day attribution: if incoming run contains completed dispatches belonging to prior dates
-        # (e.g. approved after midnight with prior day's Challan Date), update prior backups so they reflect actual sales
-        prior_date_completed = {}
-        for r in records_to_reconcile:
-            if str(r.get("Status", "")).upper() == "COMPLETED":
-                eff_k = get_record_effective_date_key(r, default_date_key=parsed_date)
-                if eff_k and eff_k < parsed_date:
-                    prior_date_completed.setdefault(eff_k, []).append(r)
-
-        for p_date, p_recs in prior_date_completed.items():
-            p_filename = f"backup_permits_{p_date}_000000.json"
-            p_path = os.path.join(config_dir, p_filename)
-            existing_p_data = []
-            if os.path.exists(p_path):
+        # Bidirectional cross-day attribution: for ANY other date where eff_k != parsed_date
+        # (both eff_k < parsed_date like prior-day dispatches AND eff_k > parsed_date like permits applied earlier but approved on a later date)
+        for o_date, o_recs in completed_by_date.items():
+            if o_date == parsed_date:
+                continue
+            o_filename = f"backup_permits_{o_date}_000000.json"
+            o_path = os.path.join(config_dir, o_filename)
+            existing_o_data = []
+            if os.path.exists(o_path):
                 try:
-                    with open(p_path, "r", encoding="utf-8") as pf:
-                        existing_p_data = json.load(pf) or []
+                    with open(o_path, "r", encoding="utf-8") as of:
+                        existing_o_data = json.load(of) or []
                 except Exception:
-                    existing_p_data = []
+                    existing_o_data = []
             
-            p_keys = {get_unique_permit_key(it) for it in existing_p_data}
-            p_completed_iids = {get_unique_indent_id(it) for it in p_recs}
+            o_keys = {get_unique_permit_key(it) for it in existing_o_data}
             # Purge any stale pending entries for indents that are now completed!
-            existing_p_data = [it for it in existing_p_data if not (str(it.get("Status", "")).upper() == "PENDING" and get_unique_indent_id(it) in p_completed_iids)]
+            existing_o_data = [
+                it for it in existing_o_data
+                if not (str(it.get("Status", "")).upper() == "PENDING" and get_unique_indent_id(it) in all_completed_iids_global)
+            ]
             updated = False
-            for nr in p_recs:
+            for nr in o_recs:
                 nr_key = get_unique_permit_key(nr)
-                if nr_key not in p_keys:
-                    existing_p_data.append(nr)
-                    p_keys.add(nr_key)
+                if nr_key not in o_keys:
+                    existing_o_data.append(nr)
+                    o_keys.add(nr_key)
                     updated = True
                     
-            if updated:
-                p_dt = parse_date_str(p_date)
-                cleaned_p = reconcile_permits(existing_p_data, p_dt, config_dir, lookback_days=7) if p_dt else clean_permit_records(existing_p_data, config_dir=config_dir)
-                with open(p_path, "w", encoding="utf-8") as pf:
-                    json.dump(cleaned_p, pf, indent=4)
-                print(f"🔄 Backfilled & reconciled {len(p_recs)} crossover dispatches into prior backup {p_filename}")
+            if updated or any(str(it.get("Status", "")).upper() == "PENDING" and get_unique_indent_id(it) in all_completed_iids_global for it in existing_o_data):
+                cleaned_o = clean_permit_records(existing_o_data, config_dir=config_dir)
+                with open(o_path, "w", encoding="utf-8") as of:
+                    json.dump(cleaned_o, of, indent=4)
+                print(f"🔄 Cross-day sync: Updated {o_filename} with {len(o_recs)} crossover dispatches (eff_k={o_date}) & purged completed pending")
+
+        # Global purge of stale pending indents across ALL backup files:
+        # If an indent was completed in this run, ensure NO backup file still lists it as PENDING!
+        if all_completed_iids_global:
+            for bf in glob.glob(os.path.join(config_dir, "backup_permits_*.json")):
+                if "latest.json" in bf or os.path.basename(bf) == canonical_filename:
+                    continue
+                try:
+                    with open(bf, "r", encoding="utf-8") as fp:
+                        bdata = json.load(fp) or []
+                    has_stale = any(str(it.get("Status", "")).upper() == "PENDING" and get_unique_indent_id(it) in all_completed_iids_global for it in bdata)
+                    if has_stale:
+                        bdata_purged = [it for it in bdata if not (str(it.get("Status", "")).upper() == "PENDING" and get_unique_indent_id(it) in all_completed_iids_global)]
+                        with open(bf, "w", encoding="utf-8") as fp:
+                            json.dump(bdata_purged, fp, indent=4)
+                        print(f"🧹 Purged stale pending indents from {os.path.basename(bf)}")
+                except Exception as e_purge:
+                    print(f"⚠️ Error purging stale pending from {bf}: {e_purge}")
             
         # Clean up any extra timestamp files for the same target date
         for old_f in glob.glob(os.path.join(config_dir, f"backup_permits_{parsed_date}_*.json")):

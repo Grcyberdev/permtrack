@@ -188,6 +188,7 @@ def reconcile_permits(
     current_pending_keys = set()
     current_completed_keys = set()
     current_completed_indents = set()
+    all_completed_indents = set()
     
     # Pre-scan all completed indents and line keys in current_records
     for item in current_records:
@@ -197,6 +198,24 @@ def reconcile_permits(
         if status == "COMPLETED" or has_tp:
             current_completed_indents.add(get_unique_indent_id(item))
             current_completed_keys.add(get_unique_permit_key(item))
+            all_completed_indents.add(get_unique_indent_id(item))
+            
+    # Pre-collect all indent IDs that have been completed in ANY backup in config_dir (past, current, or future)
+    if os.path.exists(config_dir):
+        for bf in glob.glob(os.path.join(config_dir, "backup_permits_*.json")):
+            if "latest.json" in bf:
+                continue
+            try:
+                with open(bf, "r", encoding="utf-8") as f:
+                    b_records = json.load(f) or []
+                for item in b_records:
+                    st = normalize_key(item.get("Status"))
+                    tp = item.get("Transit Pass")
+                    has_tp = bool(tp and str(tp).strip().upper().startswith("TP"))
+                    if st == "COMPLETED" or has_tp:
+                        all_completed_indents.add(get_unique_indent_id(item))
+            except Exception:
+                pass
     
     for item in current_records:
         rec = dict(item)
@@ -233,8 +252,8 @@ def reconcile_permits(
             current_completed.append(rec)
             
         elif status == "PENDING":
-            # If this indent was already approved/dispatched today, it is NOT pending!
-            if indent_id in current_completed_indents or line_key in current_completed_keys:
+            # If this indent was already approved/dispatched today or in ANY backup, it is NOT pending!
+            if indent_id in all_completed_indents or line_key in current_completed_keys:
                 continue
                 
             current_pending_keys.add(line_key)
@@ -275,16 +294,6 @@ def reconcile_permits(
 
     # 3. Load historical backups within lookback_days
     historical_backups = load_historical_backups(config_dir, target_dt, max_lookback_days=lookback_days)
-    
-    # Pre-collect all indent IDs that have been completed in ANY historical backup
-    all_completed_indents = set(current_completed_indents)
-    for _, _, b_records in historical_backups:
-        for item in b_records:
-            st = normalize_key(item.get("Status"))
-            tp = item.get("Transit Pass")
-            has_tp = bool(tp and str(tp).strip().upper().startswith("TP"))
-            if st == "COMPLETED" or has_tp:
-                all_completed_indents.add(get_unique_indent_id(item))
     
     # Store unresolved historical pending items mapped by line_key
     historical_pending_pool: Dict[str, Dict[str, Any]] = {}
