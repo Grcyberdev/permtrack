@@ -1,14 +1,32 @@
 /**
- * PermTrack Enterprise — Workspace 4: Retailer (Party) Intelligence
+ * PermTrack Enterprise — Workspace 4: Retailer Intelligence
+ * Minimal, Calm, Executive Precision with Responsive Mobile Cards
  */
 const WorkspaceParties = {
+  setSort(col) {
+    if (AppState.partySortCol === col) {
+      AppState.partySortDir = AppState.partySortDir === 'desc' ? 'asc' : 'desc';
+    } else {
+      AppState.partySortCol = col;
+      AppState.partySortDir = 'desc';
+    }
+    this.render();
+  },
+
+  renderSortIndicator(col) {
+    if (AppState.partySortCol !== col) {
+      return `<span class="sort-icon-neutral">↕</span>`;
+    }
+    return `<span class="sort-icon-active">${AppState.partySortDir === 'desc' ? '↓' : '↑'}</span>`;
+  },
+
   render() {
     const container = document.getElementById('workspace-parties-content');
     if (!container) return;
 
     const data = AppState.movementData;
     if (!data) {
-      container.innerHTML = `<div style="text-align:center;padding:4rem;color:var(--text-muted);">Loading Retailer Intelligence...</div>`;
+      container.innerHTML = `<div style="text-align:center;padding:5rem;color:var(--text-muted);">Loading Retailers...</div>`;
       return;
     }
 
@@ -21,102 +39,206 @@ const WorkspaceParties = {
       );
     }
 
+    // Apply Sorting
+    const sortCol = AppState.partySortCol || 'dispatched_cases';
+    const sortDir = AppState.partySortDir || 'desc';
+    const mult = sortDir === 'asc' ? 1 : -1;
+
+    parties = [...parties].sort((a, b) => {
+      let valA = a[sortCol];
+      let valB = b[sortCol];
+      if (typeof valA === 'string') {
+        return (valA || '').localeCompare(valB || '') * mult;
+      }
+      valA = Number(valA || 0);
+      valB = Number(valB || 0);
+      return (valA - valB) * mult;
+    });
+
     const totalCases = parties.reduce((acc, p) => acc + (p.dispatched_cases || 0), 0);
     const totalMRP = parties.reduce((acc, p) => acc + (p.mrp || 0), 0);
+    const totalPending = parties.reduce((acc, p) => acc + (p.pending_cases || 0), 0);
 
     const toolbarHTML = `
       <div class="table-toolbar">
         <div class="search-box-wrap">
-          <svg class="search-icon-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg class="search-icon-svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
             <circle cx="11" cy="11" r="8"></circle>
             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
           </svg>
-          <input type="text" class="search-input" placeholder="Search retailer or shop name, district..." value="${AppUtils.escapeHtml(AppState.partySearchQuery)}" oninput="AppState.partySearchQuery=this.value;WorkspaceParties.render();" />
+          <input type="text" class="search-input" placeholder="Search retailer name, shop or district..." value="${AppUtils.escapeHtml(AppState.partySearchQuery)}" oninput="AppState.partySearchQuery=this.value;WorkspaceParties.render();" />
         </div>
         <div style="display:flex;align-items:center;gap:0.75rem;">
           <span class="table-stats-badge">
-            ${parties.length} Retailers • ${AppUtils.formatNumber(totalCases)} Total Cases • ${AppUtils.formatCurrencyINR(totalMRP, true)}
+            ${parties.length} Retailers • ${AppUtils.formatNumber(totalCases)} cs • ${AppUtils.formatCurrencyINR(totalMRP, true)}
           </span>
         </div>
       </div>
     `;
 
+    // Mobile Cards View (< 768px)
+    const mobileCardsHTML = `
+      <div class="mobile-cards-view">
+        ${parties.length === 0 ? `
+          <div style="text-align:center;padding:3rem 1rem;color:var(--text-muted);">No retailers found matching search</div>
+        ` : parties.map(p => {
+          const tot = (p.dispatched_cases || 0) || 1;
+          const beerPct = Math.round(((p.beer_cases || 0) / tot) * 100);
+          const imflPct = Math.round(((p.imfl_cases || 0) / tot) * 100);
+          const csPct = Math.round(((p.cs_cases || 0) / tot) * 100);
+
+          return `
+            <div class="mobile-entity-card" onclick="window.inspectParty('${encodeURIComponent(p.name)}')">
+              <div class="mobile-card-header">
+                <div class="mobile-card-title-wrap">
+                  <div class="mobile-card-title">${AppUtils.escapeHtml(p.name)}</div>
+                  <div class="mobile-card-meta">
+                    <span class="pack-pill">${AppUtils.escapeHtml(p.district || 'Assam')}</span>
+                    <span class="mobile-card-share">${p.indent_count} indents</span>
+                  </div>
+                </div>
+                <div class="mobile-card-stat">
+                  <div class="mobile-stat-primary">${AppUtils.formatNumber(p.dispatched_cases)} cs</div>
+                  <div class="mobile-stat-secondary">${AppUtils.formatCurrencyINR(p.mrp, true)}</div>
+                </div>
+              </div>
+
+              <!-- Proportional Category Mix Mini-Bar -->
+              <div class="proportional-bar-container" style="height:4px;margin:0.5rem 0;">
+                <div class="bar-seg seg-beer" style="width:${beerPct}%;"></div>
+                <div class="bar-seg seg-imfl" style="width:${imflPct}%;"></div>
+                <div class="bar-seg seg-cs" style="width:${csPct}%;"></div>
+              </div>
+
+              <div class="mobile-card-metrics-grid">
+                <div>
+                  <span class="m-metric-label">Pending</span>
+                  <span class="m-metric-val" style="${p.pending_cases > 0 ? 'color:var(--status-warning);font-weight:700;' : ''}">${p.pending_cases > 0 ? AppUtils.formatNumber(p.pending_cases) + ' cs' : '—'}</span>
+                </div>
+                <div>
+                  <span class="m-metric-label">Last Order</span>
+                  <span class="m-metric-val">${AppUtils.escapeHtml(p.last_order_date || '—')}</span>
+                </div>
+                <div>
+                  <span class="m-metric-label">Status</span>
+                  <span class="m-metric-val">${p.cadence_status === 'regular' ? 'Regular' : 'Active'}</span>
+                </div>
+              </div>
+
+              ${(p.brands_bought && p.brands_bought.length > 0) ? `
+                <div style="margin-top:0.6rem;padding-top:0.5rem;border-top:1px solid var(--border-hairline);">
+                  <div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Top Brands:</div>
+                  <div class="pack-pill-group">
+                    ${p.brands_bought.slice(0, 3).map(b => `
+                      <span class="pack-pill" style="font-size:0.725rem;">${AppUtils.escapeHtml(b.name)} (${AppUtils.formatNumber(b.cases, 0)}cs)</span>
+                    `).join('')}
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+
+    // Desktop Data Table View (>= 768px)
     const tableHTML = `
-      <div class="data-table-container">
+      <div class="data-table-container desktop-table-view">
         <div class="data-table-wrapper">
           <table class="data-table">
             <thead>
               <tr>
-                <th style="width:40px;">#</th>
-                <th>Licensee / Retail Shop Name</th>
+                <th style="width:36px;">#</th>
+                <th class="th-sortable" onclick="WorkspaceParties.setSort('name')">
+                  Licensee / Retail Shop Name ${this.renderSortIndicator('name')}
+                </th>
                 <th>District</th>
-                <th style="text-align:right;">Dispatched (cs)</th>
-                <th style="text-align:right;">Pending in Bond</th>
-                <th style="text-align:right;">Beer</th>
-                <th style="text-align:right;">IMFL</th>
-                <th style="text-align:right;">CS</th>
-                <th style="text-align:right;">Total Turnover (₹)</th>
-                <th style="text-align:center;">Cadence</th>
-                <th>Last Order</th>
+                <th class="th-sortable" style="text-align:right;" onclick="WorkspaceParties.setSort('dispatched_cases')">
+                  Dispatched (cs) ${this.renderSortIndicator('dispatched_cases')}
+                </th>
+                <th style="text-align:center;width:140px;">Category Mix</th>
+                <th class="th-sortable" style="text-align:right;" onclick="WorkspaceParties.setSort('pending_cases')">
+                  Pending in Bond ${this.renderSortIndicator('pending_cases')}
+                </th>
+                <th class="th-sortable" style="text-align:right;" onclick="WorkspaceParties.setSort('mrp')">
+                  Total Turnover (₹) ${this.renderSortIndicator('mrp')}
+                </th>
+                <th class="th-sortable" style="text-align:center;" onclick="WorkspaceParties.setSort('last_order_date')">
+                  Cadence & Last Order ${this.renderSortIndicator('last_order_date')}
+                </th>
                 <th>Top Brands Bought</th>
               </tr>
             </thead>
             <tbody>
               ${parties.length === 0 ? `
-                <tr><td colspan="12" style="text-align:center;padding:3rem;color:var(--text-muted);">No retailers found matching search</td></tr>
+                <tr><td colspan="9" style="text-align:center;padding:3.5rem;color:var(--text-muted);">No retailers found matching search</td></tr>
               ` : parties.map((p, idx) => {
-                const brandsBoughtPills = (p.brands_bought || []).map(b =>
-                  `<span class="pack-pill" title="${b.name}: ${AppUtils.formatNumber(b.cases)} cs">${AppUtils.escapeHtml(b.name.split(' ')[0])} (${AppUtils.formatNumber(b.cases, 0)}cs)</span>`
+                const tot = (p.dispatched_cases || 0) || 1;
+                const beerPct = Math.round(((p.beer_cases || 0) / tot) * 100);
+                const imflPct = Math.round(((p.imfl_cases || 0) / tot) * 100);
+                const csPct = Math.round(((p.cs_cases || 0) / tot) * 100);
+
+                const topBrandsList = (p.brands_bought || []).slice(0, 2).map(b =>
+                  `<span class="pack-pill" title="${b.name}: ${AppUtils.formatNumber(b.cases)} cs">${AppUtils.escapeHtml(b.name)} (${AppUtils.formatNumber(b.cases, 0)}cs)</span>`
                 ).join('');
 
                 let cadenceBadge = `<span class="party-cadence-badge cadence-active">Active</span>`;
                 if (p.cadence_status === 'regular') {
-                  cadenceBadge = `<span class="party-cadence-badge cadence-regular">🟢 Regular</span>`;
+                  cadenceBadge = `<span class="party-cadence-badge cadence-regular">Regular</span>`;
                 } else if (p.cadence_status === 'dormant') {
-                  cadenceBadge = `<span class="party-cadence-badge cadence-dormant">⚪ Dormant</span>`;
+                  cadenceBadge = `<span class="party-cadence-badge cadence-dormant">Dormant</span>`;
                 }
 
                 return `
-                  <tr>
+                  <tr style="cursor:pointer;" onclick="window.inspectParty('${encodeURIComponent(p.name)}')">
                     <td class="num-tabular" style="color:var(--text-muted);font-size:0.75rem;">${idx + 1}</td>
-                    <td style="font-weight:700;">
-                      <a href="#" onclick="window.inspectParty('${encodeURIComponent(p.name)}');return false;" style="color:var(--text-primary);text-decoration:underline;">
+                    <td style="font-weight:600;">
+                      <a href="#" onclick="event.stopPropagation();window.inspectParty('${encodeURIComponent(p.name)}');return false;" class="table-entity-link">
                         ${AppUtils.escapeHtml(p.name)}
                       </a>
                     </td>
-                    <td><span class="pack-pill">${AppUtils.escapeHtml(p.district || 'ASSAM')}</span></td>
-                    <td class="cell-num" style="text-align:right;font-weight:700;font-size:0.95rem;">
+                    <td><span class="pack-pill">${AppUtils.escapeHtml(p.district || 'Assam')}</span></td>
+                    <td class="cell-num" style="text-align:right;font-weight:700;">
                       ${AppUtils.formatNumber(p.dispatched_cases)}
+                    </td>
+                    <td>
+                      <div class="proportional-bar-container" style="height:5px;" title="Beer: ${AppUtils.formatNumber(p.beer_cases, 0)} cs (${beerPct}%) | IMFL: ${AppUtils.formatNumber(p.imfl_cases, 0)} cs (${imflPct}%) | CS: ${AppUtils.formatNumber(p.cs_cases, 0)} cs (${csPct}%)">
+                        <div class="bar-seg seg-beer" style="width:${beerPct}%;"></div>
+                        <div class="bar-seg seg-imfl" style="width:${imflPct}%;"></div>
+                        <div class="bar-seg seg-cs" style="width:${csPct}%;"></div>
+                      </div>
                     </td>
                     <td class="cell-num" style="text-align:right;color:${p.pending_cases > 0 ? 'var(--status-warning)' : 'var(--text-muted)'};font-weight:${p.pending_cases > 0 ? '700' : '400'};">
                       ${p.pending_cases > 0 ? AppUtils.formatNumber(p.pending_cases) + ' cs' : '—'}
                     </td>
-                    <td class="cell-num" style="text-align:right;color:var(--brand-beer);">${AppUtils.formatNumber(p.beer_cases, 0)}</td>
-                    <td class="cell-num" style="text-align:right;color:var(--brand-imfl);">${AppUtils.formatNumber(p.imfl_cases, 0)}</td>
-                    <td class="cell-num" style="text-align:right;color:var(--brand-cs);">${AppUtils.formatNumber(p.cs_cases, 0)}</td>
                     <td class="cell-num" style="text-align:right;font-weight:700;color:var(--accent-amber);">
                       ${AppUtils.formatCurrencyINR(p.mrp)}
                     </td>
-                    <td style="text-align:center;">${cadenceBadge}</td>
-                    <td class="num-tabular" style="font-size:0.8rem;color:var(--text-secondary);white-space:nowrap;">
-                      ${AppUtils.escapeHtml(p.last_order_date || '—')}
+                    <td style="text-align:center;">
+                      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+                        ${cadenceBadge}
+                        <span class="num-tabular" style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;">
+                          ${AppUtils.escapeHtml(p.last_order_date || '—')}
+                        </span>
+                      </div>
                     </td>
                     <td>
-                      <div class="pack-pill-group">${brandsBoughtPills || '—'}</div>
+                      <div class="pack-pill-group">${topBrandsList || '—'}</div>
                     </td>
                   </tr>
                 `;
               }).join('')}
             </tbody>
             <tfoot>
-              <tr style="background:var(--bg-elevated);font-weight:700;border-top:2px solid var(--border-strong);">
-                <td colspan="3" style="text-align:right;text-transform:uppercase;color:var(--text-muted);">
+              <tr style="background:var(--bg-elevated);font-weight:700;border-top:1px solid var(--border-strong);">
+                <td colspan="3" style="text-align:right;text-transform:uppercase;font-size:0.75rem;color:var(--text-muted);">
                   Totals (${parties.length} Retailers):
                 </td>
                 <td class="cell-num" style="text-align:right;">${AppUtils.formatNumber(totalCases)}</td>
-                <td colspan="4"></td>
+                <td></td>
+                <td class="cell-num" style="text-align:right;color:var(--status-warning);">${AppUtils.formatNumber(totalPending)}</td>
                 <td class="cell-num" style="text-align:right;color:var(--accent-amber);">${AppUtils.formatCurrencyINR(totalMRP)}</td>
-                <td colspan="3"></td>
+                <td colspan="2"></td>
               </tr>
             </tfoot>
           </table>
@@ -124,7 +246,7 @@ const WorkspaceParties = {
       </div>
     `;
 
-    container.innerHTML = toolbarHTML + tableHTML;
+    container.innerHTML = toolbarHTML + mobileCardsHTML + tableHTML;
   }
 };
 

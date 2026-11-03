@@ -1,16 +1,17 @@
 /**
  * PermTrack Enterprise — Reusable High-Precision UI Components
+ * Quiet Luxury & Calm Executive Polish
  */
 const AppComponents = {
   renderCategoryBadge(category) {
     const cat = String(category || 'IMFL').toUpperCase();
     if (cat === 'BEER') {
-      return `<span class="cat-badge cat-beer">🍺 BEER</span>`;
+      return `<span class="cat-badge cat-beer"><span class="cat-dot dot-beer"></span>Beer</span>`;
     }
     if (cat === 'CS') {
-      return `<span class="cat-badge cat-cs">🍶 CS</span>`;
+      return `<span class="cat-badge cat-cs"><span class="cat-dot dot-cs"></span>CS</span>`;
     }
-    return `<span class="cat-badge cat-imfl">🥃 IMFL</span>`;
+    return `<span class="cat-badge cat-imfl"><span class="cat-dot dot-imfl"></span>IMFL</span>`;
   },
 
   renderDeltaBadge(pct, label = 'vs prior') {
@@ -19,10 +20,10 @@ const AppComponents = {
     }
     const val = Number(pct);
     if (val > 0) {
-      return `<span class="kpi-delta-badge delta-up" title="${label}">▲ +${val.toFixed(1)}%</span>`;
+      return `<span class="kpi-delta-badge delta-up" title="${label}">+${val.toFixed(1)}%</span>`;
     }
     if (val < 0) {
-      return `<span class="kpi-delta-badge delta-down" title="${label}">▼ ${val.toFixed(1)}%</span>`;
+      return `<span class="kpi-delta-badge delta-down" title="${label}">${val.toFixed(1)}%</span>`;
     }
     return `<span class="kpi-delta-badge delta-neutral" title="${label}">0.0%</span>`;
   },
@@ -30,18 +31,18 @@ const AppComponents = {
   renderAgingBadge(days) {
     const d = parseInt(days || 0, 10);
     if (d <= 0) {
-      return `<span class="aging-badge aging-today">🟢 Fresh (0d)</span>`;
+      return `<span class="aging-badge aging-today"><span class="status-dot dot-success"></span>Today</span>`;
     }
     if (d === 1) {
-      return `<span class="aging-badge aging-yesterday">🟡 +1d Yesterday</span>`;
+      return `<span class="aging-badge aging-yesterday"><span class="status-dot dot-warning"></span>Yesterday</span>`;
     }
-    return `<span class="aging-badge aging-critical">🔴 +${d}d Carry-Over</span>`;
+    return `<span class="aging-badge aging-critical"><span class="status-dot dot-danger"></span>+${d}d Aging</span>`;
   },
 
   /**
    * Generates a lightweight inline SVG sparkline
    */
-  renderSparklineSVG(dataArray, width = 90, height = 24, strokeColor = 'var(--accent-amber)') {
+  renderSparklineSVG(dataArray, width = 84, height = 20, strokeColor = 'var(--accent-amber)') {
     if (!dataArray || dataArray.length < 2) {
       return `<span style="color:var(--text-muted);font-size:0.75rem;">—</span>`;
     }
@@ -60,13 +61,14 @@ const AppComponents = {
 
     return `
       <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="overflow:visible;vertical-align:middle;">
-        <polyline fill="none" stroke="${strokeColor}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" points="${points}" />
+        <polyline fill="none" stroke="${strokeColor}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" points="${points}" />
       </svg>
     `;
   },
 
   /**
    * Renders high-precision SVG stacked bar & trend line timeline chart
+   * with custom floating HTML tooltip on hover and click-to-drill
    */
   renderTimelineChartSVG(dailySeries, onDayClickFnName = 'window.handleDayClick') {
     if (!dailySeries || dailySeries.length === 0) {
@@ -111,10 +113,23 @@ const AppComponents = {
 
       const rx = cx - barWidth / 2;
 
+      const tooltipData = JSON.stringify({
+        date: d.date_str,
+        day: d.day,
+        total: AppUtils.formatNumber(bTotal),
+        beer: AppUtils.formatNumber(bBeer),
+        imfl: AppUtils.formatNumber(bImfl),
+        cs: AppUtils.formatNumber(bCs),
+        mrp: AppUtils.formatCurrencyINR(d.mrp, true)
+      }).replace(/"/g, '&quot;');
+
       // Bar Segments (Bottom: CS, Mid: IMFL, Top: Beer)
       barsSVG += `
-        <g class="chart-day-group" style="cursor:pointer;" onclick="${onDayClickFnName}('${d.date_key}')">
-          <title>${d.date_str} (${d.day})\nTotal: ${AppUtils.formatNumber(bTotal)} cs\nBeer: ${AppUtils.formatNumber(bBeer)} cs\nIMFL: ${AppUtils.formatNumber(bImfl)} cs\nCS: ${AppUtils.formatNumber(bCs)} cs\nMRP: ${AppUtils.formatCurrencyINR(d.mrp)}</title>
+        <g class="chart-day-group" style="cursor:pointer;" 
+           data-tooltip="${tooltipData}"
+           onmouseenter="AppComponents.showChartTooltip(event, this)"
+           onmouseleave="AppComponents.hideChartTooltip()"
+           onclick="${onDayClickFnName}('${d.date_key}')">
           <!-- Background hover hit target -->
           <rect x="${cx - stepX/2}" y="${padT}" width="${stepX}" height="${chartH}" fill="transparent" class="chart-hit-area" />
           ${hCs > 0 ? `<rect x="${rx}" y="${yCs}" width="${barWidth}" height="${hCs}" fill="var(--brand-cs)" opacity="0.85" rx="1"/>` : ''}
@@ -135,7 +150,7 @@ const AppComponents = {
     const mrpPolyline = mrpPoints.join(' ');
 
     return `
-      <div style="position:relative;width:100%;overflow-x:auto;">
+      <div style="position:relative;width:100%;overflow-x:auto;" id="timeline-chart-wrapper">
         <svg viewBox="0 0 ${w} ${h}" style="width:100%;min-width:600px;height:auto;display:block;">
           <!-- Grid lines -->
           <line x1="${padL}" y1="${padT}" x2="${w - padR}" y2="${padT}" stroke="var(--border-hairline)" stroke-dasharray="3,3" />
@@ -146,20 +161,57 @@ const AppComponents = {
           ${barsSVG}
 
           <!-- MRP Trend Line -->
-          <polyline fill="none" stroke="var(--accent-amber)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${mrpPolyline}" style="filter:drop-shadow(0 2px 4px rgba(245,158,11,0.3));" />
+          <polyline fill="none" stroke="var(--accent-amber)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" points="${mrpPolyline}" />
           ${dailySeries.map((d, idx) => {
             const [x, y] = mrpPoints[idx].split(',');
-            return `<circle cx="${x}" cy="${y}" r="3" fill="#090B10" stroke="var(--accent-amber)" stroke-width="2" />`;
+            return `<circle cx="${x}" cy="${y}" r="3" fill="#090B10" stroke="var(--accent-amber)" stroke-width="1.8" />`;
           }).join('')}
         </svg>
+        <div id="chart-floating-tooltip" class="chart-floating-tooltip"></div>
       </div>
-      <div style="display:flex;align-items:center;justify-content:center;gap:1.5rem;margin-top:0.5rem;font-size:0.75rem;color:var(--text-secondary);">
-        <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--brand-beer);border-radius:2px;"></span>Beer Cases</span>
-        <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--brand-imfl);border-radius:2px;"></span>IMFL Cases</span>
-        <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--brand-cs);border-radius:2px;"></span>CS Cases</span>
-        <span style="display:flex;align-items:center;gap:4px;"><span style="width:16px;height:2px;background:var(--accent-amber);"></span>MRP Trend</span>
+      <div style="display:flex;align-items:center;justify-content:center;gap:1.5rem;margin-top:0.6rem;font-size:0.75rem;color:var(--text-secondary);">
+        <span style="display:flex;align-items:center;gap:5px;"><span class="cat-dot dot-beer"></span>Beer</span>
+        <span style="display:flex;align-items:center;gap:5px;"><span class="cat-dot dot-imfl"></span>IMFL</span>
+        <span style="display:flex;align-items:center;gap:5px;"><span class="cat-dot dot-cs"></span>CS</span>
+        <span style="display:flex;align-items:center;gap:5px;"><span style="width:14px;height:2px;background:var(--accent-amber);display:inline-block;border-radius:1px;"></span>MRP Trend</span>
       </div>
     `;
+  },
+
+  showChartTooltip(event, el) {
+    const raw = el.getAttribute('data-tooltip');
+    if (!raw) return;
+    try {
+      const data = JSON.parse(raw);
+      const tip = document.getElementById('chart-floating-tooltip');
+      if (!tip) return;
+      tip.innerHTML = `
+        <div style="font-weight:700;color:var(--text-primary);margin-bottom:3px;">${data.date} <span style="font-weight:400;color:var(--text-muted);">(${data.day})</span></div>
+        <div style="display:flex;justify-content:space-between;gap:12px;color:var(--text-secondary);font-size:0.75rem;">
+          <span>Total Dispatched:</span><strong style="color:var(--text-primary);">${data.total} cs</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:12px;font-size:0.75rem;margin-top:2px;">
+          <span><span class="cat-dot dot-beer"></span> ${data.beer} cs</span>
+          <span><span class="cat-dot dot-imfl"></span> ${data.imfl} cs</span>
+          <span><span class="cat-dot dot-cs"></span> ${data.cs} cs</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:12px;margin-top:4px;padding-top:4px;border-top:1px solid var(--border-hairline);color:var(--accent-amber);font-size:0.75rem;font-weight:700;">
+          <span>Turnover (MRP):</span><span>${data.mrp}</span>
+        </div>
+      `;
+      tip.style.display = 'block';
+
+      const rect = el.getBoundingClientRect();
+      const wrapRect = document.getElementById('timeline-chart-wrapper').getBoundingClientRect();
+      const left = rect.left - wrapRect.left + (rect.width / 2) - 80;
+      tip.style.left = Math.max(10, Math.min(wrapRect.width - 180, left)) + 'px';
+      tip.style.top = '15px';
+    } catch (e) {}
+  },
+
+  hideChartTooltip() {
+    const tip = document.getElementById('chart-floating-tooltip');
+    if (tip) tip.style.display = 'none';
   }
 };
 

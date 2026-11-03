@@ -53,7 +53,7 @@ const AppExports = {
 
     text += `\n_Generated via PermTrack Enterprise Revenue Terminal_`;
 
-    AppUtils.copyToClipboard(text, '📲 WhatsApp digest copied to clipboard!');
+    AppUtils.copyToClipboard(text, 'WhatsApp digest copied to clipboard');
   },
 
   /**

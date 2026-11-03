@@ -1,5 +1,6 @@
 /**
  * PermTrack Enterprise — Main Application Coordinator & Event Router
+ * Minimal, Calm, Executive Precision Architecture
  */
 (function() {
   window.addEventListener('DOMContentLoaded', async () => {
@@ -9,11 +10,14 @@
     // 2. Check Auth Status
     await checkInitialAuth();
 
-    // 3. Bind Keyboard Shortcuts
-    bindKeyboardShortcuts();
+    // 3. Bind Global Shortcuts & Document Listeners
+    bindGlobalListeners();
 
     // 4. Initial Data Load
     await refreshCurrentHorizon();
+
+    // 5. Connect Scraper Live WebSocket in Background
+    initScraperWebSocket();
   });
 
   function initTheme() {
@@ -29,14 +33,20 @@
     localStorage.setItem('permtrack_theme', next);
     document.documentElement.setAttribute('data-theme', next);
     updateThemeToggleIcon();
-    AppUtils.showToast(`Switched to ${next === 'dark' ? 'Obsidian & Amber (Dark)' : 'Warm Alabaster (Light)'} theme`, 'info');
+    AppUtils.showToast(`Switched to ${next === 'dark' ? 'Obsidian Reserve (Dark)' : 'Warm Alabaster (Light)'}`, 'info');
   };
 
   function updateThemeToggleIcon() {
     const btn = document.getElementById('theme-toggle-btn');
-    if (btn) {
-      btn.innerHTML = AppState.theme === 'dark' ? '☀️' : '🌙';
-      btn.title = `Switch to ${AppState.theme === 'dark' ? 'Light' : 'Dark'} mode`;
+    if (!btn) return;
+    if (AppState.theme === 'dark') {
+      // Sun icon
+      btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`;
+      btn.title = 'Switch to Light Theme';
+    } else {
+      // Moon icon
+      btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
+      btn.title = 'Switch to Dark Theme';
     }
   }
 
@@ -58,7 +68,7 @@
     if (el && AppState.user) {
       el.innerHTML = `
         <span style="font-weight:600;font-size:0.8rem;color:var(--text-primary);">${AppUtils.escapeHtml(AppState.user.name || AppState.user.username)}</span>
-        <button onclick="handleLogout()" style="margin-left:6px;font-size:0.75rem;color:var(--text-muted);text-decoration:underline;">Logout</button>
+        <button onclick="handleLogout()" style="margin-left:8px;font-size:0.75rem;color:var(--text-muted);text-decoration:underline;">Logout</button>
       `;
     }
   }
@@ -74,7 +84,7 @@
       await AppAPI.login(u, p);
       showAuthModal(false);
       updateUserBadge();
-      AppUtils.showToast('Authentication successful!', 'success');
+      AppUtils.showToast('Terminal session authorized', 'success');
       await refreshCurrentHorizon();
     } catch (err) {
       if (errEl) errEl.innerText = err.message || 'Login failed';
@@ -96,12 +106,9 @@
   /**
    * Main Horizon Loader & Workspace Synchronizer
    */
-  window.refreshCurrentHorizon = async function(showLoadingToast = true) {
-    if (showLoadingToast) {
-      // Small status indicator
-      const ind = document.getElementById('sync-status-indicator');
-      if (ind) ind.innerText = 'Syncing...';
-    }
+  window.refreshCurrentHorizon = async function(showLoadingToast = false) {
+    const ind = document.getElementById('sync-status-indicator');
+    if (ind) ind.innerText = 'Syncing...';
 
     try {
       const data = await AppAPI.fetchMovementAnalytics(
@@ -111,17 +118,23 @@
         AppState.customEndDate
       );
 
+      // Store available dates list
+      if (data.available_dates && Array.isArray(data.available_dates)) {
+        AppState.availableDates = data.available_dates;
+      }
+
       // Synchronize Header Time-Horizon Bar
       renderHeaderHorizonBar(data.horizon);
 
       // Render Active Workspace
       renderActiveWorkspace();
 
-      const ind = document.getElementById('sync-status-indicator');
-      if (ind) ind.innerText = 'Live (Synced)';
+      if (ind) ind.innerText = 'Live';
+      if (showLoadingToast) {
+        AppUtils.showToast('Data refreshed successfully', 'success');
+      }
     } catch (e) {
       console.error('Failed to refresh horizon:', e);
-      const ind = document.getElementById('sync-status-indicator');
       if (ind) ind.innerText = 'Offline';
     }
   };
@@ -138,41 +151,82 @@
     // Update stepper label
     const labelEl = document.getElementById('stepper-current-label');
     if (labelEl) {
-      labelEl.innerText = horizon.display_label;
+      labelEl.innerText = horizon.display_label || 'Current Period';
     }
   }
 
   window.setHorizonMode = function(mode) {
     AppState.horizonMode = mode;
+    // When switching to 'day', reset anchorDate back to latest date
+    if (mode === 'day') {
+      AppState.anchorDate = null;
+    }
     window.refreshCurrentHorizon();
   };
 
-  window.stepDay = function(direction) {
+  /**
+   * Smart Period Stepping
+   * Day: 1 Day back/forward
+   * Week: 7 Days back/forward
+   * Month: 1 Calendar Month back/forward
+   * Range: Shift range by its span
+   */
+  window.stepPeriod = function(direction) {
     const data = AppState.movementData;
     if (!data || !data.horizon) return;
-    const avail = AppState.availableDates || [];
-    const curKey = data.horizon.start_date_key;
+    const h = data.horizon;
+    const mode = AppState.horizonMode;
 
-    let targetDateKey = null;
-    const curIdx = avail.indexOf(curKey);
-    if (curIdx !== -1) {
-      const nextIdx = curIdx + direction;
-      if (nextIdx >= 0 && nextIdx < avail.length) {
-        targetDateKey = avail[nextIdx];
+    if (mode === 'day') {
+      const avail = AppState.availableDates || [];
+      const curKey = h.start_date_key;
+      let targetDateKey = null;
+
+      const curIdx = avail.indexOf(curKey);
+      if (curIdx !== -1) {
+        const nextIdx = curIdx + direction;
+        if (nextIdx >= 0 && nextIdx < avail.length) {
+          targetDateKey = avail[nextIdx];
+        }
+      }
+
+      if (!targetDateKey) {
+        const dt = new Date(h.start_date);
+        dt.setDate(dt.getDate() + direction);
+        targetDateKey = dt.toISOString().slice(0, 10);
+      } else {
+        targetDateKey = AppUtils.formatDateKeyToInput(targetDateKey);
+      }
+
+      AppState.anchorDate = targetDateKey;
+      window.refreshCurrentHorizon();
+    } else if (mode === 'week') {
+      // Step anchor date by 7 days
+      const baseStr = AppState.anchorDate || h.end_date || h.start_date;
+      const dt = new Date(baseStr);
+      dt.setDate(dt.getDate() + (direction * 7));
+      AppState.anchorDate = dt.toISOString().slice(0, 10);
+      window.refreshCurrentHorizon();
+    } else if (mode === 'month') {
+      // Step anchor date by 1 calendar month
+      const baseStr = AppState.anchorDate || h.start_date;
+      const dt = new Date(baseStr);
+      dt.setDate(1); // Set to 1st of month
+      dt.setMonth(dt.getMonth() + direction);
+      AppState.anchorDate = dt.toISOString().slice(0, 10);
+      window.refreshCurrentHorizon();
+    } else if (mode === 'range') {
+      if (h.start_date && h.end_date) {
+        const dt1 = new Date(h.start_date);
+        const dt2 = new Date(h.end_date);
+        const diffDays = Math.max(1, Math.round((dt2 - dt1) / (1000 * 60 * 60 * 24))) * direction;
+        dt1.setDate(dt1.getDate() + diffDays);
+        dt2.setDate(dt2.getDate() + diffDays);
+        AppState.customStartDate = dt1.toISOString().slice(0, 10);
+        AppState.customEndDate = dt2.toISOString().slice(0, 10);
+        window.refreshCurrentHorizon();
       }
     }
-
-    if (!targetDateKey) {
-      // Fallback calculation using Date math
-      const dt = new Date(data.horizon.start_date);
-      dt.setDate(dt.getDate() + direction);
-      targetDateKey = dt.toISOString().slice(0, 10);
-    } else {
-      targetDateKey = AppUtils.formatDateKeyToInput(targetDateKey);
-    }
-
-    AppState.anchorDate = targetDateKey;
-    window.refreshCurrentHorizon();
   };
 
   window.handleDayClick = function(dateKey) {
@@ -181,6 +235,241 @@
     window.refreshCurrentHorizon();
   };
 
+  /**
+   * Intuitive Period Picker Popover
+   */
+  window.openPeriodPicker = function() {
+    const modal = document.getElementById('period-picker-modal');
+    const body = document.getElementById('period-picker-body');
+    if (!modal || !body) return;
+
+    const mode = AppState.horizonMode;
+    const avail = AppState.availableDates || [];
+    const curDateKey = (AppState.movementData && AppState.movementData.horizon) ? AppState.movementData.horizon.start_date_key : '';
+
+    if (mode === 'day') {
+      const recentDates = avail.slice(-6).reverse();
+      body.innerHTML = `
+        <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:1rem;">Select an operating day to inspect:</div>
+        
+        <div style="margin-bottom:1rem;">
+          <label style="font-size:0.75rem;text-transform:uppercase;color:var(--text-muted);font-weight:600;display:block;margin-bottom:4px;">Direct Date</label>
+          <input type="date" id="single-date-picker-input" class="search-input" value="${AppUtils.formatDateKeyToInput(curDateKey)}" />
+        </div>
+
+        <div style="margin-bottom:1.25rem;">
+          <div style="font-size:0.75rem;text-transform:uppercase;color:var(--text-muted);font-weight:600;margin-bottom:6px;">Recent Active Days</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            <button class="action-btn" style="padding:4px 8px;font-size:0.775rem;" onclick="setSpecificDate(null)">
+              Latest Today
+            </button>
+            ${recentDates.map(dk => `
+              <button class="action-btn ${dk === curDateKey ? 'active' : ''}" style="padding:4px 8px;font-size:0.775rem;" onclick="setSpecificDate('${dk}')">
+                ${AppUtils.formatDateKeyToDisplay(dk)}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:0.5rem;">
+          <button class="action-btn" onclick="closePeriodPicker()">Cancel</button>
+          <button class="action-btn" style="background:var(--accent-amber);color:#090B10;font-weight:700;" onclick="applySingleDateInput()">Apply Date</button>
+        </div>
+      `;
+    } else if (mode === 'month') {
+      const months = [
+        { label: 'November 2026', key: '2026-11-01' },
+        { label: 'October 2026', key: '2026-10-01' },
+        { label: 'September 2026', key: '2026-09-01' },
+        { label: 'August 2026', key: '2026-08-01' }
+      ];
+
+      body.innerHTML = `
+        <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:1rem;">Select a monthly billing cycle:</div>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:1.25rem;">
+          ${months.map(m => `
+            <button class="action-btn" style="justify-content:flex-start;padding:8px 12px;font-size:0.85rem;" onclick="setSpecificMonth('${m.key}')">
+              ${m.label}
+            </button>
+          `).join('')}
+        </div>
+        <div style="display:flex;justify-content:flex-end;">
+          <button class="action-btn" onclick="closePeriodPicker()">Cancel</button>
+        </div>
+      `;
+    } else {
+      closePeriodPicker();
+      openDateRangeModal();
+      return;
+    }
+
+    modal.classList.add('open');
+  };
+
+  window.closePeriodPicker = function() {
+    const modal = document.getElementById('period-picker-modal');
+    if (modal) modal.classList.remove('open');
+  };
+
+  window.setSpecificDate = function(dateKey) {
+    AppState.horizonMode = 'day';
+    AppState.anchorDate = dateKey ? AppUtils.formatDateKeyToInput(dateKey) : null;
+    closePeriodPicker();
+    window.refreshCurrentHorizon();
+  };
+
+  window.setSpecificMonth = function(monthDateStr) {
+    AppState.horizonMode = 'month';
+    AppState.anchorDate = monthDateStr;
+    closePeriodPicker();
+    window.refreshCurrentHorizon();
+  };
+
+  window.applySingleDateInput = function() {
+    const inp = document.getElementById('single-date-picker-input');
+    if (!inp || !inp.value) return;
+    AppState.horizonMode = 'day';
+    AppState.anchorDate = inp.value;
+    closePeriodPicker();
+    window.refreshCurrentHorizon();
+  };
+
+  /**
+   * Custom Range Modal
+   */
+  window.openDateRangeModal = function() {
+    const modal = document.getElementById('custom-range-modal');
+    const startInp = document.getElementById('range-modal-start');
+    const endInp = document.getElementById('range-modal-end');
+    if (modal) {
+      if (AppState.movementData && AppState.movementData.horizon) {
+        const h = AppState.movementData.horizon;
+        if (startInp) startInp.value = h.start_date || '';
+        if (endInp) endInp.value = h.end_date || '';
+      }
+      modal.classList.add('open');
+    }
+  };
+
+  window.closeDateRangeModal = function() {
+    const modal = document.getElementById('custom-range-modal');
+    if (modal) modal.classList.remove('open');
+  };
+
+  window.applyDateRangeModal = function() {
+    const s = document.getElementById('range-modal-start').value;
+    const e = document.getElementById('range-modal-end').value;
+    if (!s || !e) {
+      AppUtils.showToast('Please select both start and end date', 'warning');
+      return;
+    }
+    AppState.horizonMode = 'range';
+    AppState.customStartDate = s;
+    AppState.customEndDate = e;
+    closeDateRangeModal();
+    window.refreshCurrentHorizon();
+  };
+
+  /**
+   * Export Dropdown
+   */
+  window.toggleExportDropdown = function(e) {
+    if (e) e.stopPropagation();
+    const menu = document.getElementById('export-dropdown-menu');
+    if (menu) menu.classList.toggle('open');
+  };
+
+  window.closeExportDropdown = function() {
+    const menu = document.getElementById('export-dropdown-menu');
+    if (menu) menu.classList.remove('open');
+  };
+
+  /**
+   * Scraper Live Sync Modal & WebSocket
+   */
+  window.openSyncModal = function() {
+    const modal = document.getElementById('sync-modal');
+    if (modal) {
+      modal.classList.add('open');
+      updateModalLogs();
+    }
+  };
+
+  window.closeSyncModal = function() {
+    const modal = document.getElementById('sync-modal');
+    if (modal) modal.classList.remove('open');
+  };
+
+  window.triggerSyncNowFromModal = async function() {
+    try {
+      AppUtils.showToast('Triggering background scraper sync...', 'info');
+      await AppAPI.triggerScraper();
+      appendScraperLog('🚀 Scraper job triggered from executive console.\nStreaming live feed...\n');
+    } catch (e) {
+      AppUtils.showToast('Failed to trigger sync: ' + e.message, 'danger');
+    }
+  };
+
+  window.promptBackfillFromModal = async function() {
+    const cur = (AppState.movementData && AppState.movementData.horizon) ? AppUtils.formatDateKeyToDisplay(AppState.movementData.horizon.start_date_key) : '';
+    const dateInput = prompt('Enter backfill date (DD-MM-YYYY format):', cur || '02-11-2026');
+    if (!dateInput) return;
+
+    try {
+      AppUtils.showToast(`Dispatching cloud backfill for ${dateInput}...`, 'info');
+      await AppAPI.triggerScraper(dateInput, 'BOTH', false, 7);
+      appendScraperLog(`🚀 Cloud backfill dispatched for ${dateInput}.\n`);
+    } catch (e) {
+      AppUtils.showToast('Failed: ' + e.message, 'danger');
+    }
+  };
+
+  function updateModalLogs() {
+    const logBox = document.getElementById('sync-modal-logs');
+    if (logBox) {
+      logBox.innerText = AppState.scraperLogs.length > 0
+        ? AppState.scraperLogs.join('\n')
+        : 'Terminal standby. Ready for sync trigger or real-time log streaming.';
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+  }
+
+  function appendScraperLog(line) {
+    AppState.scraperLogs.push(line);
+    if (AppState.scraperLogs.length > 500) {
+      AppState.scraperLogs.shift();
+    }
+    updateModalLogs();
+  }
+
+  function initScraperWebSocket() {
+    try {
+      const loc = window.location;
+      const wsProto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${wsProto}//${loc.host}/ws/run`;
+      const ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        AppState.scraperWs = ws;
+      };
+
+      ws.onmessage = (event) => {
+        appendScraperLog(event.data);
+        if (event.data.includes('COMPLETED') || event.data.includes('Webhook response received')) {
+          window.refreshCurrentHorizon(false);
+        }
+      };
+
+      ws.onerror = () => {};
+      ws.onclose = () => {
+        setTimeout(initScraperWebSocket, 10000);
+      };
+    } catch (e) {}
+  }
+
+  /**
+   * Category Filter Handler
+   */
   window.setCategoryFilter = function(cat) {
     AppState.categoryFilter = cat;
     document.querySelectorAll('.chip-btn').forEach(b => {
@@ -189,6 +478,9 @@
     renderActiveWorkspace();
   };
 
+  /**
+   * Workspace Switcher
+   */
   window.switchWorkspace = function(ws) {
     AppState.activeWorkspace = ws;
     syncWorkspaceTabs();
@@ -198,17 +490,17 @@
   window.syncWorkspaceTabs = function() {
     const ws = AppState.activeWorkspace;
 
-    // Desktop Tabs
-    document.querySelectorAll('.workspace-tab').forEach(t => {
+    // Desktop Nav Tabs
+    document.querySelectorAll('.desktop-workspace-nav .nav-tab-btn').forEach(t => {
       t.classList.toggle('active', t.getAttribute('data-ws') === ws);
     });
 
-    // Mobile Bottom Nav Tabs
-    document.querySelectorAll('.mobile-nav-item').forEach(m => {
+    // Mobile Bottom Nav Items
+    document.querySelectorAll('.mobile-bottom-nav .mobile-nav-item').forEach(m => {
       m.classList.toggle('active', m.getAttribute('data-ws') === ws);
     });
 
-    // Workspace Views
+    // Workspace Content Views
     document.querySelectorAll('.workspace-view').forEach(v => {
       v.classList.toggle('active', v.id === `workspace-${ws}-content`);
     });
@@ -223,6 +515,8 @@
     else if (ws === 'godown') WorkspaceGodown.render();
   }
 
+  window.renderActiveWorkspace = renderActiveWorkspace;
+
   /**
    * Inspector Drawers (Permit, Party, Brand)
    */
@@ -236,7 +530,6 @@
     AppState.drawerItem = g;
     AppState.drawerType = 'permit';
 
-    const drawer = document.getElementById('slide-drawer');
     const titleEl = document.getElementById('drawer-title');
     const subEl = document.getElementById('drawer-subtitle');
     const bodyEl = document.getElementById('drawer-body');
@@ -261,13 +554,13 @@
 
       <div style="display:flex;gap:0.5rem;margin-bottom:1.5rem;">
         <button class="action-btn" onclick="AppUtils.copyToClipboard('${AppUtils.escapeHtml(g.permitNumber)}', 'Copied Permit #')">
-          📋 Copy Permit #
+          Copy Permit #
         </button>
         <button class="action-btn" onclick="AppUtils.copyToClipboard('${AppUtils.escapeHtml(g.vehicleNumber)}', 'Copied Vehicle #')">
-          🚚 Copy Vehicle #
+          Copy Vehicle #
         </button>
         <button class="action-btn" onclick="window.print();">
-          🖨️ Print Slip
+          Print Slip
         </button>
       </div>
 
@@ -295,7 +588,7 @@
             `).join('')}
           </tbody>
           <tfoot>
-            <tr style="font-weight:700;border-top:2px solid var(--border-strong);">
+            <tr style="font-weight:700;border-top:1px solid var(--border-strong);">
               <td colspan="2">Total Value</td>
               <td class="cell-num" style="text-align:right;">${AppUtils.formatNumber(g.totalCases, 0)}</td>
               <td class="cell-num" style="text-align:right;">${AppUtils.formatInteger(g.totalBottles)}</td>
@@ -413,20 +706,27 @@
   };
 
   /**
-   * Keyboard Shortcuts
+   * Keyboard Shortcuts & Document Click Listeners
    */
-  function bindKeyboardShortcuts() {
+  function bindGlobalListeners() {
+    // Close export dropdown on click outside
+    document.addEventListener('click', (e) => {
+      const dropWrap = document.getElementById('export-dropdown-wrapper');
+      if (dropWrap && !dropWrap.contains(e.target)) {
+        closeExportDropdown();
+      }
+    });
+
     window.addEventListener('keydown', (e) => {
-      // Ignore if inside an input or textarea
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) {
         if (e.key === 'Escape') e.target.blur();
         return;
       }
 
       if (e.key === '[') {
-        window.stepDay(-1);
+        window.stepPeriod(-1);
       } else if (e.key === ']') {
-        window.stepDay(1);
+        window.stepPeriod(1);
       } else if (e.key.toLowerCase() === 'd') {
         window.setHorizonMode('day');
       } else if (e.key.toLowerCase() === 'w') {
@@ -442,6 +742,10 @@
         if (searchInput) searchInput.focus();
       } else if (e.key === 'Escape') {
         window.openDrawer(false);
+        window.closePeriodPicker();
+        window.closeDateRangeModal();
+        window.closeSyncModal();
+        window.closeExportDropdown();
       }
     });
   }

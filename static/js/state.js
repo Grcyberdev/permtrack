@@ -37,6 +37,14 @@ const AppState = {
   drawerItem: null,
   drawerType: null, // 'permit' | 'party' | 'brand'
 
+  // Sorting state for tables
+  productSortCol: 'dispatched_cases',
+  productSortDir: 'desc',
+  indentSortCol: 'challanDate',
+  indentSortDir: 'desc',
+  partySortCol: 'dispatched_cases',
+  partySortDir: 'desc',
+
   // Godown Edit state
   godownReconMap: {}, // normalized 'YYYYMMDD' -> { godown_cases, updated_at, updated_by }
 
