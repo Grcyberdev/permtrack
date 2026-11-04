@@ -199,10 +199,6 @@ def purge_all_modals(driver):
                     el.setAttribute('aria-hidden', 'true');
                 } catch(e) {}
             });
-            // Clear modal table contents so stale rows from previous permits cannot be read
-            document.querySelectorAll('.modal tbody, [role="dialog"] tbody, [class*="popup"] tbody').forEach(tb => {
-                try { tb.innerHTML = ''; } catch(e) {}
-            });
             // Clean up dark overlay backdrops
             document.querySelectorAll('.modal-backdrop, [class*="modal-backdrop"]').forEach(el => {
                 try { el.remove(); } catch(e) {}
@@ -215,20 +211,26 @@ def purge_all_modals(driver):
 
 def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=None, permit_num=None):
     """
-    Purges old modals, clicks target column link (e.g. Col 2 for Transport Permit or Col 1 for Indent),
-    waits for modal strictly matching indent_num or permit_num, and extracts individual brand lines AND official bottom 'Total' row.
+    Purges old modals, clicks target column link (e.g. Col 1 for Indent or Col 2 for Transport Permit),
+    waits for modal matching indent_num, permit_num, or visible active product table,
+    and extracts individual brand lines AND official bottom 'Total' row.
     Returns: (brand_lines, tot_cases, tot_bottles, success_bool)
     """
     purge_all_modals(driver)
     
+    # Build candidate column indices with target first, then standard alternatives
+    candidate_indices = []
+    if target_col_idx is not None:
+        candidate_indices.append(target_col_idx)
+    for alt_idx in [1, 2, 3]:
+        if alt_idx not in candidate_indices:
+            candidate_indices.append(alt_idx)
+            
     link_elem = None
-    candidate_indices = [target_col_idx] if target_col_idx is not None else [1, 2, 3]
     for idx in candidate_indices:
         if idx is not None and len(cols) > idx:
             try:
-                btns = cols[idx].find_elements(By.TAG_NAME, "a")
-                if not btns:
-                    btns = cols[idx].find_elements(By.XPATH, ".//button | .//span")
+                btns = cols[idx].find_elements(By.XPATH, ".//a | .//button | .//*[@onclick]")
                 if btns:
                     link_elem = btns[0]
                     break
@@ -251,7 +253,7 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=N
             driver.execute_script("arguments[0].click();", link_elem)
             time.sleep(1.0 + (attempt * 0.5))
             
-            for wait_step in range(8):
+            for wait_step in range(12):
                 all_modals = driver.find_elements(By.XPATH, "//div[contains(@class, 'modal') and (contains(@class, 'in') or contains(@class, 'show') or contains(@style, 'block') or contains(@style, 'display: block'))]")
                 if not all_modals:
                     all_modals = [m for m in driver.find_elements(By.XPATH, "//div[contains(@class, 'modal') or contains(@class, 'popup') or @role='dialog']") if m.is_displayed()]
@@ -259,7 +261,7 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=N
                 for m in reversed(all_modals):
                     try:
                         txt = m.get_attribute("innerText") or ""
-                        # Strict validation: modal MUST match this specific indent or permit number, or contain product table indicators
+                        # Primary: Check if modal contains indent_num or permit_num or digits
                         if indent_num and indent_num in txt:
                             modal_container = m
                             break
@@ -271,6 +273,13 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=N
                         if m_num and m_num.group(0) in txt:
                             modal_container = m
                             break
+                        # Secondary: If modal is actively displayed and contains product/brand table
+                        m_tables = m.find_elements(By.XPATH, ".//table")
+                        if m_tables:
+                            t_txt = m_tables[0].get_attribute("innerText").lower()
+                            if any(k in t_txt for k in ["brand", "product", "item", "cases", "bottles", "category"]):
+                                modal_container = m
+                                break
                     except: pass
                 if modal_container: break
                 time.sleep(0.4)
@@ -334,6 +343,11 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=N
                 col_bottles = 4
                 col_mrp = 6
                 
+                col_applied_c = None
+                col_applied_b = None
+                col_approved_c = None
+                col_approved_b = None
+                
                 for r in rows[:4]:
                     cells = r.find_elements(By.XPATH, ".//th | .//td")
                     texts = [c.get_attribute("innerText").strip().lower() for c in cells]
@@ -343,8 +357,16 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=N
                                 col_name = idx
                             elif any(k in t for k in ["size", "pack", "capacity", "ml"]):
                                 col_size = idx
-                            elif ("case" in t or "approved c" in t or "indent c" in t or "applied c" in t) and ("rate" not in t and "price" not in t and "mrp" not in t):
+                            elif any(k in t for k in ["approved c", "sanctioned c", "issued c"]) and ("rate" not in t and "price" not in t and "mrp" not in t):
+                                col_approved_c = idx
+                            elif any(k in t for k in ["applied c", "indent c", "req c", "requisition c", "order c"]) and ("rate" not in t and "price" not in t and "mrp" not in t):
+                                col_applied_c = idx
+                            elif ("case" in t) and ("rate" not in t and "price" not in t and "mrp" not in t):
                                 col_cases = idx
+                            elif any(k in t for k in ["approved b", "sanctioned b", "issued b"]):
+                                col_approved_b = idx
+                            elif any(k in t for k in ["applied b", "indent b", "req b", "requisition b", "order b"]):
+                                col_applied_b = idx
                             elif "bottle" in t:
                                 col_bottles = idx
                             elif any(k in t for k in ["mrp", "value", "amount", "price"]):
@@ -365,10 +387,13 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=N
                             num_match = re.search(r'\b\d+(?:\.\d+)?\b', c_text)
                             if num_match:
                                 val = int(float(num_match.group(0)))
-                                if c_idx == col_cases or (col_cases >= len(cols_r) and c_idx == 1):
+                                target_c_col = col_approved_c if col_approved_c is not None else (col_applied_c if col_applied_c is not None else col_cases)
+                                target_b_col = col_approved_b if col_approved_b is not None else (col_applied_b if col_applied_b is not None else col_bottles)
+                                
+                                if c_idx == target_c_col or (target_c_col >= len(cols_r) and c_idx == 1):
                                     tot_official_c = val
                                     found_total_row = True
-                                elif c_idx == col_bottles or (col_bottles >= len(cols_r) and c_idx == 2):
+                                elif c_idx == target_b_col or (target_b_col >= len(cols_r) and c_idx == 2):
                                     tot_official_b = val
                                     found_total_row = True
                         continue
@@ -382,10 +407,28 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=N
                         continue
                     
                     prod_size = cols_r[col_size].get_attribute("innerText").strip() if col_size < len(cols_r) else ""
-                    try: cases = int(float(cols_r[col_cases].get_attribute("innerText").strip().replace(',', '')))
-                    except: cases = 0
-                    try: bottles = int(float(cols_r[col_bottles].get_attribute("innerText").strip().replace(',', '')))
-                    except: bottles = 0
+                    
+                    # Extract cases: check approved first, fallback to applied, fallback to general case col
+                    cases = 0
+                    for c_check in [col_approved_c, col_applied_c, col_cases]:
+                        if c_check is not None and c_check < len(cols_r):
+                            try:
+                                val_c = int(float(cols_r[c_check].get_attribute("innerText").strip().replace(',', '')))
+                                if val_c > 0:
+                                    cases = val_c
+                                    break
+                            except: pass
+                            
+                    # Extract bottles: check approved first, fallback to applied, fallback to general bottle col
+                    bottles = 0
+                    for b_check in [col_approved_b, col_applied_b, col_bottles]:
+                        if b_check is not None and b_check < len(cols_r):
+                            try:
+                                val_b = int(float(cols_r[b_check].get_attribute("innerText").strip().replace(',', '')))
+                                if val_b > 0:
+                                    bottles = val_b
+                                    break
+                            except: pass
                     
                     # Guard: No genuine permit line exceeds 2000 cases (retailer codes are 2000000+)
                     if cases > 2000:
@@ -1024,7 +1067,49 @@ def close_modal(driver):
     purge_all_modals(driver)
     return True
 
-def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pending", lookback_days=7):
+def load_completed_cache(target_date, lookback_days=7):
+    """
+    Loads verified completed records from local backup JSON files or Fly server
+    so that already-scraped passes are not repeatedly re-downloaded over the proxy.
+    """
+    cache = {}
+    config_dir = automation_utils.get_data_dir()
+    for d_offset in range(lookback_days + 1):
+        dt = target_date - timedelta(days=d_offset)
+        d_str = dt.strftime("%Y%m%d")
+        fpath = os.path.join(config_dir, f"backup_permits_{d_str}_000000.json")
+        if os.path.exists(fpath):
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    recs = json.load(f)
+                for r in recs:
+                    if str(r.get("Status", "")).upper() == "COMPLETED" and r.get("Product Name"):
+                        ind = (r.get("Indent Number") or "").strip()
+                        pmt = (r.get("Permit Number") or "").strip()
+                        if ind: cache.setdefault(ind, []).append(r)
+                        if pmt: cache.setdefault(pmt, []).append(r)
+            except Exception: pass
+            
+    # If running on remote/ephemeral runner and FLY_APP_URL is available, fetch cache from Fly.io
+    fly_url = os.environ.get("FLY_APP_URL", "").rstrip("/")
+    webhook_sec = os.environ.get("WEBHOOK_SECRET") or os.environ.get("CRON_SECRET")
+    if fly_url and webhook_sec and len(cache) < 5:
+        try:
+            import requests
+            d_param = target_date.strftime("%d-%m-%Y")
+            res = requests.get(f"{fly_url}/api/backup/cached-indents", params={"date": d_param, "lookback_days": lookback_days, "secret": webhook_sec}, timeout=10)
+            if res.status_code == 200:
+                server_cache = res.json().get("cached_indents", {})
+                for k, v in server_cache.items():
+                    if k not in cache and v:
+                        cache[k] = v
+                print(f"📦 Pre-loaded {len(server_cache)} completed indent records from server cache.")
+        except Exception as e_fly:
+            print(f"ℹ️ Server cache fetch info: {e_fly}")
+            
+    return cache
+
+def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pending", lookback_days=7, completed_cache=None):
     """
     Scrapes permits from Stock Dispatch (Retailer Indent) page.
     For completed dispatches, extracts from both Form-34 (vehicle, challan date, licensee, BL/LPL)
@@ -1164,6 +1249,16 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                     is_completed = (status_filter == "Pass Issued")
                     
                     if is_completed:
+                        # ⚡ Fast cache check: If already scraped & verified in cache, skip browser tab cycle
+                        cache_k = (indent_num or "").strip()
+                        alt_k = (permit_num or "").strip()
+                        cached_items = (completed_cache or {}).get(cache_k) or (completed_cache or {}).get(alt_k)
+                        if cached_items and len(cached_items) > 0:
+                            if all(it.get("Product Name") and (it.get("Cases", 0) > 0 or it.get("Bottles", 0) > 0 or it.get("Total MRP", 0) > 0) for it in cached_items):
+                                print(f"   ⚡ [{i+1}/{num_rows}] Indent {indent_num or permit_num} cached ({len(cached_items)} SKUs). Skipping tab load.")
+                                results.extend(cached_items)
+                                continue
+
                         f34_lines, f34_c, f34_b, f34_veh, f34_date, f34_lic, f34_ok = [], 0, 0, "", "", "", False
                         try:
                             f34_lines, f34_c, f34_b, f34_veh, f34_date, f34_lic, f34_ok = open_and_parse_form34(driver, wait, indent_num, cols)
@@ -1510,7 +1605,7 @@ def ensure_active_proxy(force_refresh=False):
             
     return os.environ.get("INDIAN_PROXY")
 
-def run_scraper_for_credentials(username, password, target_date, bond_type, headless, lookback_days=7, dispatched_lookback=2):
+def run_scraper_for_credentials(username, password, target_date, bond_type, headless, lookback_days=7, dispatched_lookback=2, completed_cache=None):
     """Runs scraper for a single credential user with automatic proxy rotation and retry recovery on network drop."""
     print(f"\n🚀 Running scraper for {bond_type} ({username})...")
     
@@ -1540,7 +1635,7 @@ def run_scraper_for_credentials(username, password, target_date, bond_type, head
                 continue
                 
             p_recs, p_ok, p_errs = scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pending", lookback_days=lookback_days)
-            c_recs, c_ok, c_errs = scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pass Issued", lookback_days=dispatched_lookback)
+            c_recs, c_ok, c_errs = scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, status_filter="Pass Issued", lookback_days=dispatched_lookback, completed_cache=completed_cache)
             
             pending_records = p_recs
             completed_records = c_recs
@@ -1580,6 +1675,8 @@ def main():
     cs_user = config.get("CS_USERNAME")
     cs_pass = config.get("CS_PASSWORD")
     
+    completed_cache = load_completed_cache(target_date, lookback_days=args.lookback_days)
+    
     all_pending = []
     all_completed = []
     has_errors = False
@@ -1596,7 +1693,7 @@ def main():
         imfl_attempted = True
         if imfl_user and imfl_pass:
             ensure_active_proxy()
-            p, c, ok, errs = run_scraper_for_credentials(imfl_user, imfl_pass, target_date, "IMFL", args.headless, lookback_days=args.lookback_days, dispatched_lookback=args.dispatched_lookback)
+            p, c, ok, errs = run_scraper_for_credentials(imfl_user, imfl_pass, target_date, "IMFL", args.headless, lookback_days=args.lookback_days, dispatched_lookback=args.dispatched_lookback, completed_cache=completed_cache)
             all_pending.extend(p)
             all_completed.extend(c)
             total_extraction_errors += errs
@@ -1613,7 +1710,7 @@ def main():
         cs_attempted = True
         if cs_user and cs_pass:
             ensure_active_proxy()
-            p, c, ok, errs = run_scraper_for_credentials(cs_user, cs_pass, target_date, "CS", args.headless, lookback_days=args.lookback_days, dispatched_lookback=args.dispatched_lookback)
+            p, c, ok, errs = run_scraper_for_credentials(cs_user, cs_pass, target_date, "CS", args.headless, lookback_days=args.lookback_days, dispatched_lookback=args.dispatched_lookback, completed_cache=completed_cache)
             all_pending.extend(p)
             all_completed.extend(c)
             total_extraction_errors += errs

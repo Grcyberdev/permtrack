@@ -2354,6 +2354,41 @@ async def upload_results(request: Request):
         JOB_MANAGER.mark_completed(success=False, error=str(e))
         return JSONResponse(status_code=500, content={"error": f"Failed to save uploaded records: {str(e)}"})
 
+@app.get("/api/backup/cached-indents")
+async def get_cached_indents(request: Request, date: str = None, lookback_days: int = 7, secret: str = None):
+    """
+    Returns verified completed indent records for fast incremental scraping.
+    Allows remote and cloud scrapers to skip already-scraped Form-34 passes.
+    """
+    expected_secret = (os.environ.get("WEBHOOK_SECRET") or os.environ.get("CRON_SECRET") or "").strip()
+    provided_secret = (secret or request.query_params.get("secret") or request.headers.get("x-cron-secret") or "").strip()
+    if not expected_secret or provided_secret != expected_secret:
+        return JSONResponse(status_code=403, content={"error": "Invalid authorization"})
+        
+    config_dir = automation_utils.get_data_dir()
+    target_dt = parse_date_str(date) if date else get_now_ist()
+    if not target_dt:
+        target_dt = get_now_ist()
+        
+    cache = {}
+    for d_offset in range(min(lookback_days + 1, 14)):
+        dt = target_dt - timedelta(days=d_offset)
+        d_str = dt.strftime("%Y%m%d")
+        fpath = os.path.join(config_dir, f"backup_permits_{d_str}_000000.json")
+        if os.path.exists(fpath):
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    recs = json.load(f)
+                for r in recs:
+                    if str(r.get("Status", "")).upper() == "COMPLETED" and r.get("Product Name"):
+                        ind = (r.get("Indent Number") or "").strip()
+                        pmt = (r.get("Permit Number") or "").strip()
+                        if ind: cache.setdefault(ind, []).append(r)
+                        if pmt: cache.setdefault(pmt, []).append(r)
+            except Exception: pass
+            
+    return JSONResponse(content={"status": "success", "cached_indents": cache})
+
 # -------------------------------------------------------------
 # Persistent Scraper Job Manager
 # -------------------------------------------------------------
