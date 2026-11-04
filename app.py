@@ -792,21 +792,46 @@ def find_prev_operating_date(sorted_available_dates: List[str], before_key: str,
 def get_product_category(item: Dict[str, Any]) -> str:
     """
     Canonical liquor category classification preserving exact rules.
+    Strictly partitions:
+    1. Country Spirit (CS): Bond Type CS, or containing Country, Masti, Rhino, or verified CS balance.
+    2. Beer: Explicit BEER in product name or category, or known beer/RTD brands (Breezer, Tuborg, etc.).
+       Spirits containing substrings (e.g. 'Calenter' matching 'ale', 'Jameson Stout Edition') are protected via spirit boundaries.
+    3. IMFL: All other distilled spirits (Whiskies, Rums, Vodkas, Brandies, Gins, Wines).
     """
-    b = (item.get("Bond Type") or "").upper()
-    c = (item.get("Category") or "").upper()
-    p = (item.get("Product Name") or "").upper()
-    if b == "CS" or "COUNTRY" in c or "MASTI" in p or "CS " in p:
+    b = (item.get("Bond Type") or "").upper().strip()
+    c = (item.get("Category") or "").upper().strip()
+    p = (item.get("Product Name") or "").upper().strip()
+
+    # 1. Country Spirit (CS)
+    if b == "CS" or "COUNTRY" in c or "MASTI" in p or "CS " in p or "RHINO" in p or "VERIFIED DISPATCH BALANCE" in p:
         return "CS"
-    beer_keywords = ["BEER", "DRAUGHT", "LAGER", "ALE", "STOUT", "PILSNER", "CIDER", "WHEAT",
-                     "BIRA", "KINGFISHER", "TUBORG", "CARLSBERG", "BUDWEISER", "HE-MAN",
-                     "GODFATHER", "SIMBA", "CORONA", "HEINEKEN", "FOSTERS", "BREEZER",
-                     "BACARDI BREEZER", "HAYWARDS 5000", "KNOCK OUT", "KALYANI", "BLACK FORT",
-                     "ROYAL CHALLENGE BEER", "STERREN", "HUNTER", "BROCODE", "WHITE RHINO",
-                     "LONE WOLF", "SIX FIELDS", "MACH 11", "HOEGAARDEN", "STELLA", "MILLER",
-                     "SUPER STRONG BEER", "PREMIUM LAGER"]
+
+    # 2. Explicit Beer indicator in name or excise category
+    if "BEER" in p or "BEER" in c:
+        return "BEER"
+
+    # 3. Guard against spirit names that contain beer substrings (e.g. CALENTER matching ALE, JAMESON STOUT EDITION)
+    spirit_keywords = ["RUM", "WHISKY", "WHISKEY", "VODKA", "BRANDY", "GIN", "TEQUILA", "LIQUEUR", "WINE"]
+    if any(re.search(r'\b' + sk + r'\b', p) for sk in spirit_keywords):
+        return "IMFL"
+
+    # 4. Known Beer & RTD brands
+    beer_keywords = [
+        "DRAUGHT", "LAGER", "PILSNER", "CIDER", "WHEAT BEER",
+        "BIRA", "KINGFISHER", "TUBORG", "CARLSBERG", "BUDWEISER", "HE-MAN",
+        "GODFATHER", "SIMBA", "CORONA", "HEINEKEN", "FOSTERS", "FOSTER`S", "BREEZER",
+        "BACARDI BREEZER", "HAYWARDS 5000", "KNOCK OUT", "KALYANI", "BLACK FORT",
+        "STERREN", "HUNTER", "BROCODE", "WHITE RHINO",
+        "LONE WOLF", "SIX FIELDS", "MACH 11", "HOEGAARDEN", "STELLA", "MILLER",
+        "PREMIUM LAGER"
+    ]
     if any(k in c or k in p for k in beer_keywords):
         return "BEER"
+
+    # 5. Short beer words using strict word boundaries (\bALE\b, \bSTOUT\b)
+    if re.search(r'\b(ALE|STOUT)\b', p) or re.search(r'\b(ALE|STOUT)\b', c):
+        return "BEER"
+
     return "IMFL"
 
 @app.get("/api/godown/monthly-summary")

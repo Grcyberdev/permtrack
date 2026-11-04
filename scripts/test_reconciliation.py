@@ -5,6 +5,7 @@ from datetime import datetime
 
 # Add scripts directory
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from reconciler import reconcile_permits, get_reconciliation_summary
 
 def test_reconciliation():
@@ -212,6 +213,29 @@ def test_ghost_line_pruning():
     assert "180/48" in [r["Pack Size"] for r in cleaned]
     print("✅ test_ghost_line_pruning passed!")
 
+def test_product_categorization():
+    from app import get_product_category
+    # Calenter Premium Rum must be IMFL, not BEER (not matched by 'ALE')
+    assert get_product_category({"Product Name": "CALENTER PREMIUM RUM"}) == "IMFL"
+    # Jameson Irish Whiskey Caskmates must be IMFL, not BEER (not matched by 'STOUT')
+    assert get_product_category({"Product Name": "JAMESON IRISH WHISKEY CASKMATES (STOUT EDITION)"}) == "IMFL"
+    # Old Monk Beer must be BEER
+    assert get_product_category({"Product Name": "OLD MONK THE ORIGINAL PLATINUM STRONG BEER"}) == "BEER"
+    # Standard beers
+    assert get_product_category({"Product Name": "KINGFISHER ORIGINAL STRONG BEER"}) == "BEER"
+    assert get_product_category({"Product Name": "BUDWEISER MAGNUM BEER"}) == "BEER"
+    assert get_product_category({"Product Name": "TUBORG STRONG BEER"}) == "BEER"
+    assert get_product_category({"Product Name": "BREEZER PREMIUM DELUXE TASTY BLUEBERRY"}) == "BEER"
+    assert get_product_category({"Product Name": "HOEGAARDEN WITBIER"}) == "BEER"
+    # Country Spirit
+    assert get_product_category({"Product Name": "MASTI"}) == "CS"
+    assert get_product_category({"Product Name": "RHINO NO 1"}) == "CS"
+    assert get_product_category({"Bond Type": "CS", "Product Name": "SPECIAL"}) == "CS"
+    # Standard IMFL
+    assert get_product_category({"Product Name": "AFTER DARK BLUE RARE GRAIN WHISKY"}) == "IMFL"
+    assert get_product_category({"Product Name": "AC BLACK LUXURY PURE GRAIN WHISKY"}) == "IMFL"
+    print("✅ test_product_categorization passed!")
+
 if __name__ == "__main__":
     test_reconciliation()
     test_no_pending_completed_overlap()
@@ -220,3 +244,4 @@ if __name__ == "__main__":
     test_empty_ghost_row_dropped()
     test_pack_size_normalization()
     test_ghost_line_pruning()
+    test_product_categorization()
