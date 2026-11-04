@@ -1654,6 +1654,38 @@ def run_scraper_for_credentials(username, password, target_date, bond_type, head
         
     return pending_records, completed_records, overall_success, total_extraction_errors
 
+def upload_results_to_server(reconciled_records, target_date, has_errors=False, failed_bonds=None):
+    """Pushes verified scraped records to Fly.io live dashboard."""
+    fly_app_url = os.environ.get("FLY_APP_URL")
+    webhook_secret = os.environ.get("WEBHOOK_SECRET") or os.environ.get("CRON_SECRET")
+    date_str = target_date.strftime("%d-%b-%Y")
+    
+    if fly_app_url and webhook_secret:
+        if not fly_app_url.startswith("http"):
+            fly_app_url = f"https://{fly_app_url}"
+        endpoint = f"{fly_app_url.rstrip('/')}/api/upload-results"
+        
+        for attempt in range(1, 4):
+            try:
+                print(f"📡 Pushing reconciled records to Fly.io dashboard (Attempt {attempt}/3)...")
+                resp = requests.post(endpoint, json={
+                    "secret": webhook_secret,
+                    "date": date_str,
+                    "records": reconciled_records,
+                    "has_errors": has_errors,
+                    "failed_bonds": failed_bonds or []
+                }, timeout=120)
+                if resp.status_code == 200:
+                    print(f"✅ Reconciled records pushed to dashboard successfully! Server response: {resp.json()}")
+                    return True
+                else:
+                    print(f"⚠️ Webhook push returned status {resp.status_code}: {resp.text}")
+            except Exception as e_webhook:
+                print(f"⚠️ Webhook push attempt {attempt} failed: {e_webhook}")
+                if attempt < 3:
+                    time.sleep(5 * attempt)
+    return False
+
 def main():
     args = parse_args()
     
@@ -1868,39 +1900,7 @@ def main():
     except Exception as e_cross:
         print(f"⚠️ Cross-day backfill error: {e_cross}")
         
-    fly_app_url = os.environ.get("FLY_APP_URL")
-    webhook_secret = os.environ.get("WEBHOOK_SECRET")
-    
-    if fly_app_url and webhook_secret:
-        print(f"\n📡 Pushing reconciled records to Fly.io dashboard ({fly_app_url})...")
-        if not fly_app_url.startswith("http"):
-            fly_app_url = f"https://{fly_app_url}"
-        endpoint = f"{fly_app_url.rstrip('/')}/api/upload-results"
-        
-        # Robust webhook push with 120s timeout and retry guard
-        pushed_ok = False
-        for attempt in range(1, 4):
-            try:
-                print(f"📡 Pushing reconciled records to Fly.io dashboard (Attempt {attempt}/3)...")
-                resp = requests.post(endpoint, json={
-                    "secret": webhook_secret,
-                    "date": date_str,
-                    "records": reconciled_records,
-                    "has_errors": has_errors,
-                    "failed_bonds": failed_bonds
-                }, timeout=120)
-                if resp.status_code == 200:
-                    print(f"✅ Reconciled records pushed to dashboard successfully! Server response: {resp.json()}")
-                    pushed_ok = True
-                    break
-                else:
-                    print(f"⚠️ Webhook push returned status {resp.status_code}: {resp.text}")
-            except Exception as e_webhook:
-                print(f"⚠️ Webhook push attempt {attempt} failed: {e_webhook}")
-                if attempt < 3:
-                    time.sleep(5 * attempt)
-        if not pushed_ok:
-            print("❌ All webhook push attempts failed.")
+    upload_results_to_server(reconciled_records, target_date=target_date, has_errors=has_errors, failed_bonds=failed_bonds)
             
     if has_errors and not args.allow_partial:
         err_details = []
