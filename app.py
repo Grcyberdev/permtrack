@@ -25,6 +25,7 @@ from pdf_report import generate_report_pdf
 from reconciler import (
     reconcile_permits,
     clean_permit_records,
+    normalize_pack_size,
     get_reconciliation_summary,
     parse_date_str,
     get_unique_permit_key,
@@ -1665,7 +1666,7 @@ async def get_movement_analytics(
             bm["daily_cases"][eff_k] += tot_eq
 
         # Pack breakdown under brand
-        s_clean = f"{pack_size} ML" if pack_size.isdigit() else pack_size
+        s_clean = normalize_pack_size(pack_size, rec.get("Size"))
         if s_clean not in bm["pack_breakdown"]:
             bm["pack_breakdown"][s_clean] = {"cases": 0.0, "bottles": 0, "mrp": 0.0}
         bm["pack_breakdown"][s_clean]["cases"] += tot_eq
@@ -1799,7 +1800,7 @@ async def get_movement_analytics(
         party_map[p_name]["indent_count"] += 1
 
         # Warehouse pick-list aggregation
-        s_clean = f"{pack_size} ML" if pack_size.isdigit() else pack_size
+        s_clean = normalize_pack_size(pack_size, prec.get("Size"))
         pick_k = (b_name, s_clean, cat)
         if pick_k not in pending_pick_dict:
             pending_pick_dict[pick_k] = {

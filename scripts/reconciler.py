@@ -461,12 +461,44 @@ def backfill_missing_mrps(records: List[Dict[str, Any]], sku_rates: Dict[str, fl
                 
     return records
 
+def normalize_pack_size(pack_size: Any, size_val: Any = None) -> str:
+    """
+    Standardizes pack size to canonical Assam excise format: '{vol_ml}/{bottles_per_case}'.
+    Examples:
+      '375', '375 ML', '375/24' -> '375/24'
+      '750', '750 ML', '750/12' -> '750/12'
+      '180', '180 ML', '180/48' -> '180/48'
+      '650', '650 ML', '650/12' -> '650/12'
+      '500', '500 ML', '500/24' -> '500/24'
+    Preserves explicit non-standard packaging like '700/6', '250/36', '300/40', '600/20'.
+    """
+    p_str = str(pack_size or size_val or "").strip()
+    if "/" in p_str:
+        return p_str
+    import re
+    try:
+        from automation_utils import get_bottles_per_case
+    except ImportError:
+        try:
+            from scripts.automation_utils import get_bottles_per_case
+        except ImportError:
+            def get_bottles_per_case(sz, ps=None, *args, **kwargs):
+                return 24 if sz == 375 else (12 if sz >= 600 else (48 if sz == 180 else 12))
+    m = re.findall(r'\d+', p_str)
+    if m:
+        vol = int(m[0])
+        bpc = get_bottles_per_case(vol, p_str)
+        return f"{vol}/{bpc}"
+    return p_str or "Unknown"
+
 def clean_permit_records(records: List[Dict[str, Any]], config_dir: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Cleans up permit records:
     1. Removes corrupted lines (Product Name starting with PER/IND, Cases > 2000, etc.)
     2. Deduplicates multiple lines within the same indent that represent the same SKU.
     3. Merges metadata (MRP, Licensee, Vehicle) across duplicate lines.
+    4. Prunes stale modal ghost lines that lack Licensee Name when genuine Form-34 records exist.
+    5. Normalizes Pack Size to canonical format ({size}/{bpc}).
     """
     if not records:
         return []
@@ -517,6 +549,13 @@ def clean_permit_records(records: List[Dict[str, Any]], config_dir: Optional[str
                     cleaned.append(it)
             continue
             
+        # Ghost injection guard for completed items: If genuine Form-34 records exist for this indent
+        # (having Licensee Name and valid Pack Size with '/'), prune any orphaned lines that lack
+        # Licensee Name and valid Pack Size (injected from stale modal leaks).
+        has_genuine_f34 = any(it.get("Licensee Name") and it.get("Pack Size") and "/" in str(it.get("Pack Size")) for it in items)
+        if has_genuine_f34:
+            items = [it for it in items if not (not it.get("Licensee Name") and (not it.get("Pack Size") or "/" not in str(it.get("Pack Size"))))]
+
         # For completed items, deduplicate true duplicate scrapes by (normalized_brand, normalized_size)
         sku_groups = defaultdict(list)
         for it in items:
@@ -550,6 +589,9 @@ def clean_permit_records(records: List[Dict[str, Any]], config_dir: Optional[str
     if config_dir:
         sku_rates = build_historical_sku_rates(config_dir)
         cleaned = backfill_missing_mrps(cleaned, sku_rates)
+
+    for r in cleaned:
+        r["Pack Size"] = normalize_pack_size(r.get("Pack Size"), r.get("Size"))
         
     return cleaned
 

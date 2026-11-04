@@ -153,9 +153,70 @@ def test_empty_ghost_row_dropped():
     assert "IND_VALID" in iids, "Valid pending record should be retained"
     print("✅ test_empty_ghost_row_dropped passed!")
 
+def test_pack_size_normalization():
+    from reconciler import normalize_pack_size
+    assert normalize_pack_size("375") == "375/24"
+    assert normalize_pack_size("375 ML") == "375/24"
+    assert normalize_pack_size("375/24") == "375/24"
+    assert normalize_pack_size("750") == "750/12"
+    assert normalize_pack_size("750 ML") == "750/12"
+    assert normalize_pack_size("180") == "180/48"
+    assert normalize_pack_size("650") == "650/12"
+    assert normalize_pack_size("500") == "500/24"
+    assert normalize_pack_size("700/6") == "700/6"
+    assert normalize_pack_size("250/36") == "250/36"
+    assert normalize_pack_size("600/20") == "600/20"
+    print("✅ test_pack_size_normalization passed!")
+
+def test_ghost_line_pruning():
+    from reconciler import clean_permit_records
+    # Simulate an indent with genuine Form-34 records and injected modal ghost lines
+    records = [
+        {
+            "Indent Number": "IND_JOGOMAYA",
+            "Permit Number": "PER1015302112601461",
+            "Licensee Name": "JOGOMAYA HATIKAKOTY SONS",
+            "Status": "COMPLETED",
+            "Product Name": "MCDOWELL'S NO.1 RESERVE WHISKY",
+            "Pack Size": "180/48",
+            "Cases": 5,
+            "Bottles": 0,
+        },
+        {
+            "Indent Number": "IND_JOGOMAYA",
+            "Permit Number": "PER1015302112601461",
+            "Licensee Name": "JOGOMAYA HATIKAKOTY SONS",
+            "Status": "COMPLETED",
+            "Product Name": "OFFICER'S CHOICE PREMIUM WHISKY",
+            "Pack Size": "750/12",
+            "Cases": 1,
+            "Bottles": 0,
+        },
+        # Injected ghost line lacking Licensee Name and valid Pack Size
+        {
+            "Indent Number": "IND_JOGOMAYA",
+            "Permit Number": "PER1015302112601461",
+            "Licensee Name": "",
+            "Status": "COMPLETED",
+            "Product Name": "AFTER DARK BLUE RARE GRAIN WHISKY",
+            "Pack Size": "",
+            "Size": "750",
+            "Cases": 1,
+            "Bottles": 0,
+        }
+    ]
+    cleaned = clean_permit_records(records)
+    assert len(cleaned) == 2, f"Ghost line must be pruned, expected 2 items, got {len(cleaned)}"
+    prod_names = [r["Product Name"] for r in cleaned]
+    assert "AFTER DARK BLUE RARE GRAIN WHISKY" not in prod_names, "Ghost line must not be present in cleaned records"
+    assert "180/48" in [r["Pack Size"] for r in cleaned]
+    print("✅ test_ghost_line_pruning passed!")
+
 if __name__ == "__main__":
     test_reconciliation()
     test_no_pending_completed_overlap()
     test_brand_variant_separation()
     test_historical_completed_indent_purges_pending()
     test_empty_ghost_row_dropped()
+    test_pack_size_normalization()
+    test_ghost_line_pruning()

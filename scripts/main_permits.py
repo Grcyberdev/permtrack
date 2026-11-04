@@ -199,6 +199,10 @@ def purge_all_modals(driver):
                     el.setAttribute('aria-hidden', 'true');
                 } catch(e) {}
             });
+            // Clear modal table contents so stale rows from previous permits cannot be read
+            document.querySelectorAll('.modal tbody, [role="dialog"] tbody, [class*="popup"] tbody').forEach(tb => {
+                try { tb.innerHTML = ''; } catch(e) {}
+            });
             // Clean up dark overlay backdrops
             document.querySelectorAll('.modal-backdrop, [class*="modal-backdrop"]').forEach(el => {
                 try { el.remove(); } catch(e) {}
@@ -265,9 +269,6 @@ def open_and_parse_strict_modal(driver, wait, indent_num, cols, target_col_idx=N
                         import re
                         m_num = re.search(r'\d{5,}', indent_num) if indent_num else None
                         if m_num and m_num.group(0) in txt:
-                            modal_container = m
-                            break
-                        if any(k in txt.lower() for k in ["brand name", "product name", "item name", "brand code", "cases", "bottles", "pack size"]):
                             modal_container = m
                             break
                     except: pass
@@ -888,8 +889,8 @@ def merge_brand_data(f34_lines, modal_lines):
                 except:
                     bl = 0.0
                     
-                m_copy["Category"] = m_copy.get("Category", "Beer" if "BEER" in m_copy.get("Product Name", "").upper() else "IMFL")
-                m_copy["Pack Size"] = m_copy.get("Pack Size", f"{size_ml}/{b_per_cs}")
+                m_copy["Category"] = m_copy.get("Category") or ("Beer" if "BEER" in m_copy.get("Product Name", "").upper() else "IMFL")
+                m_copy["Pack Size"] = m_copy.get("Pack Size") or f"{size_ml}/{b_per_cs}"
                 m_copy["Bulk Litres"] = bl
                 m_copy["LPL"] = bl * 0.75
                 merged_lines.append(m_copy)
@@ -1182,23 +1183,15 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                         # not approved transport pass dispatches. Form-34 is the single source of truth.
                             
                         if f34_ok and modal_ok and m_cases > 0:
-                            # Primary source of truth for volume is Column 2 Transport Permit modal (official excise database record)
-                            # Form-34 provides physical challan metadata (Vehicle No, Challan Date, Licensee Name, BL, LPL)
-                            if (f34_c > 0 and (abs(f34_c - 2 * m_cases) <= 2 or abs(f34_c - 3 * m_cases) <= 2)):
-                                print(f"   ⚖️ [Duplicate Copy Guard] Form-34 ({f34_c} cs) doubled vs Transport Permit ({m_cases} cs). Using official {m_cases} cs.")
-                                tot_cases = m_cases
-                                tot_bottles = m_bottles
-                            else:
-                                tot_cases = m_cases if m_cases > 0 else f34_c
-                                tot_bottles = m_bottles if m_bottles > 0 else f34_b
-                                
+                            # Primary source of truth for physical dispatch is Form-34 (official excise pass printed for the bond)
+                            # Modal provides Total MRP and pricing values
+                            tot_cases = f34_c
+                            tot_bottles = f34_b
                             brand_lines = merge_brand_data(f34_lines, modal_lines)
                             vehicle_no = f34_veh
                             challan_date = f34_date
                             licensee_name = f34_lic
                             extract_success = True
-                            if abs(f34_c - m_cases) > 0.01:
-                                print(f"   ⚖️ [Dual Verify] Form-34 ({f34_c} cs) vs Transport Permit Col 2 ({m_cases} cs) -> Verified to {tot_cases} cs.")
                         elif f34_ok:
                             brand_lines = f34_lines
                             tot_cases = f34_c
@@ -1215,9 +1208,9 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                         else:
                             extract_success = False
                             
-                        # Portal backup recheck trigger if line items sum is less than official cases
+                        # Portal backup recheck trigger ONLY if Form-34 was not available and line items sum is less than official cases
                         calc_c = sum(b.get("Cases", 0) for b in brand_lines)
-                        if tot_cases > 0 and (tot_cases - calc_c) > 0.01:
+                        if not f34_ok and tot_cases > 0 and (tot_cases - calc_c) > 0.01:
                             brand_lines, tot_cases, tot_bottles = recheck_permit_from_portal(
                                 driver, wait, indent_num, cols, brand_lines, tot_cases, tot_bottles
                             )
