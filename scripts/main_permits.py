@@ -1787,20 +1787,30 @@ def main():
             fly_app_url = f"https://{fly_app_url}"
         endpoint = f"{fly_app_url.rstrip('/')}/api/upload-results"
         
-        try:
-            resp = requests.post(endpoint, json={
-                "secret": webhook_secret,
-                "date": date_str,
-                "records": reconciled_records,
-                "has_errors": has_errors,
-                "failed_bonds": failed_bonds
-            }, timeout=30)
-            if resp.status_code == 200:
-                print(f"✅ Reconciled records pushed to dashboard successfully! Server response: {resp.json()}")
-            else:
-                print(f"⚠️ Webhook push returned status {resp.status_code}: {resp.text}")
-        except Exception as e_webhook:
-            print(f"⚠️ Webhook push failed: {e_webhook}")
+        # Robust webhook push with 120s timeout and retry guard
+        pushed_ok = False
+        for attempt in range(1, 4):
+            try:
+                print(f"📡 Pushing reconciled records to Fly.io dashboard (Attempt {attempt}/3)...")
+                resp = requests.post(endpoint, json={
+                    "secret": webhook_secret,
+                    "date": date_str,
+                    "records": reconciled_records,
+                    "has_errors": has_errors,
+                    "failed_bonds": failed_bonds
+                }, timeout=120)
+                if resp.status_code == 200:
+                    print(f"✅ Reconciled records pushed to dashboard successfully! Server response: {resp.json()}")
+                    pushed_ok = True
+                    break
+                else:
+                    print(f"⚠️ Webhook push returned status {resp.status_code}: {resp.text}")
+            except Exception as e_webhook:
+                print(f"⚠️ Webhook push attempt {attempt} failed: {e_webhook}")
+                if attempt < 3:
+                    time.sleep(5 * attempt)
+        if not pushed_ok:
+            print("❌ All webhook push attempts failed.")
             
     if has_errors and not args.allow_partial:
         err_details = []
