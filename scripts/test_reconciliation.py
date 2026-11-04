@@ -236,6 +236,116 @@ def test_product_categorization():
     assert get_product_category({"Product Name": "AC BLACK LUXURY PURE GRAIN WHISKY"}) == "IMFL"
     print("✅ test_product_categorization passed!")
 
+def test_monotonic_completed_preservation():
+    from reconciler import get_unique_indent_id, get_unique_permit_key, clean_permit_records
+    
+    # Simulate run 1 with 2 verified completed SKUs (total 15 cases)
+    run1_records = [
+        {
+            "Date": "04-Nov-2026",
+            "Bond Type": "IMFL",
+            "Indent Number": "IND_TEST_01",
+            "Permit Number": "PER_TEST_01",
+            "Transit Pass": "TP_TEST_01",
+            "Licensee Name": "TEST RETAILER",
+            "Status": "COMPLETED",
+            "Product Name": "ROYAL STAG WHISKY",
+            "Pack Size": "750/12",
+            "Cases": 10,
+            "Bottles": 0
+        },
+        {
+            "Date": "04-Nov-2026",
+            "Bond Type": "IMFL",
+            "Indent Number": "IND_TEST_01",
+            "Permit Number": "PER_TEST_01",
+            "Transit Pass": "TP_TEST_01",
+            "Licensee Name": "TEST RETAILER",
+            "Status": "COMPLETED",
+            "Product Name": "IMPERIAL BLUE WHISKY",
+            "Pack Size": "375/24",
+            "Cases": 5,
+            "Bottles": 0
+        }
+    ]
+    
+    # Simulate run 2 where IND_TEST_01 experienced extraction error (0 cases) and IND_TEST_02 succeeded (20 cases)
+    run2_records = [
+        {
+            "Date": "04-Nov-2026",
+            "Bond Type": "IMFL",
+            "Indent Number": "IND_TEST_01",
+            "Permit Number": "PER_TEST_01",
+            "Transit Pass": "TP_TEST_01",
+            "Status": "COMPLETED",
+            "Product Name": "EXTRACTION_FAILED",
+            "Pack Size": "Unknown",
+            "Cases": 0,
+            "Bottles": 0,
+            "extraction_error": True
+        },
+        {
+            "Date": "04-Nov-2026",
+            "Bond Type": "IMFL",
+            "Indent Number": "IND_TEST_02",
+            "Permit Number": "PER_TEST_02",
+            "Transit Pass": "TP_TEST_02",
+            "Licensee Name": "TEST RETAILER 2",
+            "Status": "COMPLETED",
+            "Product Name": "MAGIC MOMENTS VODKA",
+            "Pack Size": "750/12",
+            "Cases": 20,
+            "Bottles": 0
+        }
+    ]
+    
+    # Merge using our robust monotonic logic
+    existing_completed = run1_records
+    existing_indent_cases = {get_unique_indent_id(r): float(r.get("Cases") or 0) for r in existing_completed}
+    
+    current_indent_cases = {}
+    current_indent_has_valid_skus = set()
+    for c in run2_records:
+        pname = str(c.get("Product Name") or "").strip().upper()
+        is_err = bool(c.get("extraction_error")) or (pname in ["EXTRACTION_FAILED", "UNKNOWN", ""])
+        if not is_err:
+            iid = get_unique_indent_id(c)
+            current_indent_cases[iid] = current_indent_cases.get(iid, 0.0) + float(c.get("Cases") or 0)
+            if float(c.get("Cases") or 0) > 0:
+                current_indent_has_valid_skus.add(iid)
+
+    degraded_or_missing_indents = set()
+    for iid, ex_c in existing_indent_cases.items():
+        inc_c = current_indent_cases.get(iid, 0.0)
+        if iid not in current_indent_has_valid_skus or inc_c < (ex_c - 0.01):
+            degraded_or_missing_indents.add(iid)
+
+    assert "IND_TEST_01" in degraded_or_missing_indents, "IND_TEST_01 must be flagged as degraded/missing"
+
+    protected = [
+        c for c in run2_records
+        if not (
+            get_unique_indent_id(c) in degraded_or_missing_indents
+            or bool(c.get("extraction_error"))
+            or str(c.get("Product Name") or "").strip().upper() in ["EXTRACTION_FAILED", "UNKNOWN", ""]
+        )
+    ]
+    
+    current_keys = {get_unique_permit_key(c) for c in protected}
+    for ex in existing_completed:
+        ex_iid = get_unique_indent_id(ex)
+        ex_key = get_unique_permit_key(ex)
+        if ex_iid in degraded_or_missing_indents or ex_key not in current_keys:
+            if ex_key not in current_keys:
+                protected.append(ex)
+                current_keys.add(ex_key)
+
+    cleaned = clean_permit_records(protected)
+    assert len(cleaned) == 3, f"Expected 3 records (2 from run1 + 1 from run2), got {len(cleaned)}"
+    tot_cases = sum(r["Cases"] for r in cleaned)
+    assert tot_cases == 35.0, f"Expected 35 cases (15 + 20), got {tot_cases}"
+    print("✅ test_monotonic_completed_preservation passed!")
+
 if __name__ == "__main__":
     test_reconciliation()
     test_no_pending_completed_overlap()
@@ -245,3 +355,4 @@ if __name__ == "__main__":
     test_pack_size_normalization()
     test_ghost_line_pruning()
     test_product_categorization()
+    test_monotonic_completed_preservation()

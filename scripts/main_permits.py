@@ -1795,26 +1795,50 @@ def main():
             print(f"⚠️ Could not read existing backup {existing_target_path}: {e_read}")
             
     # Protect against partial wipeouts:
-    # If IMFL failed or was not queried, preserve existing IMFL completed records!
-    # If CS failed or was not queried, preserve existing CS completed records!
-    # Also preserve any completed pass from earlier in the day if not returned in current run.
-    preserved_completed = []
+    # Intelligently preserve verified completed dispatches from earlier backups.
+    # If any indent in existing_completed is degraded (fewer cases) or suffered extraction errors in current run,
+    # or was omitted due to lookback/pagination, restore the verified lines from earlier backup.
+    existing_indent_cases = {}
+    for ex in existing_completed:
+        iid = get_unique_indent_id(ex)
+        existing_indent_cases[iid] = existing_indent_cases.get(iid, 0.0) + float(ex.get("Cases") or 0)
+
+    current_indent_cases = {}
+    current_indent_has_valid_skus = set()
+    for c in all_completed:
+        pname = str(c.get("Product Name") or "").strip().upper()
+        is_err = bool(c.get("extraction_error")) or (pname in ["EXTRACTION_FAILED", "UNKNOWN", ""])
+        if not is_err:
+            iid = get_unique_indent_id(c)
+            current_indent_cases[iid] = current_indent_cases.get(iid, 0.0) + float(c.get("Cases") or 0)
+            if float(c.get("Cases") or 0) > 0 or int(c.get("Bottles") or 0) > 0 or float(c.get("Total MRP") or 0) > 0:
+                current_indent_has_valid_skus.add(iid)
+
+    degraded_or_missing_indents = set()
+    for iid, ex_c in existing_indent_cases.items():
+        inc_c = current_indent_cases.get(iid, 0.0)
+        if iid not in current_indent_has_valid_skus or inc_c < (ex_c - 0.01):
+            degraded_or_missing_indents.add(iid)
+
+    # Prune any failed/degraded placeholder lines from all_completed
+    all_completed = [
+        c for c in all_completed
+        if not (
+            get_unique_indent_id(c) in degraded_or_missing_indents
+            or bool(c.get("extraction_error"))
+            or str(c.get("Product Name") or "").strip().upper() in ["EXTRACTION_FAILED", "UNKNOWN", ""]
+        )
+    ]
+
     current_completed_keys = {get_unique_permit_key(c) for c in all_completed}
-    
+    preserved_completed = []
     for ex_item in existing_completed:
-        ex_bond = str(ex_item.get("Bond Type", "")).upper()
+        ex_iid = get_unique_indent_id(ex_item)
         ex_key = get_unique_permit_key(ex_item)
-        
-        # Only preserve previous records if that bond category was NOT scraped or failed in current run
-        should_preserve = False
-        if ex_bond == "IMFL" and (not imfl_attempted or not imfl_success):
-            should_preserve = True
-        elif ex_bond == "CS" and (not cs_attempted or not cs_success):
-            should_preserve = True
-            
-        if should_preserve and ex_key not in current_completed_keys:
-            preserved_completed.append(ex_item)
-            current_completed_keys.add(ex_key)
+        if ex_iid in degraded_or_missing_indents or ex_key not in current_completed_keys:
+            if ex_key not in current_completed_keys:
+                preserved_completed.append(ex_item)
+                current_completed_keys.add(ex_key)
             
     if preserved_completed:
         print(f"🛡️ Preserved {len(preserved_completed)} completed dispatch lines from earlier backup to prevent data loss.")

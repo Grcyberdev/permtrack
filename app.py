@@ -2173,27 +2173,39 @@ async def upload_results(request: Request):
             JOB_MANAGER.mark_completed(success=False, error=err_msg)
             return JSONResponse(status_code=422, content={"status": "error", "error": err_msg})
 
-        # Guard against degraded completed indents (e.g., partial modal extraction with fewer cases than already saved)
+        # Guard against degraded completed indents (e.g., partial modal extraction with fewer cases than already saved, or dropped indents)
         existing_indent_cases = {}
         for it in existing_completed:
             iid = get_unique_indent_id(it)
             existing_indent_cases[iid] = existing_indent_cases.get(iid, 0.0) + float(it.get("Cases") or 0)
 
         incoming_indent_cases = {}
+        incoming_indent_has_valid_skus = set()
         for it in records:
-            if str(it.get("Status", "")).upper() == "COMPLETED":
+            pname = str(it.get("Product Name") or "").strip().upper()
+            is_err = bool(it.get("extraction_error")) or (pname in ["EXTRACTION_FAILED", "UNKNOWN", ""])
+            if str(it.get("Status", "")).upper() == "COMPLETED" and not is_err:
                 iid = get_unique_indent_id(it)
                 incoming_indent_cases[iid] = incoming_indent_cases.get(iid, 0.0) + float(it.get("Cases") or 0)
+                if float(it.get("Cases") or 0) > 0 or int(it.get("Bottles") or 0) > 0 or float(it.get("Total MRP") or 0) > 0:
+                    incoming_indent_has_valid_skus.add(iid)
 
-        degraded_indents = set()
+        degraded_or_missing_indents = set()
         for iid, ex_c in existing_indent_cases.items():
             inc_c = incoming_indent_cases.get(iid, 0.0)
-            if inc_c > 0 and inc_c < (ex_c - 0.01):
-                degraded_indents.add(iid)
+            if iid not in incoming_indent_has_valid_skus or inc_c < (ex_c - 0.01):
+                degraded_or_missing_indents.add(iid)
 
         protected_records = [
             it for it in records
-            if not (str(it.get("Status", "")).upper() == "COMPLETED" and get_unique_indent_id(it) in degraded_indents)
+            if not (
+                (str(it.get("Status", "")).upper() == "COMPLETED" or str(it.get("Transit Pass", "")).upper().startswith("TP"))
+                and (
+                    get_unique_indent_id(it) in degraded_or_missing_indents
+                    or bool(it.get("extraction_error"))
+                    or str(it.get("Product Name") or "").strip().upper() in ["EXTRACTION_FAILED", "UNKNOWN", ""]
+                )
+            )
         ]
 
         incoming_completed_indents = {get_unique_indent_id(it) for it in protected_records if str(it.get("Status", "")).upper() == "COMPLETED"}
@@ -2206,7 +2218,7 @@ async def upload_results(request: Request):
             ex_iid = get_unique_indent_id(ex)
             ex_key = get_unique_permit_key(ex)
             # Preserve existing completed if bond failed/missing, indent missing, or indent was degraded
-            if ex_bond in failed_bonds or ex_bond not in incoming_completed_bonds or ex_iid not in incoming_completed_indents or ex_iid in degraded_indents:
+            if ex_bond in failed_bonds or ex_bond not in incoming_completed_bonds or ex_iid not in incoming_completed_indents or ex_iid in degraded_or_missing_indents:
                 if ex_key not in incoming_keys:
                     records_to_reconcile.append(ex)
                     incoming_keys.add(ex_key)
@@ -2271,6 +2283,15 @@ async def upload_results(request: Request):
             app_k = app_d.strftime("%Y%m%d") if app_d else parsed_date
             if app_k == parsed_date:
                 canonical_pending.append(r)
+
+        # Cumulative Monotonic Guard: Ensure target_completed never drops verified completed lines from existing_completed
+        if existing_completed:
+            target_completed_keys = {get_unique_permit_key(it) for it in target_completed}
+            for ex in existing_completed:
+                eff_k = get_record_effective_date_key(ex, default_date_key=parsed_date)
+                if eff_k == parsed_date and get_unique_permit_key(ex) not in target_completed_keys:
+                    target_completed.append(ex)
+                    target_completed_keys.add(get_unique_permit_key(ex))
 
         canonical_records = clean_permit_records(canonical_pending + target_completed, config_dir=config_dir)
         LATEST_WEBHOOK_DATA = canonical_records
