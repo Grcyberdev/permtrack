@@ -27,7 +27,8 @@ from reconciler import (
     get_reconciliation_summary,
     parse_date_str,
     get_unique_permit_key,
-    get_unique_indent_id
+    get_unique_indent_id,
+    get_record_effective_date_key
 )
 
 def parse_args():
@@ -1071,37 +1072,64 @@ def load_completed_cache(target_date, lookback_days=7):
     """
     Loads verified completed records from local backup JSON files or Fly server
     so that already-scraped passes are not repeatedly re-downloaded over the proxy.
+    Deduplicates across backup files so duplicate SKU rows for the same indent are not appended.
     """
     cache = {}
+    seen_indents = set()
     config_dir = automation_utils.get_data_dir()
     for d_offset in range(lookback_days + 1):
         dt = target_date - timedelta(days=d_offset)
         d_str = dt.strftime("%Y%m%d")
         fpath = os.path.join(config_dir, f"backup_permits_{d_str}_000000.json")
+        if not os.path.exists(fpath) and d_offset == 0:
+            latest_fpath = os.path.join(config_dir, "backup_permits_latest.json")
+            if os.path.exists(latest_fpath):
+                fpath = latest_fpath
         if os.path.exists(fpath):
             try:
                 with open(fpath, "r", encoding="utf-8") as f:
                     recs = json.load(f)
+                file_indents = {}
                 for r in recs:
-                    if str(r.get("Status", "")).upper() == "COMPLETED" and r.get("Product Name"):
+                    if str(r.get("Status", "")).upper() == "COMPLETED" and r.get("Product Name") and not r.get("extraction_error"):
                         ind = (r.get("Indent Number") or "").strip()
                         pmt = (r.get("Permit Number") or "").strip()
-                        if ind: cache.setdefault(ind, []).append(r)
-                        if pmt: cache.setdefault(pmt, []).append(r)
+                        key = ind or pmt
+                        if key:
+                            file_indents.setdefault(key, []).append(r)
+                
+                for key, items in file_indents.items():
+                    ind_k = (items[0].get("Indent Number") or "").strip()
+                    pmt_k = (items[0].get("Permit Number") or "").strip()
+                    if (ind_k and ind_k in seen_indents) or (pmt_k and pmt_k in seen_indents):
+                        continue
+                    if ind_k:
+                        cache[ind_k] = items
+                        seen_indents.add(ind_k)
+                    if pmt_k:
+                        cache[pmt_k] = items
+                        seen_indents.add(pmt_k)
             except Exception: pass
             
-    # If running on remote/ephemeral runner and FLY_APP_URL is available, fetch cache from Fly.io
+    # If running on remote/ephemeral runner and FLY_APP_URL is available, ALWAYS fetch cache from Fly.io
     fly_url = os.environ.get("FLY_APP_URL", "").rstrip("/")
     webhook_sec = os.environ.get("WEBHOOK_SECRET") or os.environ.get("CRON_SECRET")
-    if fly_url and webhook_sec and len(cache) < 5:
+    if fly_url and webhook_sec:
+        if not fly_url.startswith("http"):
+            fly_url = f"https://{fly_url}"
         try:
             import requests
             d_param = target_date.strftime("%d-%m-%Y")
-            res = requests.get(f"{fly_url}/api/backup/cached-indents", params={"date": d_param, "lookback_days": lookback_days, "secret": webhook_sec}, timeout=10)
+            res = requests.get(
+                f"{fly_url}/api/backup/cached-indents",
+                params={"date": d_param, "lookback_days": lookback_days, "secret": webhook_sec},
+                headers={"X-Cron-Secret": webhook_sec, "Authorization": f"Bearer {webhook_sec}"},
+                timeout=15
+            )
             if res.status_code == 200:
                 server_cache = res.json().get("cached_indents", {})
                 for k, v in server_cache.items():
-                    if k not in cache and v:
+                    if (k not in cache or not cache[k]) and v:
                         cache[k] = v
                 print(f"📦 Pre-loaded {len(server_cache)} completed indent records from server cache.")
         except Exception as e_fly:
@@ -1137,7 +1165,13 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
         print("   ℹ️ Already on stockdispatch page with active DOM, reusing existing session.")
     else:
         portal_url = driver.current_url
-        dispatch_url = portal_url.split("/index.php")[0] + "/index.php/Retailer/Retailer/Indentlist?param=stockdispatch"
+        base_url = "https://stateexcise.assam.gov.in"
+        if "/index.php" in portal_url:
+            base_url = portal_url.split("/index.php")[0]
+        elif "://" in portal_url:
+            parts = portal_url.split("/")
+            base_url = f"{parts[0]}//{parts[2]}"
+        dispatch_url = f"{base_url}/index.php/Retailer/Retailer/Indentlist?param=stockdispatch"
         automation_utils.navigate_to_url_with_retry(driver, dispatch_url)
         time.sleep(3)
     
@@ -1350,8 +1384,9 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                                 pass
                     
                     if brand_lines:
+                        new_indent_records = []
                         for line in brand_lines:
-                            results.append({
+                            rec = {
                                 "Date": target_date.strftime("%d-%b-%Y"),
                                 "Bond Type": bond_type,
                                 "Indent Number": indent_num,
@@ -1374,7 +1409,12 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                                 "Total MRP": line.get("Total MRP", 0.0),
                                 "Application Date": created_on,
                                 "extraction_error": False
-                            })
+                            }
+                            results.append(rec)
+                            new_indent_records.append(rec)
+                        if is_completed and completed_cache is not None and new_indent_records:
+                            if indent_num: completed_cache[indent_num] = new_indent_records
+                            if permit_num: completed_cache[permit_num] = new_indent_records
                     elif tot_cases > 0 or tot_bottles > 0:
                         results.append({
                             "Date": target_date.strftime("%d-%b-%Y"),
@@ -1456,8 +1496,9 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                         
                         if modal_success and brand_lines:
                             print(f"   ✅ Successfully recovered modal for Indent: {indent_num} ({len(brand_lines)} brand lines)")
+                            retry_items = []
                             for line in brand_lines:
-                                results.append({
+                                rec = {
                                     "Date": target_date.strftime("%d-%b-%Y"),
                                     "Bond Type": bond_type,
                                     "Indent Number": indent_num,
@@ -1480,7 +1521,12 @@ def scrape_permits_from_stock_dispatch(driver, wait, target_date, bond_type, sta
                                     "Total MRP": line.get("Total MRP", 0.0),
                                     "Application Date": item["created_on"],
                                     "extraction_error": False
-                                })
+                                }
+                                results.append(rec)
+                                retry_items.append(rec)
+                            if is_completed and completed_cache is not None and retry_items:
+                                if indent_num: completed_cache[indent_num] = retry_items
+                                if item.get("permit_num"): completed_cache[item["permit_num"]] = retry_items
                         elif modal_success and (tot_cases > 0 or tot_bottles > 0):
                             results.append({
                                 "Date": target_date.strftime("%d-%b-%Y"),
@@ -1668,13 +1714,17 @@ def upload_results_to_server(reconciled_records, target_date, has_errors=False, 
         for attempt in range(1, 4):
             try:
                 print(f"📡 Pushing reconciled records to Fly.io dashboard (Attempt {attempt}/3)...")
+                headers = {
+                    "X-Cron-Secret": webhook_secret,
+                    "Authorization": f"Bearer {webhook_secret}"
+                }
                 resp = requests.post(endpoint, json={
                     "secret": webhook_secret,
                     "date": date_str,
                     "records": reconciled_records,
                     "has_errors": has_errors,
                     "failed_bonds": failed_bonds or []
-                }, timeout=120)
+                }, headers=headers, timeout=120)
                 if resp.status_code == 200:
                     print(f"✅ Reconciled records pushed to dashboard successfully! Server response: {resp.json()}")
                     return True
@@ -1807,7 +1857,7 @@ def main():
     current_indent_has_valid_skus = set()
     for c in all_completed:
         pname = str(c.get("Product Name") or "").strip().upper()
-        is_err = bool(c.get("extraction_error")) or (pname in ["EXTRACTION_FAILED", "UNKNOWN", ""])
+        is_err = bool(c.get("extraction_error")) or (pname in ["EXTRACTION_FAILED", "UNKNOWN"]) or (not pname and float(c.get("Cases") or 0) == 0 and int(c.get("Bottles") or 0) == 0 and float(c.get("Total MRP") or 0) == 0)
         if not is_err:
             iid = get_unique_indent_id(c)
             current_indent_cases[iid] = current_indent_cases.get(iid, 0.0) + float(c.get("Cases") or 0)
@@ -1826,7 +1876,8 @@ def main():
         if not (
             get_unique_indent_id(c) in degraded_or_missing_indents
             or bool(c.get("extraction_error"))
-            or str(c.get("Product Name") or "").strip().upper() in ["EXTRACTION_FAILED", "UNKNOWN", ""]
+            or str(c.get("Product Name") or "").strip().upper() in ["EXTRACTION_FAILED", "UNKNOWN"]
+            or (not str(c.get("Product Name") or "").strip() and float(c.get("Cases") or 0) == 0 and int(c.get("Bottles") or 0) == 0 and float(c.get("Total MRP") or 0) == 0)
         )
     ]
 
@@ -1867,7 +1918,6 @@ def main():
         
     try:
         target_date_key = target_date.strftime("%Y%m%d")
-        from reconciler import get_record_effective_date_key, get_unique_indent_id
         target_records_to_save = [
             r for r in reconciled_records
             if str(r.get("Status", "")).upper() == "PENDING" or get_record_effective_date_key(r, default_date_key=target_date_key) == target_date_key
@@ -1889,7 +1939,6 @@ def main():
         cross_date_completed = {}
         for r in all_completed:
             if str(r.get("Status", "")).upper() == "COMPLETED" or str(r.get("Transit Pass", "")).upper().startswith("TP"):
-                from reconciler import get_record_effective_date_key, get_unique_indent_id
                 eff_k = get_record_effective_date_key(r, default_date_key=target_date_key)
                 if eff_k and eff_k != target_date_key:
                     cross_date_completed.setdefault(eff_k, []).append(r)

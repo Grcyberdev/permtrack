@@ -35,7 +35,14 @@ from main_permits import (
     ensure_active_proxy,
     upload_results_to_server
 )
-from reconciler import clean_permit_records, get_unique_indent_id, get_record_effective_date_key
+from reconciler import (
+    clean_permit_records,
+    get_unique_indent_id,
+    get_record_effective_date_key,
+    reconcile_permits,
+    get_unique_permit_key,
+    get_reconciliation_summary
+)
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -178,27 +185,154 @@ class PermTrackDaemon:
         cycle_duration = time.time() - cycle_start
         print(f"\n📊 Cycle Results: {len(all_pending)} pending SKUs, {len(all_completed)} completed SKUs (errors: {cycle_errors}) in {cycle_duration:.1f}s")
         
-        # 3. Clean and Upload results if any records were obtained
+        # 3. Clean, Monotonically Merge, Reconcile, and Upload results if any records were obtained
         if all_pending or all_completed:
-            raw_combined = all_pending + all_completed
-            cleaned_records = clean_permit_records(raw_combined)
-            
-            # Save local backup
             backup_dir = automation_utils.get_data_dir()
             os.makedirs(backup_dir, exist_ok=True)
             timestamp_file = f"backup_permits_{now_ist.strftime('%Y%m%d')}_000000.json"
             canonical_path = os.path.join(backup_dir, timestamp_file)
-            
+            latest_path = os.path.join(backup_dir, "backup_permits_latest.json")
+
+            # Intelligently preserve verified completed dispatches from earlier backups.
+            # If any indent in existing_completed is degraded (fewer cases) or suffered extraction errors in current run,
+            # or was omitted due to lookback/pagination, restore the verified lines from earlier backup.
+            existing_completed = []
+            if os.path.exists(canonical_path):
+                try:
+                    import json
+                    with open(canonical_path, "r", encoding="utf-8") as f:
+                        existing_data = json.load(f) or []
+                    for item in existing_data:
+                        if str(item.get("Status", "")).upper() == "COMPLETED":
+                            existing_completed.append(item)
+                    if existing_completed:
+                        print(f"📦 Found existing backup for {date_str} with {len(existing_completed)} completed dispatch lines.")
+                except Exception as e_read:
+                    print(f"⚠️ Could not read existing backup {canonical_path}: {e_read}")
+
+            existing_indent_cases = {}
+            for ex in existing_completed:
+                iid = get_unique_indent_id(ex)
+                existing_indent_cases[iid] = existing_indent_cases.get(iid, 0.0) + float(ex.get("Cases") or 0)
+
+            current_indent_cases = {}
+            current_indent_has_valid_skus = set()
+            for c in all_completed:
+                pname = str(c.get("Product Name") or "").strip().upper()
+                is_err = bool(c.get("extraction_error")) or (pname in ["EXTRACTION_FAILED", "UNKNOWN"]) or (not pname and float(c.get("Cases") or 0) == 0 and int(c.get("Bottles") or 0) == 0 and float(c.get("Total MRP") or 0) == 0)
+                if not is_err:
+                    iid = get_unique_indent_id(c)
+                    current_indent_cases[iid] = current_indent_cases.get(iid, 0.0) + float(c.get("Cases") or 0)
+                    if float(c.get("Cases") or 0) > 0 or int(c.get("Bottles") or 0) > 0 or float(c.get("Total MRP") or 0) > 0:
+                        current_indent_has_valid_skus.add(iid)
+
+            degraded_or_missing_indents = set()
+            for iid, ex_c in existing_indent_cases.items():
+                inc_c = current_indent_cases.get(iid, 0.0)
+                if iid not in current_indent_has_valid_skus or inc_c < (ex_c - 0.01):
+                    degraded_or_missing_indents.add(iid)
+
+            # Prune any failed/degraded placeholder lines from all_completed
+            all_completed = [
+                c for c in all_completed
+                if not (
+                    get_unique_indent_id(c) in degraded_or_missing_indents
+                    or bool(c.get("extraction_error"))
+                    or str(c.get("Product Name") or "").strip().upper() in ["EXTRACTION_FAILED", "UNKNOWN"]
+                    or (not str(c.get("Product Name") or "").strip() and float(c.get("Cases") or 0) == 0 and int(c.get("Bottles") or 0) == 0 and float(c.get("Total MRP") or 0) == 0)
+                )
+            ]
+
+            current_completed_keys = {get_unique_permit_key(c) for c in all_completed}
+            preserved_completed = []
+            for ex_item in existing_completed:
+                ex_iid = get_unique_indent_id(ex_item)
+                ex_key = get_unique_permit_key(ex_item)
+                if ex_iid in degraded_or_missing_indents or ex_key not in current_completed_keys:
+                    if ex_key not in current_completed_keys:
+                        preserved_completed.append(ex_item)
+                        current_completed_keys.add(ex_key)
+
+            if preserved_completed:
+                print(f"🛡️ Preserved {len(preserved_completed)} completed dispatch lines from earlier backup to prevent data loss.")
+                all_completed.extend(preserved_completed)
+
+            raw_combined = all_pending + all_completed
+            # Pass config_dir to clean_permit_records so historical MRPs are backfilled
+            cleaned_records = clean_permit_records(raw_combined, config_dir=backup_dir)
+
+            print(f"\n🔄 Running 7-day cross-day reconciliation engine in daemon...")
+            reconciled_records = reconcile_permits(raw_combined, now_ist, backup_dir, lookback_days=self.lookback_days)
+
+            target_date_key = now_ist.strftime("%Y%m%d")
+            target_records_to_save = [
+                r for r in reconciled_records
+                if str(r.get("Status", "")).upper() == "PENDING" or get_record_effective_date_key(r, default_date_key=target_date_key) == target_date_key
+            ]
+
             import json
             with open(canonical_path, "w", encoding="utf-8") as f:
-                json.dump(cleaned_records, f, indent=4)
-            with open(os.path.join(backup_dir, "backup_permits_latest.json"), "w", encoding="utf-8") as f:
-                json.dump(cleaned_records, f, indent=4)
-                
+                json.dump(target_records_to_save, f, indent=4)
+            with open(latest_path, "w", encoding="utf-8") as f:
+                json.dump(target_records_to_save, f, indent=4)
+
+            # Cross-day attribution for completed dispatches belonging to other dates
+            try:
+                cross_date_completed = {}
+                for r in all_completed:
+                    if str(r.get("Status", "")).upper() == "COMPLETED" or str(r.get("Transit Pass", "")).upper().startswith("TP"):
+                        eff_k = get_record_effective_date_key(r, default_date_key=target_date_key)
+                        if eff_k and eff_k != target_date_key:
+                            cross_date_completed.setdefault(eff_k, []).append(r)
+
+                for p_date, p_recs in cross_date_completed.items():
+                    p_filename = f"backup_permits_{p_date}_000000.json"
+                    p_path = os.path.join(backup_dir, p_filename)
+                    p_data = []
+                    if os.path.exists(p_path):
+                        try:
+                            with open(p_path, "r", encoding="utf-8") as pf:
+                                p_data = json.load(pf) or []
+                        except Exception:
+                            p_data = []
+                    p_keys = {get_unique_permit_key(it) for it in p_data}
+                    p_completed_iids = {get_unique_indent_id(it) for it in p_recs}
+                    p_data = [it for it in p_data if not (str(it.get("Status", "")).upper() == "PENDING" and get_unique_indent_id(it) in p_completed_iids)]
+                    p_updated = False
+                    for nr in p_recs:
+                        nr_key = get_unique_permit_key(nr)
+                        if nr_key not in p_keys:
+                            p_data.append(nr)
+                            p_keys.add(nr_key)
+                            p_updated = True
+                    if p_updated:
+                        cleaned_p = clean_permit_records(p_data, config_dir=backup_dir)
+                        with open(p_path, "w", encoding="utf-8") as pf:
+                            json.dump(cleaned_p, pf, indent=4)
+                        print(f"🔄 Cross-day sync: Updated {p_filename} with {len(p_recs)} crossover dispatches (eff_k={p_date}).")
+            except Exception as e_cross:
+                print(f"⚠️ Cross-day backfill error in daemon: {e_cross}")
+
+            # Update self.completed_cache with newly scraped completed indents after each cycle
+            for r in all_completed:
+                if str(r.get("Status", "")).upper() == "COMPLETED" and r.get("Product Name") and not r.get("extraction_error"):
+                    ind = (r.get("Indent Number") or "").strip()
+                    pmt = (r.get("Permit Number") or "").strip()
+                    if ind:
+                        if ind not in self.completed_cache:
+                            self.completed_cache[ind] = []
+                        if not any(get_unique_permit_key(x) == get_unique_permit_key(r) for x in self.completed_cache[ind]):
+                            self.completed_cache[ind].append(r)
+                    if pmt:
+                        if pmt not in self.completed_cache:
+                            self.completed_cache[pmt] = []
+                        if not any(get_unique_permit_key(x) == get_unique_permit_key(r) for x in self.completed_cache[pmt]):
+                            self.completed_cache[pmt].append(r)
+
             # Upload to Fly.io portal
             try:
                 print("📡 Pushing live incremental updates to PermTrack portal...")
-                upload_results_to_server(cleaned_records, target_date=now_ist, has_errors=(cycle_errors > 0))
+                upload_results_to_server(reconciled_records, target_date=now_ist, has_errors=(cycle_errors > 0))
             except Exception as e_up:
                 print(f"⚠️ Live upload warning: {e_up}")
 

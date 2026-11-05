@@ -806,14 +806,14 @@ def get_product_category(item: Dict[str, Any]) -> str:
     if b == "CS" or "COUNTRY" in c or "MASTI" in p or "CS " in p or "RHINO" in p or "VERIFIED DISPATCH BALANCE" in p:
         return "CS"
 
-    # 2. Explicit Beer indicator in name or excise category
+    # 2. Guard against spirit names that contain beer substrings (e.g. CALENTER matching ALE, JAMESON STOUT EDITION)
+    spirit_keywords = ["RUM", "WHISKY", "WHISKEY", "SCOTCH", "VODKA", "BRANDY", "GIN", "TEQUILA", "LIQUEUR", "WINE", "JAMESON"]
+    if any(re.search(r'\b' + sk + r'\b', p) for sk in spirit_keywords) or any(re.search(r'\b' + sk + r'\b', c) for sk in spirit_keywords):
+        return "IMFL"
+
+    # 3. Explicit Beer indicator in name or excise category
     if "BEER" in p or "BEER" in c:
         return "BEER"
-
-    # 3. Guard against spirit names that contain beer substrings (e.g. CALENTER matching ALE, JAMESON STOUT EDITION)
-    spirit_keywords = ["RUM", "WHISKY", "WHISKEY", "VODKA", "BRANDY", "GIN", "TEQUILA", "LIQUEUR", "WINE"]
-    if any(re.search(r'\b' + sk + r'\b', p) for sk in spirit_keywords):
-        return "IMFL"
 
     # 4. Known Beer & RTD brands
     beer_keywords = [
@@ -2183,7 +2183,7 @@ async def upload_results(request: Request):
         incoming_indent_has_valid_skus = set()
         for it in records:
             pname = str(it.get("Product Name") or "").strip().upper()
-            is_err = bool(it.get("extraction_error")) or (pname in ["EXTRACTION_FAILED", "UNKNOWN", ""])
+            is_err = bool(it.get("extraction_error")) or (pname in ["EXTRACTION_FAILED", "UNKNOWN"]) or (not pname and float(it.get("Cases") or 0) == 0 and int(it.get("Bottles") or 0) == 0 and float(it.get("Total MRP") or 0) == 0)
             if str(it.get("Status", "")).upper() == "COMPLETED" and not is_err:
                 iid = get_unique_indent_id(it)
                 incoming_indent_cases[iid] = incoming_indent_cases.get(iid, 0.0) + float(it.get("Cases") or 0)
@@ -2203,7 +2203,8 @@ async def upload_results(request: Request):
                 and (
                     get_unique_indent_id(it) in degraded_or_missing_indents
                     or bool(it.get("extraction_error"))
-                    or str(it.get("Product Name") or "").strip().upper() in ["EXTRACTION_FAILED", "UNKNOWN", ""]
+                    or str(it.get("Product Name") or "").strip().upper() in ["EXTRACTION_FAILED", "UNKNOWN"]
+                    or (not str(it.get("Product Name") or "").strip() and float(it.get("Cases") or 0) == 0 and int(it.get("Bottles") or 0) == 0 and float(it.get("Total MRP") or 0) == 0)
                 )
             )
         ]
@@ -2294,12 +2295,29 @@ async def upload_results(request: Request):
                     target_completed_keys.add(get_unique_permit_key(ex))
 
         canonical_records = clean_permit_records(canonical_pending + target_completed, config_dir=config_dir)
-        LATEST_WEBHOOK_DATA = canonical_records
             
         with open(os.path.join(config_dir, canonical_filename), "w") as f:
             json.dump(canonical_records, f, indent=4)
-        with open(os.path.join(config_dir, latest_filename), "w") as f:
-            json.dump(canonical_records, f, indent=4)
+
+        # Protect Live Snapshot from Historical Backfills:
+        # Only overwrite LATEST_WEBHOOK_DATA and backup_permits_latest.json if the uploaded parsed_date
+        # is >= latest date currently in config/backup_permits_*.json (or matches today's IST date)
+        existing_backup_dates = []
+        for bf_path in glob.glob(os.path.join(config_dir, "backup_permits_*.json")):
+            b_name = os.path.basename(bf_path)
+            if b_name == latest_filename or b_name == canonical_filename:
+                continue
+            parts = b_name.split("_")
+            if len(parts) >= 3 and len(parts[2]) == 8 and parts[2].isdigit():
+                existing_backup_dates.append(parts[2])
+
+        max_existing_date = max(existing_backup_dates) if existing_backup_dates else ""
+        today_ist_date = get_now_ist().strftime("%Y%m%d")
+
+        if parsed_date >= max_existing_date or parsed_date == today_ist_date:
+            LATEST_WEBHOOK_DATA = canonical_records
+            with open(os.path.join(config_dir, latest_filename), "w") as f:
+                json.dump(canonical_records, f, indent=4)
             
         # Bidirectional cross-day attribution: for ANY other date where eff_k != parsed_date
         # (both eff_k < parsed_date like prior-day dispatches AND eff_k > parsed_date like permits applied earlier but approved on a later date)
@@ -2366,6 +2384,9 @@ async def upload_results(request: Request):
         JOB_MANAGER.mark_completed(success=True)
         JOB_MANAGER.add_log(f"📥 Webhook received & saved {len(reconciled_records)} records for date {date_str} -> {canonical_filename}\n")
         
+        # Invalidate in-memory reconciled pending cache so cross-day fulfilled pending indents immediately disappear
+        _RECONCILED_PENDING_CACHE.clear()
+
         return JSONResponse(content={
             "status": "success",
             "message": f"Saved and reconciled {len(reconciled_records)} records for date {date_str}",
@@ -2392,20 +2413,39 @@ async def get_cached_indents(request: Request, date: str = None, lookback_days: 
         target_dt = get_now_ist()
         
     cache = {}
+    seen_indents = set()
     for d_offset in range(min(lookback_days + 1, 14)):
         dt = target_dt - timedelta(days=d_offset)
         d_str = dt.strftime("%Y%m%d")
         fpath = os.path.join(config_dir, f"backup_permits_{d_str}_000000.json")
+        if not os.path.exists(fpath) and d_offset == 0:
+            latest_fpath = os.path.join(config_dir, "backup_permits_latest.json")
+            if os.path.exists(latest_fpath):
+                fpath = latest_fpath
         if os.path.exists(fpath):
             try:
                 with open(fpath, "r", encoding="utf-8") as f:
                     recs = json.load(f)
+                file_indents = {}
                 for r in recs:
-                    if str(r.get("Status", "")).upper() == "COMPLETED" and r.get("Product Name"):
+                    if str(r.get("Status", "")).upper() == "COMPLETED" and r.get("Product Name") and not r.get("extraction_error"):
                         ind = (r.get("Indent Number") or "").strip()
                         pmt = (r.get("Permit Number") or "").strip()
-                        if ind: cache.setdefault(ind, []).append(r)
-                        if pmt: cache.setdefault(pmt, []).append(r)
+                        key = ind or pmt
+                        if key:
+                            file_indents.setdefault(key, []).append(r)
+
+                for key, items in file_indents.items():
+                    ind_k = (items[0].get("Indent Number") or "").strip()
+                    pmt_k = (items[0].get("Permit Number") or "").strip()
+                    if (ind_k and ind_k in seen_indents) or (pmt_k and pmt_k in seen_indents):
+                        continue
+                    if ind_k:
+                        cache[ind_k] = items
+                        seen_indents.add(ind_k)
+                    if pmt_k:
+                        cache[pmt_k] = items
+                        seen_indents.add(pmt_k)
             except Exception: pass
             
     return JSONResponse(content={"status": "success", "cached_indents": cache})
@@ -2470,15 +2510,19 @@ class ScraperJobManager:
                 elapsed = int(time.time() - self.start_time)
         return {
             "status": self.status,
+            "success": (True if self.status == "success" else (False if self.status == "failed" else None)),
+            "is_running": (self.status == "running"),
             "mode": self.mode,
             "job_id": self.job_id,
             "start_time": self.start_time,
             "end_time": self.end_time,
             "elapsed_seconds": elapsed,
             "target_date": self.target_date,
+            "date": self.target_date,
             "bond_type": self.bond_type,
             "lookback_days": self.lookback_days,
             "stage": self.stage,
+            "progress": self.progress_pct,
             "progress_percent": self.progress_pct,
             "progress_current": self.progress_curr,
             "progress_total": self.progress_total,

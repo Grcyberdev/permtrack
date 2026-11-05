@@ -3,6 +3,10 @@ import sys
 from datetime import datetime
 from fpdf import FPDF
 
+SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, SCRIPTS_DIR)
+
 class CustomPDF(FPDF):
     def footer(self):
         # Position at 1.5 cm from bottom

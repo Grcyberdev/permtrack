@@ -204,11 +204,21 @@ const WorkspaceIndents = {
       return;
     }
 
-    const allGroups = this.groupPermits(data.permits || []);
+    const catFilter = AppState.categoryFilter || 'ALL';
+    let baseGroups = this.groupPermits(data.permits || []);
+    if (catFilter !== 'ALL') {
+      baseGroups = baseGroups.filter(g => g.lines && g.lines.some(l => AppUtils.getProductCategory(l) === catFilter));
+    }
+    const allGroups = baseGroups;
     const pendingGroups = allGroups.filter(g => g.status === 'PENDING');
     const dispatchedGroups = allGroups.filter(g => g.status === 'COMPLETED');
     const fulfilledGroups = allGroups.filter(g => g.fulfilledFromCarryOver);
     const statusTab = AppState.indentStatusTab || 'ALL';
+
+    let pickList = data.pending_pick_list || [];
+    if (catFilter !== 'ALL') {
+      pickList = pickList.filter(item => item.category === catFilter);
+    }
 
     const tabsHTML = `
       <div class="ledger-status-tabs">
@@ -232,7 +242,7 @@ const WorkspaceIndents = {
 
     if (statusTab === 'PICKLIST') {
       // Fix 2: Pick-list shared floor component
-      container.innerHTML = tabsHTML + AppComponents.renderFloorPickList(data.pending_pick_list || []);
+      container.innerHTML = tabsHTML + AppComponents.renderFloorPickList(pickList);
       this.attachDelegatedListeners(container);
       return;
     }

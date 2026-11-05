@@ -64,6 +64,15 @@ const WorkspaceProducts = {
       return;
     }
 
+    const catFilter = AppState.categoryFilter || 'ALL';
+    let filteredPacks = data.pack_sizes_full || [];
+    let filteredPickList = data.pending_pick_list || [];
+
+    if (catFilter !== 'ALL') {
+      filteredPacks = filteredPacks.filter(p => p.category === catFilter);
+      filteredPickList = filteredPickList.filter(item => item.category === catFilter);
+    }
+
     const subView = AppState.productSubView || 'brands';
 
     const subnavHTML = `
@@ -75,7 +84,7 @@ const WorkspaceProducts = {
           Pack-Size Architecture
         </button>
         <button class="seg-btn ${subView === 'picklist' ? 'active' : ''}" data-action="subview" data-sub="picklist">
-          Pending Pick-List (${data.pending_pick_list ? data.pending_pick_list.length : 0})
+          Pending Pick-List (${filteredPickList.length})
         </button>
       </div>
     `;
@@ -84,10 +93,10 @@ const WorkspaceProducts = {
     if (subView === 'brands') {
       contentHTML = this.renderBrandMatrixShell(data);
     } else if (subView === 'packs') {
-      contentHTML = this.renderPackSizeMatrix(data);
+      contentHTML = this.renderPackSizeMatrix({ ...data, pack_sizes_full: filteredPacks });
     } else {
       // Fix 2: Pick-list shared floor component
-      contentHTML = AppComponents.renderFloorPickList(data.pending_pick_list || []);
+      contentHTML = AppComponents.renderFloorPickList(filteredPickList);
     }
 
     container.innerHTML = subnavHTML + contentHTML;

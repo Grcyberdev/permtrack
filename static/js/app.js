@@ -528,21 +528,24 @@
     const prgEl = document.getElementById('sync-job-progress');
     const cancelBtn = document.getElementById('sync-cancel-btn');
 
-    const isRunning = st.is_running || st.status === 'running';
+    const isRunning = Boolean(st.is_running || st.status === 'running');
+    const isFailed = st.status === 'failed' || st.success === false;
 
     if (dot) {
-      dot.className = `sync-dot ${isRunning ? 'live' : (st.success === false ? 'error' : 'idle')}`;
+      dot.className = `sync-dot ${isRunning ? 'live' : (isFailed ? 'error' : 'idle')}`;
     }
     if (stageEl) {
-      stageEl.innerText = isRunning ? (st.stage || 'Scraping in progress...') : (st.error ? 'Error / Failed' : (st.status || 'Idle'));
+      stageEl.innerText = isRunning ? (st.stage || 'Scraping in progress...') : (st.error || isFailed ? 'Error / Failed' : (st.status || 'Idle'));
     }
     if (detailsEl) {
       const elapsed = st.elapsed_seconds ? `${Math.round(st.elapsed_seconds)}s elapsed` : '';
-      const dateTarget = st.date ? `Target: ${st.date}` : '';
+      const targetDate = st.date || st.target_date;
+      const dateTarget = targetDate ? `Target: ${targetDate}` : '';
       detailsEl.innerText = [dateTarget, elapsed].filter(Boolean).join(' • ') || 'Standby';
     }
     if (prgEl) {
-      prgEl.innerText = isRunning ? `${st.progress || 0}%` : '';
+      const pct = (st.progress !== undefined) ? st.progress : (st.progress_percent || 0);
+      prgEl.innerText = isRunning ? `${pct}%` : '';
     }
     if (cancelBtn) {
       cancelBtn.style.display = isRunning ? 'inline-flex' : 'none';
@@ -682,6 +685,9 @@
    */
   window.setCategoryFilter = function(cat) {
     AppState.categoryFilter = cat;
+    document.querySelectorAll('.category-chips .chip-btn').forEach(b => {
+      b.classList.toggle('active', b.getAttribute('data-cat') === cat);
+    });
     document.querySelectorAll('.cat-interactive-card').forEach(b => {
       b.classList.toggle('active-filter', b.getAttribute('data-cat') === cat);
     });
@@ -691,7 +697,10 @@
   /**
    * Workspace Switcher (Fix 31: Day mode switch to month when opening Godown)
    */
-  window.switchWorkspace = function(ws) {
+  window.switchWorkspace = async function(ws) {
+    AppState.activeWorkspace = ws;
+    syncWorkspaceTabs();
+
     if (ws === 'godown' && AppState.horizonMode === 'day') {
       const dayDateKey = (AppState.movementData && AppState.movementData.horizon)
         ? AppState.movementData.horizon.start_date_key
@@ -699,11 +708,9 @@
       AppState._godownMonthSwitchedFromDay = dayDateKey;
       AppState.horizonMode = 'month';
       AppState.anchorDate = dayDateKey ? AppUtils.formatDateKeyToInput(dayDateKey) : null;
-      window.refreshCurrentHorizon();
+      await window.refreshCurrentHorizon();
     }
 
-    AppState.activeWorkspace = ws;
-    syncWorkspaceTabs();
     renderActiveWorkspace();
   };
 

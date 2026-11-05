@@ -18,10 +18,14 @@ on:
         required: false
         default: '7'
 
+concurrency:
+  group: permit-scraper-${{ github.event.inputs.date || github.event.inputs.target_date || github.event.client_payload.date || github.event.client_payload.target_date || 'live' }}
+  cancel-in-progress: false
+
 jobs:
   scrape-permits:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
 
     steps:
       - name: Checkout Code

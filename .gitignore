@@ -29,3 +29,4 @@ scripts/sync_october_state.py
 
 # Local Cookies & Sessions
 cookies.txt
+scratch/

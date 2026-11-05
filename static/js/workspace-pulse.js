@@ -211,10 +211,15 @@ const WorkspacePulse = {
     } else {
       // Single-Day Mode: Show 2-Column Daily Operational Breakdown (Pack-Size Demand + Floor Bottlenecks)
       // Fix 3: use p.size and compute percentages against total of ALL pack_sizes_full
-      const allPacks = data.pack_sizes_full || [];
+      let allPacks = data.pack_sizes_full || [];
+      let pickList = data.pending_pick_list || [];
+      if (catFilter !== 'ALL') {
+        allPacks = allPacks.filter(p => p.category === catFilter);
+        pickList = pickList.filter(item => item.category === catFilter);
+      }
       const totalAllPackCases = allPacks.reduce((acc, p) => acc + (p.cases || 0), 0) || 1;
       const packSizes = allPacks.slice(0, 6);
-      const pickList = (data.pending_pick_list || []).slice(0, 6);
+      pickList = pickList.slice(0, 6);
 
       visualSectionHTML = `
         <div class="day-breakdown-grid" style="margin-bottom:1.25rem;">
@@ -303,7 +308,18 @@ const WorkspacePulse = {
       brandsList = brandsList.filter(b => b.category === catFilter);
     }
     const topBrands = brandsList.slice(0, 10);
-    const topParties = (data.parties_full || []).slice(0, 10);
+    let partiesList = data.parties_full || [];
+    if (catFilter !== 'ALL') {
+      const volProp = catFilter === 'BEER' ? 'beer_cases' : (catFilter === 'CS' ? 'cs_cases' : 'imfl_cases');
+      partiesList = partiesList
+        .map(p => ({
+          ...p,
+          dispatched_cases: p[volProp] !== undefined ? p[volProp] : p.dispatched_cases
+        }))
+        .filter(p => (p.dispatched_cases > 0) || (p.pending_cases > 0));
+      partiesList.sort((a, b) => (b.dispatched_cases || 0) - (a.dispatched_cases || 0));
+    }
+    const topParties = partiesList.slice(0, 10);
     const maxBrandCases = topBrands.length > 0 ? (topBrands[0].dispatched_cases || 1) : 1;
     const maxPartyCases = topParties.length > 0 ? (topParties[0].dispatched_cases || 1) : 1;
 
@@ -368,7 +384,7 @@ const WorkspacePulse = {
               <div class="panel-subtitle">By total purchased volume</div>
             </div>
             <a href="#" data-action="go-parties" class="panel-link">
-              View All (${data.parties_full ? data.parties_full.length : 0}) →
+              View All (${partiesList.length}) →
             </a>
           </div>
           <div class="panel-body" style="padding:0;">

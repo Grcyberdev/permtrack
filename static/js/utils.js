@@ -28,25 +28,46 @@ const AppUtils = {
    * Canonical Category Classification
    */
   getProductCategory(item) {
-    const b = String(item['Bond Type'] || '').toUpperCase();
-    const c = String(item['Category'] || '').toUpperCase();
-    const p = String(item['Product Name'] || '').toUpperCase();
+    const b = String(item['Bond Type'] || '').toUpperCase().trim();
+    const c = String(item['Category'] || '').toUpperCase().trim();
+    const p = String(item['Product Name'] || '').toUpperCase().trim();
 
-    if (b === 'CS' || c.includes('COUNTRY') || p.includes('MASTI') || p.includes('CS ')) {
+    // 1. Country Spirit (CS)
+    if (b === 'CS' || c.includes('COUNTRY') || p.includes('MASTI') || p.includes('CS ') || p.includes('RHINO') || p.includes('VERIFIED DISPATCH BALANCE')) {
       return 'CS';
     }
+
+    // 2. Guard against spirit names that contain beer substrings (e.g. CALENTER matching ALE, JAMESON STOUT EDITION)
+    const spiritRegex = /\b(WHISKY|WHISKEY|SCOTCH|RUM|BRANDY|VODKA|GIN|TEQUILA|LIQUEUR|WINE|JAMESON)\b/;
+    if (spiritRegex.test(p) || spiritRegex.test(c)) {
+      return 'IMFL';
+    }
+
+    // 3. Explicit Beer indicator in name or excise category
+    if (p.includes('BEER') || c.includes('BEER')) {
+      return 'BEER';
+    }
+
+    // 4. Known Beer & RTD brands
     const beerKeywords = [
-      'BEER', 'DRAUGHT', 'LAGER', 'ALE', 'STOUT', 'PILSNER', 'CIDER', 'WHEAT',
+      'DRAUGHT', 'LAGER', 'STRONG', 'PILSNER', 'CIDER', 'WHEAT BEER',
       'BIRA', 'KINGFISHER', 'TUBORG', 'CARLSBERG', 'BUDWEISER', 'HE-MAN',
-      'GODFATHER', 'SIMBA', 'CORONA', 'HEINEKEN', 'FOSTERS', 'BREEZER',
-      'BACARDI BREEZER', 'HAYWARDS 5000', 'KNOCK OUT', 'KALYANI', 'BLACK FORT',
-      'ROYAL CHALLENGE BEER', 'STERREN', 'HUNTER', 'BROCODE', 'WHITE RHINO',
+      'GODFATHER', 'SIMBA', 'CORONA', 'HEINEKEN', 'FOSTERS', 'FOSTER`S', 'BREEZER',
+      'BACARDI BREEZER', 'HAYWARDS 5000', 'HAYWARDS', 'KNOCK OUT', 'KNOCKOUT', 'KALYANI', 'BLACK FORT',
+      'STERREN', 'HUNTER', 'BROCODE', 'WHITE RHINO',
       'LONE WOLF', 'SIX FIELDS', 'MACH 11', 'HOEGAARDEN', 'STELLA', 'MILLER',
-      'SUPER STRONG BEER', 'PREMIUM LAGER'
+      'PREMIUM LAGER'
     ];
     if (beerKeywords.some(k => c.includes(k) || p.includes(k))) {
       return 'BEER';
     }
+
+    // 5. Short beer words using strict word boundaries (\bALE\b, \bSTOUT\b)
+    const shortBeerRegex = /\b(ALE|STOUT)\b/;
+    if (shortBeerRegex.test(p) || shortBeerRegex.test(c)) {
+      return 'BEER';
+    }
+
     return 'IMFL';
   },
 

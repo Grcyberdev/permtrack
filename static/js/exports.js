@@ -34,7 +34,12 @@ const AppExports = {
     const imfl = cat.IMFL || {};
     const cs = cat.CS || {};
     const prev = data.previous_period_summary || {};
-    const topBrands = (data.brands_full || []).slice(0, 5);
+    const catFilter = AppState.categoryFilter || 'ALL';
+    let brandsList = data.brands_full || [];
+    if (catFilter !== 'ALL') {
+      brandsList = brandsList.filter(b => b.category === catFilter);
+    }
+    const topBrands = brandsList.slice(0, 5);
 
     const deltaSign = prev.delta_cases_pct >= 0 ? '+' : '';
     const deltaStr = prev.delta_cases_pct !== null && prev.delta_cases_pct !== undefined 
@@ -43,7 +48,7 @@ const AppExports = {
 
     let text = `🏛️ *BORGOHAIN ENTERPRISES — EXCISE DISPATCH DIGEST*\n`;
     text += `📅 *Period:* ${h.display_label}\n`;
-    if (AppState.categoryFilter) {
+    if (AppState.categoryFilter && AppState.categoryFilter !== 'ALL') {
       text += `🔍 *Category Filter:* ${AppState.categoryFilter}\n`;
     }
     text += `\n`;
@@ -100,12 +105,13 @@ const AppExports = {
     const h = data.horizon || {};
     const s = data.summary || {};
     const cat = data.category_breakdown || {};
+    const catFilter = AppState.categoryFilter || 'ALL';
 
     // Tab 1: 1_Summary
     const summaryRows = [
       ["BORGOHAIN ENTERPRISES PRIVATE LIMITED - ASSAM EXCISE TERMINAL"],
       ["Time Horizon", h.display_label || ""],
-      ["Category Filter", AppState.categoryFilter || "All Categories"],
+      ["Category Filter", (AppState.categoryFilter && AppState.categoryFilter !== 'ALL') ? AppState.categoryFilter : "All Categories"],
       ["Start Date", h.start_date || ""],
       ["End Date", h.end_date || ""],
       [],
@@ -134,11 +140,15 @@ const AppExports = {
     XLSX.utils.book_append_sheet(wb, wsSummary, "1_Summary");
 
     // Tab 2: 2_Brand_SKU_Movement
+    let brandsList = data.brands_full || [];
+    if (catFilter !== 'ALL') {
+      brandsList = brandsList.filter(b => b.category === catFilter);
+    }
     const brandHeaders = [
       "Rank", "Brand Name", "Category", "Dispatched Cases", "Pending Cases (In Bond)",
       "Loose Bottles", "Velocity (cs/day)", "Volume Share (%)", "Total MRP (INR)", "Bulk Litres (BL)", "LPL"
     ];
-    const brandRows = (data.brands_full || []).map((b, i) => [
+    const brandRows = brandsList.map((b, i) => [
       i + 1,
       b.name,
       b.category,
@@ -155,8 +165,12 @@ const AppExports = {
     XLSX.utils.book_append_sheet(wb, wsBrands, "2_Brand_SKU_Movement");
 
     // Tab 3: 3_Pack_Size_Matrix
+    let packList = data.pack_sizes_full || [];
+    if (catFilter !== 'ALL') {
+      packList = packList.filter(p => p.category === catFilter);
+    }
     const packHeaders = ["Rank", "Pack Format / Size", "Category", "Cases Moved", "Loose Bottles", "Volume Share (%)", "Total MRP (INR)"];
-    const packRows = (data.pack_sizes_full || []).map((p, i) => [
+    const packRows = packList.map((p, i) => [
       i + 1,
       p.size,
       p.category,
@@ -169,11 +183,18 @@ const AppExports = {
     XLSX.utils.book_append_sheet(wb, wsPacks, "3_Pack_Size_Matrix");
 
     // Tab 4: 4_Party_Sales
+    let partiesList = data.parties_full || [];
+    if (catFilter !== 'ALL') {
+      const volProp = catFilter === 'BEER' ? 'beer_cases' : (catFilter === 'CS' ? 'cs_cases' : 'imfl_cases');
+      partiesList = partiesList
+        .filter(p => (p[volProp] > 0) || (p.pending_cases > 0))
+        .sort((a, b) => (b[volProp] || 0) - (a[volProp] || 0));
+    }
     const partyHeaders = [
       "Rank", "Licensee / Retail Shop Name", "District", "Dispatched Cases", "Pending Cases in Bond",
       "Beer Cases", "IMFL Cases", "CS Cases", "Total Turnover MRP (INR)", "Indents Count", "Cadence", "Last Order Date"
     ];
-    const partyRows = (data.parties_full || []).map((p, i) => [
+    const partyRows = partiesList.map((p, i) => [
       i + 1,
       p.name,
       p.district,
@@ -191,12 +212,16 @@ const AppExports = {
     XLSX.utils.book_append_sheet(wb, wsParties, "4_Party_Sales");
 
     // Tab 5: 5_Indent_Register
+    let permitsList = data.permits || [];
+    if (catFilter !== 'ALL') {
+      permitsList = permitsList.filter(r => AppUtils.getProductCategory(r) === catFilter);
+    }
     const indentHeaders = [
       "Challan Date", "Permit Number", "Transit Pass", "Indent Number", "Status",
       "Licensee Name", "Retailer Code", "District", "Vehicle Number", "Product Name",
       "Pack Size", "Category", "Cases", "Bottles", "Total MRP (INR)", "Bulk Litres", "LPL"
     ];
-    const indentRows = (data.permits || []).map(r => [
+    const indentRows = permitsList.map(r => [
       r['Challan Date'] || r.Date || "",
       r['Permit Number'] || "",
       r['Transit Pass'] || "",
@@ -239,7 +264,7 @@ const AppExports = {
     XLSX.utils.book_append_sheet(wb, wsGodown, "6_Godown_Reconciliation");
 
     // Export file
-    const filterSuffix = AppState.categoryFilter ? `_${AppState.categoryFilter}` : '';
+    const filterSuffix = (AppState.categoryFilter && AppState.categoryFilter !== 'ALL') ? `_${AppState.categoryFilter}` : '';
     const cleanLabel = (h.display_label || 'Dispatch').replace(/[^a-zA-Z0-9_-]/g, '_');
     XLSX.writeFile(wb, `PermTrack_Dispatch_${cleanLabel}${filterSuffix}.xlsx`);
     AppUtils.showToast(`Exported 6-Sheet Workbook: PermTrack_Dispatch_${cleanLabel}${filterSuffix}.xlsx`, 'success');
